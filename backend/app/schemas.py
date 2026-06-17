@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class TaskBase(BaseModel):
-    title: str = Field(..., max_length=200)
+    title: str = Field(..., min_length=1, max_length=200)
     notes: str = ""
     due_date: Optional[datetime] = None
     priority: str = "中"
@@ -20,7 +20,7 @@ class TaskCreate(TaskBase):
 
 
 class TaskUpdate(BaseModel):
-    title: Optional[str] = Field(None, max_length=200)
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
     notes: Optional[str] = None
     due_date: Optional[datetime] = None
     priority: Optional[str] = None
