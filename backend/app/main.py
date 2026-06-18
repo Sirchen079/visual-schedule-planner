@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.database import engine
 from app.models import Base
-from app.routers import tasks
+from app.routers import files, tasks
 
 
 def init_db() -> None:
@@ -22,6 +22,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="可视化日程安排", lifespan=lifespan)
 app.include_router(tasks.router)
+app.include_router(files.router)
 
 # 生产托管前端：若已构建（frontend/dist），由后端单端口同时提供界面与 API
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"

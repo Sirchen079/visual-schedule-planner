@@ -2,10 +2,14 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models import Task
 from app.schemas import TaskCreate, TaskUpdate
+
+
+def _task_query():
+    return select(Task).options(selectinload(Task.files))
 
 
 def create_task(db: Session, task: TaskCreate) -> Task:
@@ -13,17 +17,17 @@ def create_task(db: Session, task: TaskCreate) -> Task:
     db.add(db_task)
     db.commit()
     db.refresh(db_task)
-    return db_task
+    return get_task(db, db_task.id) or db_task
 
 
 def get_task(db: Session, task_id: int) -> Optional[Task]:
-    stmt = select(Task).where(Task.id == task_id, Task.deleted_at.is_(None))
+    stmt = _task_query().where(Task.id == task_id, Task.deleted_at.is_(None))
     return db.execute(stmt).scalar_one_or_none()
 
 
 def list_tasks(db: Session) -> list[Task]:
     stmt = (
-        select(Task)
+        _task_query()
         .where(Task.deleted_at.is_(None))
         .order_by(Task.created_at.desc())
     )
@@ -37,8 +41,7 @@ def update_task(db: Session, task_id: int, task: TaskUpdate) -> Optional[Task]:
     for field, value in task.model_dump(exclude_unset=True).items():
         setattr(db_task, field, value)
     db.commit()
-    db.refresh(db_task)
-    return db_task
+    return get_task(db, task_id)
 
 
 def soft_delete_task(db: Session, task_id: int) -> bool:

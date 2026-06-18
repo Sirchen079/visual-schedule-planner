@@ -4,6 +4,22 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class FileResponse(BaseModel):
+    id: int
+    original_name: str
+    storage_path: str
+    size: int
+    mime_type: str
+    notes: str
+    uploaded_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class FileUpdate(BaseModel):
+    notes: Optional[str] = None
+
+
 class TaskBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     notes: str = ""
@@ -34,5 +50,6 @@ class TaskResponse(TaskBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    files: list[FileResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
