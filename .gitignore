@@ -16,3 +16,6 @@ backup/
 # 系统
 .DS_Store
 Thumbs.db
+
+# 前端依赖（不入库，体积大；构建产物 dist 入库以便双击即用，无需 Node）
+node_modules/
