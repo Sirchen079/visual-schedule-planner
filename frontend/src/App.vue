@@ -1,13 +1,23 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { useTasks } from './composables/useTasks'
+import { useReminders } from './composables/useReminders'
 import BoardView from './views/BoardView.vue'
 import OverviewView from './views/OverviewView.vue'
 import LibraryView from './views/LibraryView.vue'
 import TaskModal from './components/TaskModal.vue'
+import RemindersPanel from './components/RemindersPanel.vue'
 
 const { tasks, loading, error, load, add, update, remove } = useTasks()
-onMounted(load)
+const { upcoming, overdue, count, panelOpen, start: startReminders, refresh: refreshReminders } = useReminders()
+onMounted(() => {
+  load()
+  // 请求通知权限并启动运行时轮询提醒（仅程序运行时生效）
+  if (window.Notification && Notification.permission === 'default') {
+    Notification.requestPermission().catch(() => {})
+  }
+  startReminders()
+})
 
 const view = ref('board')
 
@@ -92,6 +102,15 @@ async function shutdownService() {
 
       <div class="topbar-actions">
         <button
+          class="ghost icon bell-btn"
+          :class="{ has: count > 0 }"
+          :title="count > 0 ? `有 ${count} 条提醒` : '提醒'"
+          @click="panelOpen = true; refreshReminders()"
+        >
+          <span class="bell">🔔</span>
+          <span v-if="count" class="badge">{{ count > 99 ? '99+' : count }}</span>
+        </button>
+        <button
           class="ghost icon theme-btn"
           @click="toggleTheme"
           :title="theme === 'light' ? '切换深色' : '切换浅色'"
@@ -133,6 +152,14 @@ async function shutdownService() {
       @delete="onDelete"
       @changed="load"
       @close="closeModal"
+    />
+
+    <RemindersPanel
+      v-if="panelOpen"
+      :upcoming="upcoming"
+      :overdue="overdue"
+      @open="(t) => { panelOpen = false; openEdit(t) }"
+      @close="panelOpen = false"
     />
   </div>
 </template>
@@ -256,6 +283,49 @@ async function shutdownService() {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
+}
+
+.bell-btn {
+  position: relative;
+  padding: 0;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+.bell {
+  font-size: 17px;
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.bell-btn:hover .bell {
+  transform: rotate(12deg) scale(1.12);
+}
+.bell-btn.has .bell {
+  animation: ring 1.6s ease-in-out infinite;
+}
+.badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--pri-high);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(242, 107, 122, 0.5);
+}
+@keyframes ring {
+  0%, 60%, 100% { transform: rotate(0); }
+  70% { transform: rotate(-12deg); }
+  80% { transform: rotate(10deg); }
+  90% { transform: rotate(-6deg); }
 }
 
 .theme-icon {

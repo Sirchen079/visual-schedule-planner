@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.database import engine
 from app.models import Base
-from app.routers import files, tasks
+from app.routers import files, reminders, tasks
 
 
 def init_db() -> None:
@@ -25,6 +25,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="可视化日程安排", lifespan=lifespan)
 app.include_router(tasks.router)
 app.include_router(files.router)
+app.include_router(reminders.router)
 
 
 @app.post("/shutdown")
