@@ -5,6 +5,7 @@ import { useReminders } from './composables/useReminders'
 import BoardView from './views/BoardView.vue'
 import OverviewView from './views/OverviewView.vue'
 import LibraryView from './views/LibraryView.vue'
+import CalendarView from './views/CalendarView.vue'
 import TaskModal from './components/TaskModal.vue'
 import RemindersPanel from './components/RemindersPanel.vue'
 
@@ -90,6 +91,7 @@ async function shutdownService() {
           v-for="tab in [
             { key: 'board', label: '看板' },
             { key: 'overview', label: '总览' },
+            { key: 'calendar', label: '日历' },
             { key: 'library', label: '资料库' },
           ]"
           :key="tab.key"
@@ -141,6 +143,7 @@ async function shutdownService() {
           @update-status="onStatusChange"
         />
         <OverviewView v-else-if="view === 'overview'" :tasks="tasks" @open="openEdit" />
+        <CalendarView v-else-if="view === 'calendar'" :tasks="tasks" @open="openEdit" @create="openCreate" />
         <LibraryView v-else />
       </Transition>
     </main>
