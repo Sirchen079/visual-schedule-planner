@@ -9,7 +9,7 @@ import TaskModal from './components/TaskModal.vue'
 const { tasks, loading, error, load, add, update, remove } = useTasks()
 onMounted(load)
 
-const view = ref('board') // board | overview | library
+const view = ref('board')
 
 const theme = ref(localStorage.getItem('theme') || 'light')
 const shuttingDown = ref(false)
@@ -70,27 +70,50 @@ async function shutdownService() {
 <template>
   <div class="app">
     <header class="topbar">
-      <div class="brand">📋 可视化日程</div>
+      <div class="brand">
+        <span class="brand-icon float">🌊</span>
+        <span class="brand-text gradient-text">可视化日程</span>
+      </div>
+
       <nav class="tabs">
-        <button :class="['tab', view === 'board' && 'active']" @click="view = 'board'">看板</button>
-        <button :class="['tab', view === 'overview' && 'active']" @click="view = 'overview'">总览</button>
-        <button :class="['tab', view === 'library' && 'active']" @click="view = 'library'">资料库</button>
+        <button
+          v-for="tab in [
+            { key: 'board', label: '看板' },
+            { key: 'overview', label: '总览' },
+            { key: 'library', label: '资料库' },
+          ]"
+          :key="tab.key"
+          :class="['tab', view === tab.key && 'active']"
+          @click="view = tab.key"
+        >
+          {{ tab.label }}
+        </button>
       </nav>
-      <button class="ghost icon" @click="toggleTheme" :title="theme === 'light' ? '切换深色' : '切换浅色'">
-        {{ theme === 'light' ? '🌙' : '☀️' }}
-      </button>
-      <button class="ghost shutdown" :disabled="shuttingDown" @click="shutdownService">
-        {{ shuttingDown ? '正在关闭…' : '关闭服务' }}
-      </button>
+
+      <div class="topbar-actions">
+        <button
+          class="ghost icon theme-btn"
+          @click="toggleTheme"
+          :title="theme === 'light' ? '切换深色' : '切换浅色'"
+        >
+          <span class="theme-icon">{{ theme === 'light' ? '🌙' : '☀️' }}</span>
+        </button>
+        <button class="ghost shutdown" :disabled="shuttingDown" @click="shutdownService">
+          {{ shuttingDown ? '正在关闭…' : '关闭服务' }}
+        </button>
+      </div>
     </header>
 
     <main class="content">
-      <div v-if="loading" class="center muted">加载中…</div>
+      <div v-if="loading" class="center muted">
+        <span class="spinner"></span>
+        <p>加载中…</p>
+      </div>
       <div v-else-if="error" class="center">
         <p class="muted">⚠️ {{ error }}</p>
         <button @click="load">重试</button>
       </div>
-      <template v-else>
+      <Transition name="fade" mode="out-in" v-else>
         <BoardView
           v-if="view === 'board'"
           :tasks="tasks"
@@ -100,7 +123,7 @@ async function shutdownService() {
         />
         <OverviewView v-else-if="view === 'overview'" :tasks="tasks" @open="openEdit" />
         <LibraryView v-else />
-      </template>
+      </Transition>
     </main>
 
     <TaskModal
@@ -119,51 +142,194 @@ async function shutdownService() {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  overflow: hidden;
 }
+
 .topbar {
+  position: relative;
+  z-index: 50;
   display: flex;
   align-items: center;
-  gap: 24px;
-  padding: 14px 24px;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 14px 24px 0;
+  padding: 10px 14px;
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-md), var(--shadow-inset);
+  flex-shrink: 0;
 }
+
 .brand {
-  font-size: 18px;
-  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 6px;
 }
+
+.brand-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent-soft), var(--sea-100));
+  font-size: 20px;
+  box-shadow: 0 3px 12px var(--accent-glow), var(--shadow-inset);
+}
+
+.brand-text {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+}
+
 .tabs {
   display: flex;
-  gap: 8px;
-  flex: 1;
+  align-items: center;
+  gap: 4px;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface-2);
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-inset);
 }
+
 .tab {
+  position: relative;
   background: transparent;
   color: var(--text-soft);
+  padding: 7px 20px;
+  border-radius: var(--radius-pill);
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: none;
+  overflow: hidden;
+  transition: color 0.25s ease;
 }
+
+.tab::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, var(--accent), var(--sea-400));
+  border-radius: var(--radius-pill);
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  z-index: -1;
+}
+
 .tab.active {
-  background: var(--accent);
   color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
-.icon {
-  font-size: 18px;
-  padding: 8px 12px;
+
+.tab.active::before {
+  opacity: 1;
+  transform: scale(1);
 }
+
+.tab:not(.active):hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.theme-btn {
+  padding: 0;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.theme-icon {
+  font-size: 17px;
+  display: inline-block;
+  transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.theme-btn:hover .theme-icon {
+  transform: rotate(25deg) scale(1.15);
+}
+
 .shutdown {
-  border: 1px solid var(--border);
   color: var(--text-soft);
+  white-space: nowrap;
+  font-weight: 500;
 }
-.shutdown:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
+
 .content {
   flex: 1;
-  padding: 20px 24px;
+  padding: 24px 28px 32px;
   overflow: auto;
+  min-height: 0;
 }
+
 .center {
   text-align: center;
-  padding: 48px;
+  padding: 80px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--surface-2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 720px) {
+  .topbar {
+    margin: 10px 12px 0;
+    padding: 8px 10px;
+    gap: 10px;
+  }
+  .brand-text {
+    display: none;
+  }
+  .tabs {
+    position: static;
+    transform: none;
+    flex: 1;
+    justify-content: center;
+  }
+  .tab {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+  .shutdown span {
+    display: none;
+  }
+  .shutdown::after {
+    content: '关闭';
+  }
+  .content {
+    padding: 16px 14px 24px;
+  }
 }
 </style>

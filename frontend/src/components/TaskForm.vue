@@ -42,7 +42,6 @@ watch(
 function save() {
   if (!form.title.trim()) return
   const payload = { ...form }
-  // 日期转成当天 23:59:59，对齐后端 datetime
   if (payload.due_date) payload.due_date = payload.due_date + 'T23:59:59'
   emit('save', payload)
 }
@@ -50,23 +49,25 @@ function save() {
 
 <template>
   <form class="task-form" @submit.prevent="save">
-    <label>标题 <span style="color: var(--pri-high)">*</span></label>
-    <input v-model="form.title" placeholder="要做什么？" autofocus />
+    <div class="field">
+      <label>标题 <span class="required">*</span></label>
+      <input v-model="form.title" placeholder="要做什么？" autofocus />
+    </div>
 
     <div class="grid">
-      <div>
+      <div class="field">
         <label>截止日期</label>
         <input type="date" v-model="form.due_date" />
       </div>
-      <div>
+      <div class="field">
         <label>优先级</label>
         <select v-model="form.priority">
-          <option>高</option>
-          <option>中</option>
-          <option>低</option>
+          <option value="高">高</option>
+          <option value="中">中</option>
+          <option value="低">低</option>
         </select>
       </div>
-      <div>
+      <div class="field">
         <label>状态</label>
         <select v-model="form.status">
           <option>待办</option>
@@ -74,14 +75,16 @@ function save() {
           <option>完成</option>
         </select>
       </div>
-      <div>
+      <div class="field">
         <label>进度 {{ form.progress }}%</label>
         <input type="range" min="0" max="100" v-model.number="form.progress" />
       </div>
     </div>
 
-    <label>备注</label>
-    <textarea v-model="form.notes" rows="3" placeholder="补充说明…"></textarea>
+    <div class="field">
+      <label>备注</label>
+      <textarea v-model="form.notes" rows="3" placeholder="补充说明…"></textarea>
+    </div>
 
     <div class="actions">
       <button type="button" class="ghost" @click="emit('cancel')">取消</button>
@@ -94,25 +97,41 @@ function save() {
 .task-form {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 }
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
 label {
   font-size: 13px;
   color: var(--text-soft);
-  margin-bottom: -4px;
+  font-weight: 600;
 }
+
+.required {
+  color: var(--pri-high);
+}
+
 .grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 16px;
 }
+
 .actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 12px;
   margin-top: 4px;
 }
-input[type='range'] {
-  padding: 0;
+
+@media (max-width: 520px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

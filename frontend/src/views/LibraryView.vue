@@ -8,6 +8,7 @@ const loading = ref(false)
 const error = ref(null)
 const preview = ref(null)
 const input = ref(null)
+const dragOver = ref(false)
 
 const isImage = (file) => file.mime_type?.startsWith('image/')
 const isPdf = (file) => file.mime_type === 'application/pdf'
@@ -46,6 +47,7 @@ async function uploadMany(fileList) {
     error.value = e.message
   } finally {
     loading.value = false
+    dragOver.value = false
   }
 }
 
@@ -69,21 +71,26 @@ onMounted(load)
   <div class="library">
     <div class="library-head">
       <div>
-        <h2>资料库</h2>
-        <p class="muted">论文、课件、截图、数据文件都可以先扔进来，需要时再挂到任务上。</p>
+        <h2 class="gradient-text">资料库</h2>
+        <p class="muted">论文、课件、截图、数据文件都可以先放进海湾。</p>
       </div>
-      <button @click="input?.click()">+ 上传资料</button>
+      <button class="upload-btn" @click="input?.click()">
+        <span class="btn-icon">☁️</span>
+        <span>上传资料</span>
+      </button>
       <input ref="input" type="file" multiple hidden @change="uploadMany($event.target.files)" />
     </div>
 
     <div
       class="drop card"
-      @dragover.prevent
+      :class="{ active: dragOver }"
+      @dragover.prevent="dragOver = true"
+      @dragleave.prevent="dragOver = false"
       @drop.prevent="uploadMany($event.dataTransfer.files)"
       @click="input?.click()"
     >
-      <div class="drop-icon">☁️</div>
-      <div>拖拽文件到这里，或点击选择</div>
+      <div class="drop-icon float">{{ dragOver ? '🌊' : '☁️' }}</div>
+      <div class="drop-title">拖拽文件到这里，或点击选择</div>
       <div class="muted">任何类型都可以；文件存到本机 data/files，不进数据库</div>
     </div>
 
@@ -93,9 +100,16 @@ onMounted(load)
     </div>
 
     <div v-if="error" class="card error">{{ error }}</div>
-    <div v-if="loading" class="muted">处理中…</div>
+    <div v-if="loading" class="loading-line muted">
+      <span class="spinner"></span>
+      <span>处理中…</span>
+    </div>
 
-    <div v-if="!loading && !files.length" class="card empty">{{ emptyText }}</div>
+    <div v-if="!loading && !files.length" class="card empty">
+      <div class="empty-icon float-slow">🐚</div>
+      <div>{{ emptyText }}</div>
+    </div>
+
     <div class="grid" v-else>
       <div class="file-card card" v-for="file in files" :key="file.id">
         <div class="preview" @click="open(file)">
@@ -103,8 +117,10 @@ onMounted(load)
           <iframe v-else-if="isPdf(file)" :src="getContentUrl(file.id)"></iframe>
           <div v-else class="file-icon">{{ iconFor(file) }}</div>
         </div>
-        <div class="name" :title="file.original_name">{{ file.original_name }}</div>
-        <div class="meta muted">{{ sizeText(file.size) }} · {{ file.mime_type }}</div>
+        <div class="file-info">
+          <div class="name" :title="file.original_name">{{ file.original_name }}</div>
+          <div class="meta muted">{{ sizeText(file.size) }} · {{ file.mime_type }}</div>
+        </div>
         <div class="actions">
           <button class="ghost" @click="open(file)">打开</button>
           <button class="ghost" @click="remove(file)">删除</button>
@@ -115,7 +131,7 @@ onMounted(load)
     <div v-if="preview" class="overlay" @click.self="preview = null">
       <div class="preview-modal card">
         <div class="modal-head">
-          <span>{{ preview.original_name }}</span>
+          <span class="preview-name" :title="preview.original_name">{{ preview.original_name }}</span>
           <button class="ghost" @click="preview = null">✕</button>
         </div>
         <img v-if="isImage(preview)" :src="getContentUrl(preview.id)" />
@@ -129,48 +145,130 @@ onMounted(load)
 .library {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
+  max-width: 1200px;
+  margin: 0 auto;
 }
+
 .library-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
 }
+
 h2 {
   margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
 }
+
 p {
-  margin: 4px 0 0;
+  margin: 6px 0 0;
+  font-size: 14px;
 }
+
+.upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 11px 22px;
+  border-radius: var(--radius-pill);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.btn-icon {
+  font-size: 16px;
+  display: inline-block;
+  transition: transform 0.4s ease;
+}
+
+.upload-btn:hover .btn-icon {
+  transform: translateY(-2px);
+}
+
 .drop {
   text-align: center;
-  border: 1px dashed var(--border);
+  border: 2px dashed var(--border);
   cursor: pointer;
-  padding: 28px;
+  padding: 38px 28px;
+  transition: transform 0.25s ease, border-color 0.25s ease, background 0.25s ease;
 }
-.drop:hover {
+
+.drop:hover,
+.drop.active {
   border-color: var(--accent);
+  background: var(--accent-soft);
+  transform: translateY(-3px);
 }
+
 .drop-icon {
-  font-size: 34px;
+  font-size: 44px;
+  margin-bottom: 12px;
+  transition: transform 0.3s ease;
 }
+
+.drop.active .drop-icon {
+  transform: scale(1.2);
+}
+
+.drop-title {
+  font-weight: 600;
+  font-size: 15px;
+  margin-bottom: 5px;
+}
+
 .toolbar {
   display: flex;
-  gap: 8px;
+  gap: 10px;
 }
+
+.toolbar input {
+  max-width: 340px;
+}
+
+.loading-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--surface-2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 14px;
+  gap: 18px;
 }
+
 .file-card {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  padding: 13px;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
+
+.file-card:hover {
+  transform: translateY(-5px);
+  box-shadow: var(--shadow-md), var(--shadow-inset);
+}
+
 .preview {
-  height: 140px;
+  height: 145px;
   border-radius: var(--radius-sm);
   background: var(--surface-2);
   overflow: hidden;
@@ -178,7 +276,14 @@ p {
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  border: 1px solid var(--border);
+  transition: transform 0.2s ease;
 }
+
+.file-card:hover .preview {
+  transform: scale(1.02);
+}
+
 .preview img,
 .preview iframe {
   width: 100%;
@@ -186,55 +291,96 @@ p {
   object-fit: cover;
   border: none;
 }
+
 .file-icon {
-  font-size: 42px;
+  font-size: 44px;
 }
+
+.file-info {
+  min-width: 0;
+}
+
 .name {
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 14px;
 }
+
 .meta {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .actions {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
+  margin-top: auto;
 }
+
+.actions button {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
 .empty,
 .error {
   text-align: center;
+  padding: 40px;
 }
+
+.empty-icon {
+  font-size: 42px;
+  margin-bottom: 12px;
+  opacity: 0.7;
+}
+
 .error {
   color: var(--pri-high);
+  background: rgba(242, 107, 122, 0.08);
 }
+
 .overlay {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(60, 55, 50, 0.35);
-  backdrop-filter: blur(2px);
+  background: rgba(8, 47, 73, 0.32);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 20px;
 }
+
 .preview-modal {
   width: min(900px, 92vw);
   height: min(720px, 88vh);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
+
 .modal-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
-  font-weight: 600;
+  margin-bottom: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+  gap: 12px;
 }
+
+.preview-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
 .preview-modal img,
 .preview-modal iframe {
   flex: 1;
@@ -244,5 +390,17 @@ p {
   border: none;
   border-radius: var(--radius-sm);
   background: var(--surface-2);
+}
+
+@media (max-width: 640px) {
+  .library-head {
+    align-items: center;
+  }
+  .library-head p {
+    display: none;
+  }
+  .toolbar input {
+    max-width: none;
+  }
 }
 </style>
