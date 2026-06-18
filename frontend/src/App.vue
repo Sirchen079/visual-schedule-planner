@@ -3,12 +3,13 @@ import { onMounted, ref } from 'vue'
 import { useTasks } from './composables/useTasks'
 import BoardView from './views/BoardView.vue'
 import OverviewView from './views/OverviewView.vue'
+import LibraryView from './views/LibraryView.vue'
 import TaskModal from './components/TaskModal.vue'
 
 const { tasks, loading, error, load, add, update, remove } = useTasks()
 onMounted(load)
 
-const view = ref('board') // board | overview
+const view = ref('board') // board | overview | library
 
 const theme = ref(localStorage.getItem('theme') || 'light')
 function applyTheme() {
@@ -62,6 +63,7 @@ async function onStatusChange(task, status) {
       <nav class="tabs">
         <button :class="['tab', view === 'board' && 'active']" @click="view = 'board'">看板</button>
         <button :class="['tab', view === 'overview' && 'active']" @click="view = 'overview'">总览</button>
+        <button :class="['tab', view === 'library' && 'active']" @click="view = 'library'">资料库</button>
       </nav>
       <button class="ghost icon" @click="toggleTheme" :title="theme === 'light' ? '切换深色' : '切换浅色'">
         {{ theme === 'light' ? '🌙' : '☀️' }}
@@ -82,11 +84,19 @@ async function onStatusChange(task, status) {
           @create="openCreate"
           @update-status="onStatusChange"
         />
-        <OverviewView v-else :tasks="tasks" @open="openEdit" />
+        <OverviewView v-else-if="view === 'overview'" :tasks="tasks" @open="openEdit" />
+        <LibraryView v-else />
       </template>
     </main>
 
-    <TaskModal v-if="modalOpen" :task="editing" @save="onSave" @delete="onDelete" @close="closeModal" />
+    <TaskModal
+      v-if="modalOpen"
+      :task="editing"
+      @save="onSave"
+      @delete="onDelete"
+      @changed="load"
+      @close="closeModal"
+    />
   </div>
 </template>
 

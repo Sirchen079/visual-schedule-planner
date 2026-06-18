@@ -33,12 +33,13 @@ const isOverdue = computed(() => {
       <span class="title">{{ task.title }}</span>
       <span class="pri-dot" :style="{ background: priColor }" :title="`优先级：${task.priority}`"></span>
     </div>
-    <div v-if="dueLabel || task.status === '进行中'" class="row meta">
+    <div v-if="dueLabel || task.status === '进行中' || task.files?.length" class="row meta">
       <span v-if="dueLabel" class="due" :class="{ overdue: isOverdue }">⏰ {{ dueLabel }}</span>
       <span v-if="task.status === '进行中'" class="progress">
         <span class="bar"><span class="fill" :style="{ width: task.progress + '%' }"></span></span>
         {{ task.progress }}%
       </span>
+      <span v-if="task.files?.length">📎 {{ task.files.length }}</span>
     </div>
   </div>
 </template>
