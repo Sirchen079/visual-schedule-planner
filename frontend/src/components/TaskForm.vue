@@ -9,6 +9,7 @@ const emit = defineEmits(['save', 'cancel'])
 const form = reactive({
   title: '',
   notes: '',
+  start_date: '',
   due_date: '',
   priority: '中',
   status: '待办',
@@ -21,6 +22,7 @@ watch(
     if (v) {
       form.title = v.title || ''
       form.notes = v.notes || ''
+      form.start_date = v.start_date ? v.start_date.slice(0, 10) : ''
       form.due_date = v.due_date ? v.due_date.slice(0, 10) : ''
       form.priority = v.priority || '中'
       form.status = v.status || '待办'
@@ -29,6 +31,7 @@ watch(
       Object.assign(form, {
         title: '',
         notes: '',
+        start_date: '',
         due_date: '',
         priority: '中',
         status: '待办',
@@ -42,6 +45,8 @@ watch(
 function save() {
   if (!form.title.trim()) return
   const payload = { ...form }
+  // 填了开始/截止的，带上时间部分，便于时间轴对齐到整天
+  if (payload.start_date) payload.start_date = payload.start_date + 'T00:00:00'
   if (payload.due_date) payload.due_date = payload.due_date + 'T23:59:59'
   emit('save', payload)
 }
@@ -55,6 +60,10 @@ function save() {
     </div>
 
     <div class="grid">
+      <div class="field">
+        <label>开始日期</label>
+        <input type="date" v-model="form.start_date" />
+      </div>
       <div class="field">
         <label>截止日期</label>
         <input type="date" v-model="form.due_date" />
