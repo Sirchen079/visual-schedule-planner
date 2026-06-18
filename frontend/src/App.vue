@@ -12,6 +12,7 @@ onMounted(load)
 const view = ref('board') // board | overview | library
 
 const theme = ref(localStorage.getItem('theme') || 'light')
+const shuttingDown = ref(false)
 function applyTheme() {
   document.documentElement.setAttribute('data-theme', theme.value)
   localStorage.setItem('theme', theme.value)
@@ -54,6 +55,16 @@ async function onDelete(t) {
 async function onStatusChange(task, status) {
   await update(task.id, { status })
 }
+
+async function shutdownService() {
+  if (!confirm('确定关闭本地服务吗？关闭后网页会停止响应；下次双击 start.bat 可重新启动。')) return
+  shuttingDown.value = true
+  try {
+    await fetch('/shutdown', { method: 'POST' })
+  } catch {
+    // 服务退出时连接可能被浏览器判定为中断，这是预期情况。
+  }
+}
 </script>
 
 <template>
@@ -67,6 +78,9 @@ async function onStatusChange(task, status) {
       </nav>
       <button class="ghost icon" @click="toggleTheme" :title="theme === 'light' ? '切换深色' : '切换浅色'">
         {{ theme === 'light' ? '🌙' : '☀️' }}
+      </button>
+      <button class="ghost shutdown" :disabled="shuttingDown" @click="shutdownService">
+        {{ shuttingDown ? '正在关闭…' : '关闭服务' }}
       </button>
     </header>
 
@@ -134,6 +148,14 @@ async function onStatusChange(task, status) {
 .icon {
   font-size: 18px;
   padding: 8px 12px;
+}
+.shutdown {
+  border: 1px solid var(--border);
+  color: var(--text-soft);
+}
+.shutdown:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 .content {
   flex: 1;

@@ -4,7 +4,7 @@ from app.config import Settings
 def test_default_settings():
     s = Settings()
     assert s.host == "127.0.0.1"
-    assert s.port == 8000
+    assert s.port == 18731
     # 默认数据库目录
     assert s.database_dir.name == "data"
 

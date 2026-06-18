@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     database_dir: Path = Path("data")
     files_dir: Path = Path("data/files")
     host: str = "127.0.0.1"
-    port: int = 8000
+    port: int = 18731
 
 
 settings = Settings()
