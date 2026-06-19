@@ -202,6 +202,14 @@ label {
   color: var(--accent-hover);
   font-size: 12px;
   font-weight: 600;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-inset);
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.15s ease;
+}
+
+.tag-chip:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px var(--accent-glow), var(--shadow-inset);
 }
 
 .tag-x {

@@ -60,18 +60,22 @@ onMounted(load)
 
 <template>
   <div class="trash">
-    <div class="trash-head">
-      <h2 class="gradient-text">回收站</h2>
+    <div class="trash-head animate-in">
+      <h2 class="gradient-text"><span class="head-icon float">🌊</span>回收站</h2>
       <p class="muted">误删的东西在这里暂存 30 天，可随时恢复或彻底清除。</p>
     </div>
 
-    <div v-if="error" class="card error">⚠️ {{ error }}</div>
+    <div v-if="error" class="card error animate-in">⚠️ {{ error }}</div>
     <div v-if="loading" class="center muted">
       <span class="spinner"></span>
       <p>加载中…</p>
     </div>
 
-    <section v-if="!loading && tasks.length" class="card group">
+    <section
+      v-if="!loading && tasks.length"
+      class="card group animate-in"
+      style="animation-delay: 0.05s"
+    >
       <h3><span class="section-icon">🗂️</span>任务（{{ tasks.length }}）</h3>
       <div class="row" v-for="t in tasks" :key="t.id">
         <div class="row-main">
@@ -85,7 +89,11 @@ onMounted(load)
       </div>
     </section>
 
-    <section v-if="!loading && files.length" class="card group">
+    <section
+      v-if="!loading && files.length"
+      class="card group animate-in"
+      style="animation-delay: 0.1s"
+    >
       <h3><span class="section-icon">📎</span>文件（{{ files.length }}）</h3>
       <div class="row" v-for="f in files" :key="f.id">
         <div class="row-main">
@@ -99,7 +107,7 @@ onMounted(load)
       </div>
     </section>
 
-    <div v-if="!loading && !tasks.length && !files.length" class="card empty">
+    <div v-if="!loading && !tasks.length && !files.length" class="card empty animate-in">
       <div class="empty-icon float-slow">🏖️</div>
       <div>回收站是空的，海湾很干净。</div>
     </div>
@@ -120,6 +128,14 @@ onMounted(load)
   font-size: 26px;
   font-weight: 800;
   letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.head-icon {
+  font-size: 24px;
+  filter: drop-shadow(0 2px 6px var(--accent-glow));
 }
 
 .trash-head p {
@@ -154,12 +170,14 @@ onMounted(load)
   background: var(--surface-2);
   margin-bottom: 8px;
   border: 1px solid transparent;
-  transition: border-color 0.2s ease, transform 0.2s ease;
+  box-shadow: var(--shadow-inset);
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .row:hover {
   border-color: var(--border);
-  transform: translateX(4px);
+  transform: translateX(6px);
+  box-shadow: var(--shadow-sm), var(--shadow-inset);
 }
 
 .row-main {

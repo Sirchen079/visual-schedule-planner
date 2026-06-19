@@ -487,6 +487,6 @@ async function undoDelete() {
 .toast-enter-from,
 .toast-leave-to {
   opacity: 0;
-  transform: translate(-50%, 20px);
+  transform: translate(-50%, 20px) scale(0.95);
 }
 </style>

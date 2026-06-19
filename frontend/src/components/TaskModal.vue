@@ -328,7 +328,15 @@ async function removeSub(s) {
   padding: 8px 12px;
   border-radius: var(--radius-sm);
   background: var(--surface-2);
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-inset);
   margin-bottom: 6px;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.subtask-row:hover {
+  border-color: var(--border);
+  transform: translateX(4px);
 }
 
 .sub-check {
