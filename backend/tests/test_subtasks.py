@@ -46,3 +46,15 @@ def test_manual_progress_ignored_when_subtasks_exist(client):
     # 手动设 progress=80 应被完成率(0)覆盖
     body = client.put(f"/tasks/{tid}", json={"progress": 80}).json()
     assert body["progress"] == 0
+
+
+def test_subtask_completed_at_tracks_done(client):
+    tid = client.post("/tasks", json={"title": "父"}).json()["id"]
+    r = client.post(f"/tasks/{tid}/subtasks", json={"title": "a"}).json()
+    assert r["completed_at"] is None
+    # 勾选完成 → 记录完成时间
+    done = client.put(f"/tasks/{tid}/subtasks/{r['id']}", json={"done": True}).json()
+    assert done["completed_at"] is not None
+    # 取消完成 → 清空
+    undone = client.put(f"/tasks/{tid}/subtasks/{r['id']}", json={"done": False}).json()
+    assert undone["completed_at"] is None

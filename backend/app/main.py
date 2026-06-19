@@ -5,6 +5,7 @@ import threading
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 
 from app.database import engine
 from app.models import Base
@@ -15,6 +16,16 @@ from app.services import backup_service
 def init_db() -> None:
     """运行时建表（测试用内存库，不走这里）。"""
     Base.metadata.create_all(bind=engine)
+    _migrate()
+
+
+def _migrate() -> None:
+    """轻量列迁移：为旧库补齐新字段（单人 SQLite，无需 Alembic）。"""
+    with engine.connect() as conn:
+        cols = [row[1] for row in conn.execute(text("PRAGMA table_info(subtasks)"))]
+        if cols and "completed_at" not in cols:
+            conn.execute(text("ALTER TABLE subtasks ADD COLUMN completed_at DATETIME"))
+            conn.commit()
 
 
 @asynccontextmanager

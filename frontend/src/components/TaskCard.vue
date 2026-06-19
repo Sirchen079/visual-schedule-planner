@@ -25,6 +25,20 @@ const isOverdue = computed(() => {
   if (!props.task.due_date || props.task.status === '完成') return false
   return new Date(props.task.due_date) < new Date(new Date().toDateString())
 })
+
+const subDoneCount = computed(
+  () => (props.task.subtasks || []).filter((s) => s.done).length
+)
+
+function fmtTime(t) {
+  if (!t) return ''
+  return new Date(t).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
 </script>
 
 <template>
@@ -49,10 +63,21 @@ const isOverdue = computed(() => {
           <span class="bar"><span class="fill" :style="{ width: task.progress + '%' }"></span></span>
           <span>{{ task.progress }}%</span>
         </span>
+        <span v-if="task.subtasks?.length" class="subs">
+          <span class="meta-icon">✓</span>
+          <span>{{ subDoneCount }}/{{ task.subtasks.length }}</span>
+        </span>
         <span v-if="task.files?.length" class="files">
           <span class="meta-icon">📎</span>
           <span>{{ task.files.length }}</span>
         </span>
+      </div>
+      <div v-if="task.subtasks?.length" class="sub-list">
+        <div class="sub-item" v-for="s in task.subtasks" :key="s.id">
+          <span class="sub-mark" :class="{ done: s.done }">{{ s.done ? '✓' : '' }}</span>
+          <span class="sub-title" :class="{ done: s.done }">{{ s.title }}</span>
+          <span v-if="s.completed_at" class="sub-time">{{ fmtTime(s.completed_at) }}</span>
+        </div>
       </div>
     </div>
   </div>
@@ -172,5 +197,81 @@ const isOverdue = computed(() => {
   background: linear-gradient(90deg, var(--accent), var(--sea-300));
   border-radius: var(--radius-pill);
   transition: width 0.5s ease;
+}
+
+.subs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* hover 展开子任务：默认收起，悬停时展开 */
+.sub-list {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  margin-top: 0;
+  transition: max-height 0.32s ease, opacity 0.25s ease, margin-top 0.3s ease;
+}
+
+.task-card:hover .sub-list {
+  max-height: 300px;
+  opacity: 1;
+  margin-top: 11px;
+}
+
+.sub-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px;
+  font-size: 12.5px;
+  border-top: 1px dashed var(--border);
+}
+
+.sub-item:first-child {
+  border-top: none;
+}
+
+.sub-mark {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-inset);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.sub-mark.done {
+  background: var(--pri-low);
+  border-color: var(--pri-low);
+  color: #fff;
+}
+
+.sub-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-soft);
+}
+
+.sub-title.done {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.sub-time {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
 </style>

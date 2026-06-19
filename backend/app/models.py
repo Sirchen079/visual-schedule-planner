@@ -100,6 +100,7 @@ class Subtask(Base):
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), index=True)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     done: Mapped[bool] = mapped_column(Boolean, default=False)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     task: Mapped["Task"] = relationship("Task", back_populates="subtasks")

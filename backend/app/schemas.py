@@ -21,6 +21,7 @@ class SubtaskResponse(BaseModel):
     task_id: int
     title: str
     done: bool
+    completed_at: Optional[datetime] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

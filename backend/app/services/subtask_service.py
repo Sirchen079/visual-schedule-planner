@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import select
@@ -37,7 +38,17 @@ def update_subtask(
     s = db.get(Subtask, subtask_id)
     if s is None or s.task_id != task_id:
         return None
-    for field, value in patch.model_dump(exclude_unset=True).items():
+    data = patch.model_dump(exclude_unset=True)
+    # 勾选时记录完成时间，取消勾选则清空
+    if "done" in data:
+        if data["done"]:
+            s.done = True
+            s.completed_at = datetime.now()
+        else:
+            s.done = False
+            s.completed_at = None
+        del data["done"]
+    for field, value in data.items():
         setattr(s, field, value)
     db.commit()
     db.refresh(s)
