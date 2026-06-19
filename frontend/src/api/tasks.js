@@ -33,3 +33,39 @@ export function updateTask(id, patch) {
 export function deleteTask(id) {
   return fetch(`${BASE}/${id}`, { method: 'DELETE' }).then(parse)
 }
+
+export function listTrash() {
+  return fetch(`${BASE}/trash`).then(parse)
+}
+
+export function restoreTask(id) {
+  return fetch(`${BASE}/${id}/restore`, { method: 'POST' }).then(parse)
+}
+
+export function purgeTask(id) {
+  return fetch(`${BASE}/${id}/purge`, { method: 'DELETE' }).then(parse)
+}
+
+export function listTags() {
+  return fetch(`${BASE}/tags`).then(parse)
+}
+
+export function createSubtask(taskId, title) {
+  return fetch(`${BASE}/${taskId}/subtasks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  }).then(parse)
+}
+
+export function updateSubtask(taskId, id, patch) {
+  return fetch(`${BASE}/${taskId}/subtasks/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  }).then(parse)
+}
+
+export function deleteSubtask(taskId, id) {
+  return fetch(`${BASE}/${taskId}/subtasks/${id}`, { method: 'DELETE' }).then(parse)
+}

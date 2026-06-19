@@ -2,11 +2,13 @@
 import { onMounted, ref } from 'vue'
 import { useTasks } from './composables/useTasks'
 import { useReminders } from './composables/useReminders'
+import { restoreTask } from './api/tasks'
 import BoardView from './views/BoardView.vue'
 import OverviewView from './views/OverviewView.vue'
 import LibraryView from './views/LibraryView.vue'
 import CalendarView from './views/CalendarView.vue'
 import TimelineView from './views/TimelineView.vue'
+import TrashView from './views/TrashView.vue'
 import TaskModal from './components/TaskModal.vue'
 import RemindersPanel from './components/RemindersPanel.vue'
 
@@ -59,10 +61,13 @@ async function onSave(payload) {
   closeModal()
 }
 async function onDelete(t) {
-  if (confirm(`删除「${t.title}」？`)) {
-    await remove(t.id)
-    closeModal()
-  }
+  if (!confirm(`将「${t.title}」移入回收站？（可在回收站恢复）`)) return
+  await remove(t.id)
+  closeModal()
+  showToast(`已将「${t.title}」移入回收站`, async () => {
+    await restoreTask(t.id)
+    await load()
+  })
 }
 async function onStatusChange(task, status) {
   await update(task.id, { status })
@@ -75,6 +80,27 @@ async function shutdownService() {
     await fetch('/shutdown', { method: 'POST' })
   } catch {
     // 服务退出时连接可能被浏览器判定为中断，这是预期情况。
+  }
+}
+
+// 删除后给一次"撤销恢复"的机会（软删可恢复）
+const toast = ref(null)
+let toastTimer = null
+function showToast(message, undoFn) {
+  toast.value = { message, undo: undoFn }
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => (toast.value = null), 6000)
+}
+function dismissToast() {
+  clearTimeout(toastTimer)
+  toast.value = null
+}
+async function undoDelete() {
+  if (!toast.value?.undo) return
+  try {
+    await toast.value.undo()
+  } finally {
+    dismissToast()
   }
 }
 </script>
@@ -95,6 +121,7 @@ async function shutdownService() {
             { key: 'calendar', label: '日历' },
             { key: 'timeline', label: '时间轴' },
             { key: 'library', label: '资料库' },
+            { key: 'trash', label: '回收站' },
           ]"
           :key="tab.key"
           :class="['tab', view === tab.key && 'active']"
@@ -147,6 +174,7 @@ async function shutdownService() {
         <OverviewView v-else-if="view === 'overview'" :tasks="tasks" @open="openEdit" />
         <CalendarView v-else-if="view === 'calendar'" :tasks="tasks" @open="openEdit" @create="openCreate" />
         <TimelineView v-else-if="view === 'timeline'" :tasks="tasks" @open="openEdit" @create="openCreate" />
+        <TrashView v-else-if="view === 'trash'" @changed="load" />
         <LibraryView v-else />
       </Transition>
     </main>
@@ -167,6 +195,14 @@ async function shutdownService() {
       @open="(t) => { panelOpen = false; openEdit(t) }"
       @close="panelOpen = false"
     />
+
+    <Transition name="toast">
+      <div v-if="toast" class="toast">
+        <span class="toast-msg">{{ toast.message }}</span>
+        <button class="toast-undo" @click="undoDelete">撤销</button>
+        <button class="ghost toast-close" @click="dismissToast">✕</button>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -407,5 +443,50 @@ async function shutdownService() {
   .content {
     padding: 16px 14px 24px;
   }
+}
+
+.toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-xl), var(--shadow-inset);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  font-size: 14px;
+}
+
+.toast-msg {
+  color: var(--text);
+}
+
+.toast-undo {
+  color: var(--accent);
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+}
+
+.toast-close {
+  padding: 2px 8px;
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 20px);
 }
 </style>

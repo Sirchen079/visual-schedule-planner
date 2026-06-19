@@ -52,7 +52,7 @@ async function uploadMany(fileList) {
 }
 
 async function remove(file) {
-  if (!confirm(`删除「${file.original_name}」？`)) return
+  if (!confirm(`将「${file.original_name}」移入回收站？（可在回收站恢复）`)) return
   await deleteFile(file.id)
   await load()
 }
@@ -162,6 +162,7 @@ h2 {
   font-size: 26px;
   font-weight: 800;
   letter-spacing: 0.5px;
+  white-space: nowrap;
 }
 
 p {

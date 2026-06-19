@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import draggable from 'vuedraggable'
 import TaskCard from '../components/TaskCard.vue'
 
@@ -11,14 +11,85 @@ const emit = defineEmits(['open', 'update-status', 'create'])
 const COLUMNS = ['待办', '进行中', '完成']
 const lists = ref({ 待办: [], 进行中: [], 完成: [] })
 
+// 搜索 / 筛选 / 排序（记忆上次选择）
+const search = ref(localStorage.getItem('board_search') || '')
+const filterPriority = ref(localStorage.getItem('board_fp') || '')
+const filterTag = ref(localStorage.getItem('board_ft') || '')
+const sortBy = ref(localStorage.getItem('board_sort') || 'created')
+const searchInput = ref(null)
+
+const PRI_WEIGHT = { 高: 0, 中: 1, 低: 2 }
+
+const allTags = computed(() => {
+  const map = new Map()
+  for (const t of props.tasks) {
+    for (const tg of t.tags || []) map.set(tg.name, tg)
+  }
+  return Array.from(map.values())
+})
+
+const filtered = computed(() => {
+  let arr = props.tasks.slice()
+  const q = search.value.trim().toLowerCase()
+  if (q) {
+    arr = arr.filter(
+      (t) =>
+        (t.title || '').toLowerCase().includes(q) ||
+        (t.notes || '').toLowerCase().includes(q)
+    )
+  }
+  if (filterPriority.value) arr = arr.filter((t) => t.priority === filterPriority.value)
+  if (filterTag.value) {
+    arr = arr.filter((t) => (t.tags || []).some((tg) => tg.name === filterTag.value))
+  }
+  if (sortBy.value === 'due') {
+    arr.sort((a, b) => {
+      if (!a.due_date) return 1
+      if (!b.due_date) return -1
+      return new Date(a.due_date) - new Date(b.due_date)
+    })
+  } else if (sortBy.value === 'priority') {
+    arr.sort((a, b) => (PRI_WEIGHT[a.priority] ?? 9) - (PRI_WEIGHT[b.priority] ?? 9))
+  } else {
+    arr.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+  }
+  return arr
+})
+
 function rebuild() {
-  lists.value = {
-    待办: props.tasks.filter((t) => t.status === '待办'),
-    进行中: props.tasks.filter((t) => t.status === '进行中'),
-    完成: props.tasks.filter((t) => t.status === '完成'),
+  lists.value = { 待办: [], 进行中: [], 完成: [] }
+  for (const t of filtered.value) {
+    const col = lists.value[t.status]
+    if (col) col.push(t)
   }
 }
-watch(() => props.tasks, rebuild, { immediate: true })
+watch(filtered, rebuild, { immediate: true })
+
+watch([search, filterPriority, filterTag, sortBy], () => {
+  localStorage.setItem('board_search', search.value)
+  localStorage.setItem('board_fp', filterPriority.value)
+  localStorage.setItem('board_ft', filterTag.value)
+  localStorage.setItem('board_sort', sortBy.value)
+})
+
+function focusSearch() {
+  searchInput.value?.focus()
+}
+
+// 键盘快捷键：/ 聚焦搜索、N 新建（在输入框内不触发）
+function onKey(e) {
+  const tag = (document.activeElement && document.activeElement.tagName) || ''
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+  if (e.key === '/') {
+    e.preventDefault()
+    focusSearch()
+  } else if (e.key === 'n' || e.key === 'N') {
+    e.preventDefault()
+    emit('create')
+  }
+}
+onMounted(() => window.addEventListener('keydown', onKey))
+onUnmounted(() => window.removeEventListener('keydown', onKey))
 
 function onEnd(evt, targetStatus) {
   const item = lists.value[targetStatus]?.[evt.newIndex]
@@ -57,12 +128,34 @@ const columnMeta = {
     <div class="board-head">
       <div class="board-title">
         <h2 class="gradient-text">任务看板</h2>
-        <p class="muted">拖动卡片在列间移动，感受任务随海浪流转。</p>
+        <p class="muted">拖动卡片在列间移动；按 / 搜索、按 N 新建。</p>
       </div>
       <button class="create-btn" @click="emit('create')">
         <span class="btn-icon">＋</span>
         <span>新建任务</span>
       </button>
+    </div>
+
+    <div class="board-toolbar">
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input ref="searchInput" v-model="search" placeholder="搜索标题或备注…" />
+      </div>
+      <select v-model="filterPriority" class="filter-sel">
+        <option value="">全部优先级</option>
+        <option value="高">高</option>
+        <option value="中">中</option>
+        <option value="低">低</option>
+      </select>
+      <select v-model="filterTag" class="filter-sel">
+        <option value="">全部标签</option>
+        <option v-for="t in allTags" :key="t.name" :value="t.name">{{ t.name }}</option>
+      </select>
+      <select v-model="sortBy" class="filter-sel">
+        <option value="created">最近创建</option>
+        <option value="due">截止日期</option>
+        <option value="priority">优先级</option>
+      </select>
     </div>
 
     <div class="columns">
@@ -134,11 +227,57 @@ const columnMeta = {
   flex-shrink: 0;
 }
 
+.board-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.search-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.search-wrap input {
+  width: 100%;
+  padding: 9px 12px 9px 32px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text);
+}
+
+.filter-sel {
+  padding: 9px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+
 .board-title h2 {
   margin: 0;
   font-size: 26px;
   font-weight: 800;
   letter-spacing: 0.5px;
+  white-space: nowrap;
 }
 
 .board-title p {

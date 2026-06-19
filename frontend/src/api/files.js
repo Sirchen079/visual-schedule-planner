@@ -25,6 +25,18 @@ export function deleteFile(id) {
   return fetch(`${BASE}/${id}`, { method: 'DELETE' }).then(parse)
 }
 
+export function listTrashFiles() {
+  return fetch(`${BASE}/trash`).then(parse)
+}
+
+export function restoreFile(id) {
+  return fetch(`${BASE}/${id}/restore`, { method: 'POST' }).then(parse)
+}
+
+export function purgeFile(id) {
+  return fetch(`${BASE}/${id}/purge`, { method: 'DELETE' }).then(parse)
+}
+
 export function getContentUrl(id) {
   return `${BASE}/${id}/content`
 }

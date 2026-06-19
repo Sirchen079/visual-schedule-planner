@@ -14,16 +14,20 @@ function span(t) {
     : t.created_at
     ? new Date(t.created_at)
     : null
-  const end = t.due_date
-    ? new Date(t.due_date)
-    : t.end_date
+  const end = t.end_date
     ? new Date(t.end_date)
+    : t.due_date
+    ? new Date(t.due_date)
     : null
   return { start, end }
 }
 
-const priColor = (p) =>
-  ({ 高: 'var(--pri-high)', 中: 'var(--pri-mid)', 低: 'var(--pri-low)' })[p] || 'var(--pri-mid)'
+const priMeta = (p) =>
+  ({
+    高: { color: 'var(--pri-high)', glow: 'rgba(242, 107, 122, 0.35)' },
+    中: { color: 'var(--pri-mid)', glow: 'rgba(251, 191, 122, 0.4)' },
+    低: { color: 'var(--pri-low)', glow: 'rgba(116, 230, 156, 0.35)' },
+  })[p] || { color: 'var(--pri-mid)', glow: 'rgba(251, 191, 122, 0.4)' }
 
 const ranged = computed(() =>
   props.tasks.filter((t) => {
@@ -41,7 +45,10 @@ const unscheduled = computed(() =>
 const range = computed(() => {
   if (!ranged.value.length) {
     const now = new Date()
-    return { start: new Date(now.getFullYear(), now.getMonth(), 1), end: new Date(now.getFullYear(), now.getMonth() + 1, 0) }
+    return {
+      start: new Date(now.getFullYear(), now.getMonth(), 1),
+      end: new Date(now.getFullYear(), now.getMonth() + 1, 0),
+    }
   }
   let min = new Date(8640000000000000)
   let max = new Date(0)
@@ -58,7 +65,6 @@ const range = computed(() => {
 const totalMs = computed(() => Math.max(range.value.end - range.value.start, DAY))
 const totalDays = computed(() => Math.ceil(totalMs.value / DAY))
 
-// 范围跨度大时刻度稀疏（每 N 天一个）
 const tickEvery = computed(() => {
   const d = totalDays.value
   if (d <= 14) return 1
@@ -80,12 +86,11 @@ const ticks = computed(() => {
 function posOf(t) {
   const { start, end } = span(t)
   const left = ((start - range.value.start) / totalMs.value) * 100
-  const width = Math.max(((end - start) / totalMs.value) * 100, 1.2)
+  const width = Math.max(((end - start) / totalMs.value) * 100, 1.4)
   return { left, width }
 }
 
 function fillOf(t, p) {
-  // 完成部分覆盖在横条左侧，宽度 = 横条宽 × 进度
   return p.width * ((t.progress || 0) / 100)
 }
 
@@ -97,28 +102,48 @@ function fmt(d) {
 <template>
   <div class="timeline">
     <div class="tl-head">
-      <div>
+      <div class="tl-title">
         <h2 class="gradient-text">时间轴</h2>
-        <p class="muted">每条横条 = 起止时间段；颜色 = 优先级；实色填充 = 完成进度。重叠即冲突。</p>
+        <p class="muted">每条横条 = 起止时间段；实色填充 = 完成进度。</p>
       </div>
-      <button class="create-btn" @click="emit('create')"><span>＋</span> 新建任务</button>
+      <button class="create-btn" @click="emit('create')">
+        <span class="btn-icon">＋</span>
+        <span>新建任务</span>
+      </button>
     </div>
 
-    <div class="legend muted">
-      <span class="dot" style="background: var(--pri-high)"></span>高
-      <span class="dot" style="background: var(--pri-mid)"></span>中
-      <span class="dot" style="background: var(--pri-low)"></span>低
-      <span class="legend-sep">·</span>
-      <span>实色=已完成，半透明=未完成</span>
+    <div class="legend card">
+      <div class="legend-item">
+        <span class="dot" style="background: var(--pri-high)"></span>
+        <span>高优先级</span>
+      </div>
+      <div class="legend-item">
+        <span class="dot" style="background: var(--pri-mid)"></span>
+        <span>中优先级</span>
+      </div>
+      <div class="legend-item">
+        <span class="dot" style="background: var(--pri-low)"></span>
+        <span>低优先级</span>
+      </div>
+      <div class="legend-sep"></div>
+      <div class="legend-item">
+        <span class="bar-sample bg"></span>
+        <span>未完成</span>
+      </div>
+      <div class="legend-item">
+        <span class="bar-sample fill"></span>
+        <span>已完成</span>
+      </div>
     </div>
 
-    <div v-if="!ranged.length" class="card empty muted">
-      还没有带起止时间的任务。在任务里填「开始日期」+「截止日期」，时间轴就能显示。
+    <div v-if="!ranged.length" class="card empty">
+      <div class="empty-icon float-slow">🌊</div>
+      <div class="empty-title">还没有带起止时间的任务</div>
+      <div class="muted">在任务里填「开始日期」+「截止日期」，时间轴就能显示。</div>
     </div>
 
-    <div v-else class="tl-scroll">
-      <div class="tl-grid" :style="{ minWidth: Math.max(totalDays * 26, 600) + 'px' }">
-        <!-- 刻度 -->
+    <div v-else class="tl-scroll card">
+      <div class="tl-grid" :style="{ minWidth: Math.max(totalDays * 28, 640) + 'px' }">
         <div class="scale-row">
           <div class="label-col"></div>
           <div class="scale">
@@ -133,38 +158,47 @@ function fmt(d) {
           </div>
         </div>
 
-        <!-- 任务行 -->
         <div class="row" v-for="t in ranged" :key="t.id">
           <div class="label-col">
             <div class="row-title" :title="t.title" @click="emit('open', t)">{{ t.title }}</div>
-            <div class="row-sub muted">{{ t.priority }} · {{ t.progress }}%</div>
+            <div class="row-sub muted">{{ t.priority }} · {{ t.progress || 0 }}%</div>
           </div>
           <div class="track">
             <div
               class="bar"
-              :style="{ left: posOf(t).left + '%', width: posOf(t).width + '%', background: priColor(t.priority), opacity: 0.3 }"
+              :style="{
+                left: posOf(t).left + '%',
+                width: posOf(t).width + '%',
+                background: priMeta(t.priority).color,
+                boxShadow: `0 0 12px ${priMeta(t.priority).glow}`,
+              }"
               @click="emit('open', t)"
-              :title="`${t.title}（${t.priority}，进度 ${t.progress}%）`"
+              :title="`${t.title}（${t.priority}，进度 ${t.progress || 0}%）`"
             >
-              <span class="bar-text">{{ t.progress }}%</span>
+              <span class="bar-text">{{ t.progress || 0 }}%</span>
             </div>
             <div
               class="fill"
-              :style="{ left: posOf(t).left + '%', width: fillOf(t, posOf(t)) + '%', background: priColor(t.priority) }"
+              :style="{
+                left: posOf(t).left + '%',
+                width: fillOf(t, posOf(t)) + '%',
+                background: priMeta(t.priority).color,
+              }"
               @click="emit('open', t)"
             >
-              <span class="bar-text">{{ t.progress }}%</span>
+              <span class="bar-text">{{ t.progress || 0 }}%</span>
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <section v-if="unscheduled.length" class="unsched">
-      <h3 class="muted">未排期（{{ unscheduled.length }}）</h3>
+    <section v-if="unscheduled.length" class="unsched card">
+      <h3 class="muted">未排期任务（{{ unscheduled.length }}）</h3>
       <div class="chip-list">
         <span class="chip" v-for="t in unscheduled" :key="t.id" @click="emit('open', t)">
-          <span class="dot" :style="{ background: priColor(t.priority) }"></span>{{ t.title }}
+          <span class="dot" :style="{ background: priMeta(t.priority).color }"></span>
+          <span>{{ t.title }}</span>
         </span>
       </div>
     </section>
@@ -175,64 +209,128 @@ function fmt(d) {
 .timeline {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
   height: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
 }
+
 .tl-head {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
   gap: 16px;
+  flex-shrink: 0;
 }
-h2 {
+
+.tl-title h2 {
   margin: 0;
   font-size: 26px;
   font-weight: 800;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
 }
-p {
+
+.tl-title p {
   margin: 6px 0 0;
   font-size: 14px;
 }
+
 .create-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 10px 18px;
-  border-radius: var(--radius-pill);
+  gap: 5px;
+  padding: 11px 22px;
+  font-size: 14px;
   font-weight: 600;
 }
-.legend {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-.dot {
+
+.btn-icon {
   display: inline-block;
-  width: 10px;
-  height: 10px;
+  font-size: 16px;
+  transition: transform 0.3s ease;
+}
+
+.create-btn:hover .btn-icon {
+  transform: rotate(90deg);
+}
+
+.legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 18px;
+  align-self: flex-start;
+  flex-wrap: wrap;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text-soft);
+  font-weight: 500;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
 }
+
 .legend-sep {
-  margin: 0 4px;
+  width: 1px;
+  height: 18px;
+  background: var(--border);
 }
+
+.bar-sample {
+  width: 20px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+}
+
+.bar-sample.bg {
+  background: var(--pri-mid);
+  opacity: 0.3;
+}
+
+.bar-sample.fill {
+  background: var(--pri-mid);
+}
+
 .empty {
   text-align: center;
-  padding: 36px;
+  padding: 52px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
 }
+
+.empty-icon {
+  font-size: 44px;
+  opacity: 0.75;
+}
+
+.empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
 .tl-scroll {
   flex: 1;
   overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  padding: 8px 0;
-  box-shadow: var(--shadow-sm);
+  padding: 14px 0;
 }
+
 .tl-grid {
   display: flex;
   flex-direction: column;
 }
+
 .scale-row {
   display: flex;
   align-items: flex-end;
@@ -240,27 +338,33 @@ p {
   top: 0;
   z-index: 2;
   background: var(--surface);
-  padding-bottom: 6px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
 }
+
 .label-col {
-  width: 160px;
+  width: 170px;
   flex-shrink: 0;
-  padding: 0 12px;
+  padding: 0 14px;
 }
+
 .scale {
   position: relative;
   flex: 1;
-  height: 22px;
+  height: 26px;
 }
+
 .tick {
   position: absolute;
   top: 0;
   transform: translateX(-50%);
   font-size: 12px;
   color: var(--text-soft);
+  font-weight: 600;
   white-space: nowrap;
 }
+
 .tick::after {
   content: '';
   position: absolute;
@@ -269,16 +373,21 @@ p {
   bottom: -100vh;
   width: 1px;
   background: var(--border);
-  opacity: 0.5;
+  opacity: 0.45;
 }
+
 .row {
   display: flex;
   align-items: center;
-  height: 46px;
+  height: 52px;
+  border-radius: var(--radius-sm);
+  transition: background 0.2s ease;
 }
+
 .row:hover {
   background: var(--surface-2);
 }
+
 .row-title {
   font-weight: 600;
   font-size: 14px;
@@ -286,75 +395,112 @@ p {
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
+  transition: color 0.15s ease;
 }
+
+.row-title:hover {
+  color: var(--accent);
+}
+
 .row-sub {
   font-size: 12px;
+  margin-top: 2px;
 }
+
 .track {
   position: relative;
   flex: 1;
-  height: 28px;
+  height: 32px;
 }
+
 .bar,
 .fill {
   position: absolute;
-  top: 4px;
-  height: 20px;
-  border-radius: 999px;
+  top: 5px;
+  height: 22px;
+  border-radius: var(--radius-pill);
   cursor: pointer;
   display: flex;
   align-items: center;
-  padding-left: 8px;
+  padding-left: 10px;
   overflow: hidden;
-  transition: filter 0.2s ease;
+  transition: transform 0.2s ease, filter 0.2s ease;
 }
+
 .bar {
   z-index: 1;
+  opacity: 0.28;
 }
+
 .fill {
   z-index: 2;
-  filter: brightness(1);
 }
+
 .bar:hover,
 .fill:hover {
-  filter: brightness(1.08) drop-shadow(0 2px 6px rgba(0, 0, 0, 0.15));
+  transform: translateY(-1px);
+  filter: brightness(1.05);
 }
+
 .bar-text {
   font-size: 11px;
   color: #fff;
   font-weight: 700;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
   white-space: nowrap;
 }
+
 .unsched {
-  margin-top: 4px;
+  padding: 16px 18px;
 }
+
 .unsched h3 {
-  margin: 0 0 8px;
-  font-size: 14px;
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
 }
+
 .chip-list {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
+
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 12px;
+  padding: 6px 13px;
   border-radius: var(--radius-pill);
-  background: var(--surface);
+  background: var(--surface-2);
   border: 1px solid var(--border);
   font-size: 13px;
   cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
+
 .chip:hover {
-  background: var(--surface-2);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+  background: var(--surface);
 }
+
 @media (max-width: 720px) {
+  .tl-head {
+    align-items: center;
+  }
+  .tl-title p {
+    display: none;
+  }
+  .legend {
+    gap: 10px 14px;
+  }
+  .legend-sep {
+    display: none;
+  }
   .label-col {
-    width: 110px;
+    width: 120px;
+    padding: 0 10px;
   }
   .row-sub {
     display: none;

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import TaskForm from './TaskForm.vue'
 import { attachFile, detachFile, getContentUrl, listFiles } from '../api/files'
+import { createSubtask, deleteSubtask, updateSubtask } from '../api/tasks'
 
 const props = defineProps({
   task: { type: Object, default: null },
@@ -34,6 +35,29 @@ async function doAttach() {
 async function doDetach(file) {
   if (!props.task) return
   await detachFile(props.task.id, file.id)
+  emit('changed')
+}
+
+// 子任务：本地维护列表，增删/勾选后通知父组件刷新（进度由后端按完成率联动）
+const subtasks = ref([...(props.task?.subtasks || [])])
+const newSub = ref('')
+
+async function addSub() {
+  if (!props.task || !newSub.value.trim()) return
+  const s = await createSubtask(props.task.id, newSub.value.trim())
+  subtasks.value.push(s)
+  newSub.value = ''
+  emit('changed')
+}
+async function toggleSub(s) {
+  const updated = await updateSubtask(props.task.id, s.id, { done: !s.done })
+  const i = subtasks.value.findIndex((x) => x.id === s.id)
+  if (i !== -1) subtasks.value[i] = updated
+  emit('changed')
+}
+async function removeSub(s) {
+  await deleteSubtask(props.task.id, s.id)
+  subtasks.value = subtasks.value.filter((x) => x.id !== s.id)
   emit('changed')
 }
 </script>
@@ -73,6 +97,22 @@ async function doDetach(file) {
           <button type="button" @click="doAttach">添加</button>
         </div>
         <div v-else class="muted empty-text">资料库暂无可添加文件。</div>
+      </section>
+
+      <section v-if="task" class="subtasks-section">
+        <h3><span class="section-icon">✅</span>子任务<span class="muted hint">进度按完成率自动计算</span></h3>
+        <div v-if="!subtasks.length" class="muted empty-text">还没有子任务，拆成小步更容易推进。</div>
+        <div class="subtask-row" v-for="s in subtasks" :key="s.id">
+          <label class="sub-check">
+            <input type="checkbox" :checked="s.done" @change="toggleSub(s)" />
+            <span :class="{ done: s.done }">{{ s.title }}</span>
+          </label>
+          <button class="ghost sub-del" @click="removeSub(s)">✕</button>
+        </div>
+        <div class="sub-add">
+          <input v-model="newSub" placeholder="添加子任务，回车确认" @keydown.enter.prevent="addSub" />
+          <button type="button" @click="addSub">添加</button>
+        </div>
       </section>
 
       <button v-if="task" class="danger" @click="emit('delete', task)">删除任务</button>
@@ -258,6 +298,71 @@ async function doDetach(file) {
 
 .danger {
   margin-top: 2px;
+}
+
+.subtasks-section {
+  margin-top: 2px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.subtasks-section h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hint {
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.subtask-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  margin-bottom: 6px;
+}
+
+.sub-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  font-size: 14px;
+  min-width: 0;
+}
+
+.sub-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.sub-check .done {
+  text-decoration: line-through;
+  color: var(--text-soft);
+}
+
+.sub-del {
+  padding: 3px 9px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.sub-add {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  margin-top: 10px;
 }
 
 @media (max-width: 520px) {

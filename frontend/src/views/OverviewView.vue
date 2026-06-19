@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 const props = defineProps({
   tasks: { type: Array, required: true },
@@ -12,34 +12,52 @@ function startOfDay(d) {
   return x
 }
 
-const now = new Date()
-const todayStart = startOfDay(now)
-const todayEnd = new Date(todayStart)
-todayEnd.setHours(23, 59, 59, 999)
-const weekEnd = new Date(todayStart)
-const daysToSunday = 7 - (now.getDay() || 7) + 1
-weekEnd.setDate(weekEnd.getDate() + daysToSunday - 1)
-weekEnd.setHours(23, 59, 59, 999)
+// 跨天后自动刷新日期边界，避免总览"卡在昨天"
+const todayMarker = ref(new Date())
+let dateTimer = null
+onMounted(() => {
+  dateTimer = setInterval(() => {
+    const n = new Date()
+    if (n.toDateString() !== todayMarker.value.toDateString()) todayMarker.value = n
+  }, 60000)
+})
+onUnmounted(() => {
+  if (dateTimer) clearInterval(dateTimer)
+})
+
+const todayStart = computed(() => startOfDay(todayMarker.value))
+const todayEnd = computed(() => {
+  const e = new Date(todayStart.value)
+  e.setHours(23, 59, 59, 999)
+  return e
+})
+const weekEnd = computed(() => {
+  const w = new Date(todayStart.value)
+  const daysToSunday = 7 - (todayMarker.value.getDay() || 7) + 1
+  w.setDate(w.getDate() + daysToSunday - 1)
+  w.setHours(23, 59, 59, 999)
+  return w
+})
 
 const active = computed(() => props.tasks.filter((t) => t.status !== '完成'))
 const todayDue = computed(() =>
   active.value.filter((t) => {
     if (!t.due_date) return false
     const d = new Date(t.due_date)
-    return d >= todayStart && d <= todayEnd
+    return d >= todayStart.value && d <= todayEnd.value
   })
 )
 const weekDue = computed(() =>
   active.value.filter((t) => {
     if (!t.due_date) return false
     const d = new Date(t.due_date)
-    return d > todayEnd && d <= weekEnd
+    return d > todayEnd.value && d <= weekEnd.value
   })
 )
 const overdue = computed(() =>
   active.value.filter((t) => {
     if (!t.due_date) return false
-    return new Date(t.due_date) < todayStart
+    return new Date(t.due_date) < todayStart.value
   })
 )
 
@@ -155,6 +173,7 @@ const stats = computed(() => [
   font-size: 26px;
   font-weight: 800;
   letter-spacing: 0.5px;
+  white-space: nowrap;
 }
 
 .overview-head p {
