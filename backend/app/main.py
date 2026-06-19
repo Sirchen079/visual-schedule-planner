@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from app.database import engine
 from app.models import Base
 from app.routers import files, reminders, tasks
+from app.services import backup_service
 
 
 def init_db() -> None:
@@ -19,6 +20,8 @@ def init_db() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    # 启动即备份一份当天数据库，守护"数据不丢"这条 north star 红线
+    backup_service.backup_if_due()
     yield
 
 
@@ -31,7 +34,17 @@ app.include_router(reminders.router)
 @app.post("/shutdown")
 def shutdown():
     """从网页端关闭本地服务。仅用于本地单机应用。"""
-    threading.Timer(0.5, lambda: os._exit(0)).start()
+    def _graceful_exit():
+        # 退出前再备一份最新数据库，并正常关闭连接确保 journal 落盘
+        try:
+            backup_service.backup_db()
+        except Exception:
+            # 备份失败不阻止退出
+            pass
+        engine.dispose()
+        os._exit(0)
+
+    threading.Timer(0.5, _graceful_exit).start()
     return {"status": "shutting_down"}
 
 

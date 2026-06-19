@@ -23,6 +23,14 @@ def list_files(q: str | None = None, db: Session = Depends(get_db)):
     return file_service.list_files(db, q)
 
 
+# 注意：/files/trash 必须在 /files/{file_id} 之前注册
+@router.get("/files/trash", response_model=list[FileResponse])
+def list_trash_files(db: Session = Depends(get_db)):
+    # 惰性清理：访问回收站时顺手清掉超期项（含磁盘文件）
+    file_service.purge_expired(db)
+    return file_service.list_trash(db)
+
+
 @router.get("/files/{file_id}", response_model=FileResponse)
 def get_file(file_id: int, db: Session = Depends(get_db)):
     db_file = file_service.get_file(db, file_id)
@@ -54,10 +62,24 @@ def file_content(file_id: int, db: Session = Depends(get_db)):
     )
 
 
+@router.post("/files/{file_id}/restore", response_model=FileResponse)
+def restore_file(file_id: int, db: Session = Depends(get_db)):
+    db_file = file_service.restore_file(db, file_id)
+    if db_file is None:
+        raise HTTPException(status_code=404, detail="回收站中无此文件")
+    return db_file
+
+
 @router.delete("/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_file(file_id: int, db: Session = Depends(get_db)):
     if not file_service.soft_delete_file(db, file_id):
         raise HTTPException(status_code=404, detail="文件不存在")
+
+
+@router.delete("/files/{file_id}/purge", status_code=status.HTTP_204_NO_CONTENT)
+def purge_file(file_id: int, db: Session = Depends(get_db)):
+    if not file_service.purge_file(db, file_id):
+        raise HTTPException(status_code=404, detail="回收站中无此文件")
 
 
 @router.get("/tasks/{task_id}/files", response_model=list[FileResponse])

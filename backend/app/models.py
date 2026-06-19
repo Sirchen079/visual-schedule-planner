@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Table, Text, func
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -16,6 +16,14 @@ task_file = Table(
     Base.metadata,
     Column("task_id", ForeignKey("tasks.id"), primary_key=True),
     Column("file_id", ForeignKey("files.id"), primary_key=True),
+)
+
+
+task_tag = Table(
+    "task_tag",
+    Base.metadata,
+    Column("task_id", ForeignKey("tasks.id"), primary_key=True),
+    Column("tag_id", ForeignKey("tags.id"), primary_key=True),
 )
 
 
@@ -42,6 +50,12 @@ class Task(Base):
     files: Mapped[list["File"]] = relationship(
         "File", secondary=task_file, back_populates="tasks"
     )
+    tags: Mapped[list["Tag"]] = relationship(
+        "Tag", secondary=task_tag, back_populates="tasks"
+    )
+    subtasks: Mapped[list["Subtask"]] = relationship(
+        "Subtask", back_populates="task", cascade="all, delete-orphan", order_by="Subtask.id"
+    )
 
 
 class File(Base):
@@ -61,3 +75,31 @@ class File(Base):
     tasks: Mapped[list[Task]] = relationship(
         "Task", secondary=task_file, back_populates="files"
     )
+
+
+class Tag(Base):
+    """标签（分类）：任务按名字关联，颜色用于日历等着色。"""
+
+    __tablename__ = "tags"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
+    color: Mapped[str] = mapped_column(String(20), default="#74ccf2")
+
+    tasks: Mapped[list[Task]] = relationship(
+        "Task", secondary=task_tag, back_populates="tags"
+    )
+
+
+class Subtask(Base):
+    """任务子项：勾选用于自动计算父任务完成进度。"""
+
+    __tablename__ = "subtasks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), index=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    done: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    task: Mapped["Task"] = relationship("Task", back_populates="subtasks")

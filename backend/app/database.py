@@ -8,8 +8,9 @@ from app.config import settings
 # 确保数据目录存在
 settings.database_dir.mkdir(parents=True, exist_ok=True)
 settings.files_dir.mkdir(parents=True, exist_ok=True)
+settings.backup_dir.mkdir(parents=True, exist_ok=True)
 
-DATABASE_URL = f"sqlite:///{settings.database_dir / 'app.db'}"
+DATABASE_URL = f"sqlite:///{settings.db_path}"
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
