@@ -198,6 +198,8 @@ async function undoDelete() {
 
     <Transition name="toast">
       <div v-if="toast" class="toast">
+        <span class="toast-bar"></span>
+        <span class="toast-icon float">↩️</span>
         <span class="toast-msg">{{ toast.message }}</span>
         <button class="toast-undo" @click="undoDelete">撤销</button>
         <button class="ghost toast-close" @click="dismissToast">✕</button>
@@ -453,8 +455,8 @@ async function undoDelete() {
   z-index: 200;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 12px 18px;
+  gap: 12px;
+  padding: 11px 16px 11px 12px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
@@ -462,6 +464,21 @@ async function undoDelete() {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   font-size: 14px;
+  overflow: hidden;
+}
+
+.toast-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  background: linear-gradient(180deg, var(--sea-300), var(--accent), var(--foam-400));
+}
+
+.toast-icon {
+  font-size: 18px;
+  filter: drop-shadow(0 2px 4px var(--accent-glow));
 }
 
 .toast-msg {
@@ -469,10 +486,8 @@ async function undoDelete() {
 }
 
 .toast-undo {
-  color: var(--accent);
-  font-weight: 700;
-  padding: 4px 12px;
-  border-radius: var(--radius-pill);
+  padding: 6px 16px;
+  font-size: 13px;
 }
 
 .toast-close {

@@ -61,7 +61,10 @@ onMounted(load)
 <template>
   <div class="trash">
     <div class="trash-head animate-in">
-      <h2 class="gradient-text"><span class="head-icon float">🌊</span>回收站</h2>
+      <div class="head-wave"></div>
+      <h2 class="gradient-text">
+        <span class="head-icon float">🌊</span>回收站
+      </h2>
       <p class="muted">误删的东西在这里暂存 30 天，可随时恢复或彻底清除。</p>
     </div>
 
@@ -76,15 +79,16 @@ onMounted(load)
       class="card group animate-in"
       style="animation-delay: 0.05s"
     >
-      <h3><span class="section-icon">🗂️</span>任务（{{ tasks.length }}）</h3>
+      <h3><span class="section-icon">🗂️</span>任务<span class="count-pill">{{ tasks.length }}</span></h3>
       <div class="row" v-for="t in tasks" :key="t.id">
+        <div class="row-icon" style="--ic: var(--cat-mentor)">🗂️</div>
         <div class="row-main">
           <span class="row-title">{{ t.title }}</span>
-          <span class="muted row-meta">删除于 {{ timeText(t.deleted_at) }}</span>
+          <span class="row-time"><span>🗑️</span>{{ timeText(t.deleted_at) }}</span>
         </div>
         <div class="row-actions">
-          <button class="ghost" @click="restoreTaskItem(t)">恢复</button>
-          <button class="ghost danger-text" @click="purgeTaskItem(t)">彻底删除</button>
+          <button class="restore-btn" @click="restoreTaskItem(t)"><span>↩</span>恢复</button>
+          <button class="ghost purge-btn" @click="purgeTaskItem(t)">彻底删除</button>
         </div>
       </div>
     </section>
@@ -94,22 +98,24 @@ onMounted(load)
       class="card group animate-in"
       style="animation-delay: 0.1s"
     >
-      <h3><span class="section-icon">📎</span>文件（{{ files.length }}）</h3>
+      <h3><span class="section-icon">📎</span>文件<span class="count-pill">{{ files.length }}</span></h3>
       <div class="row" v-for="f in files" :key="f.id">
+        <div class="row-icon" style="--ic: var(--cat-misc)">📎</div>
         <div class="row-main">
           <span class="row-title">{{ f.original_name }}</span>
-          <span class="muted row-meta">删除于 {{ timeText(f.deleted_at) }}</span>
+          <span class="row-time"><span>🗑️</span>{{ timeText(f.deleted_at) }}</span>
         </div>
         <div class="row-actions">
-          <button class="ghost" @click="restoreFileItem(f)">恢复</button>
-          <button class="ghost danger-text" @click="purgeFileItem(f)">彻底删除</button>
+          <button class="restore-btn" @click="restoreFileItem(f)"><span>↩</span>恢复</button>
+          <button class="ghost purge-btn" @click="purgeFileItem(f)">彻底删除</button>
         </div>
       </div>
     </section>
 
     <div v-if="!loading && !tasks.length && !files.length" class="card empty animate-in">
       <div class="empty-icon float-slow">🏖️</div>
-      <div>回收站是空的，海湾很干净。</div>
+      <div class="empty-title">回收站是空的</div>
+      <div class="muted">海湾很干净，没有漂浮的杂物。</div>
     </div>
   </div>
 </template>
@@ -121,6 +127,22 @@ onMounted(load)
   gap: 18px;
   max-width: 860px;
   margin: 0 auto;
+}
+
+.trash-head {
+  position: relative;
+  padding-top: 6px;
+}
+
+.head-wave {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 64px;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--sea-300), var(--accent), var(--foam-400));
+  opacity: 0.8;
 }
 
 .trash-head h2 {
@@ -154,21 +176,33 @@ onMounted(load)
   display: flex;
   align-items: center;
   gap: 8px;
+  color: var(--text);
 }
 
 .section-icon {
   font-size: 18px;
 }
 
+.count-pill {
+  margin-left: 2px;
+  padding: 1px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-inset);
+}
+
 .row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 14px;
+  gap: 13px;
   padding: 12px 14px;
   border-radius: var(--radius-sm);
   background: var(--surface-2);
-  margin-bottom: 8px;
+  margin-bottom: 9px;
   border: 1px solid transparent;
   box-shadow: var(--shadow-inset);
   transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
@@ -180,11 +214,26 @@ onMounted(load)
   box-shadow: var(--shadow-sm), var(--shadow-inset);
 }
 
+.row-icon {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  font-size: 18px;
+  background: color-mix(in srgb, var(--ic, var(--accent)) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ic, var(--accent)) 28%, transparent);
+  box-shadow: var(--shadow-inset);
+}
+
 .row-main {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
+  flex: 1;
 }
 
 .row-title {
@@ -193,10 +242,20 @@ onMounted(load)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--text);
 }
 
-.row-meta {
-  font-size: 12px;
+.row-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  width: fit-content;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  border: 1px solid var(--border);
 }
 
 .row-actions {
@@ -205,24 +264,49 @@ onMounted(load)
   flex-shrink: 0;
 }
 
-.row-actions button {
-  padding: 6px 14px;
+.restore-btn {
+  padding: 7px 15px;
   font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
-.danger-text {
+.restore-btn span {
+  font-size: 14px;
+}
+
+.purge-btn {
+  padding: 7px 14px;
+  font-size: 13px;
   color: var(--pri-high);
+}
+
+.purge-btn:hover {
+  background: rgba(242, 107, 122, 0.12);
+  color: var(--pri-high);
+  box-shadow: 0 4px 12px rgba(242, 107, 122, 0.2), var(--shadow-inset);
 }
 
 .empty {
   text-align: center;
-  padding: 50px 20px;
+  padding: 56px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
 }
 
 .empty-icon {
-  font-size: 42px;
-  margin-bottom: 12px;
-  opacity: 0.8;
+  font-size: 46px;
+  margin-bottom: 8px;
+  opacity: 0.85;
+}
+
+.empty-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
 }
 
 .center {
@@ -253,5 +337,15 @@ onMounted(load)
   color: var(--pri-high);
   background: rgba(242, 107, 122, 0.08);
   padding: 14px 18px;
+}
+
+@media (max-width: 600px) {
+  .row {
+    flex-wrap: wrap;
+  }
+  .row-actions {
+    width: 100%;
+    margin-left: 51px;
+  }
 }
 </style>

@@ -137,25 +137,35 @@ const columnMeta = {
     </div>
 
     <div class="board-toolbar">
-      <div class="search-wrap">
-        <span class="search-icon">🔍</span>
+      <div class="ctl">
+        <span class="ctl-ico">🔍</span>
         <input ref="searchInput" v-model="search" placeholder="搜索标题或备注…" />
       </div>
-      <select v-model="filterPriority" class="filter-sel">
-        <option value="">全部优先级</option>
-        <option value="高">高</option>
-        <option value="中">中</option>
-        <option value="低">低</option>
-      </select>
-      <select v-model="filterTag" class="filter-sel">
-        <option value="">全部标签</option>
-        <option v-for="t in allTags" :key="t.name" :value="t.name">{{ t.name }}</option>
-      </select>
-      <select v-model="sortBy" class="filter-sel">
-        <option value="created">最近创建</option>
-        <option value="due">截止日期</option>
-        <option value="priority">优先级</option>
-      </select>
+      <span class="tb-divider"></span>
+      <div class="ctl">
+        <span class="ctl-ico">🎯</span>
+        <select v-model="filterPriority">
+          <option value="">全部优先级</option>
+          <option value="高">高</option>
+          <option value="中">中</option>
+          <option value="低">低</option>
+        </select>
+      </div>
+      <div class="ctl">
+        <span class="ctl-ico">🏷️</span>
+        <select v-model="filterTag">
+          <option value="">全部标签</option>
+          <option v-for="t in allTags" :key="t.name" :value="t.name">{{ t.name }}</option>
+        </select>
+      </div>
+      <div class="ctl">
+        <span class="ctl-ico">↕️</span>
+        <select v-model="sortBy">
+          <option value="created">最近创建</option>
+          <option value="due">截止日期</option>
+          <option value="priority">优先级</option>
+        </select>
+      </div>
     </div>
 
     <div class="columns">
@@ -235,41 +245,52 @@ const columnMeta = {
   flex-shrink: 0;
 }
 
-.search-wrap {
+.ctl {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.ctl:first-child {
   flex: 1;
   min-width: 200px;
   max-width: 320px;
 }
 
-.search-icon {
+.ctl-ico {
   position: absolute;
-  left: 12px;
-  top: 50%;
-  transform: translateY(-50%);
+  left: 14px;
   font-size: 13px;
-  opacity: 0.6;
+  opacity: 0.55;
   pointer-events: none;
+  z-index: 1;
 }
 
-.search-wrap input {
+.ctl input {
   width: 100%;
-  padding: 9px 12px 9px 32px;
+  padding-left: 36px;
+  height: 40px;
   border-radius: var(--radius-pill);
-  background: var(--surface);
-  border: 1px solid var(--border);
   font-size: 13px;
-  color: var(--text);
 }
 
-.filter-sel {
-  padding: 9px 12px;
+.ctl select {
+  width: auto;
+  padding-left: 36px;
+  padding-right: 30px;
+  height: 40px;
   border-radius: var(--radius-pill);
-  background: var(--surface);
-  border: 1px solid var(--border);
   font-size: 13px;
-  color: var(--text);
   cursor: pointer;
+}
+
+.tb-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--border-strong);
+  opacity: 0.55;
+  flex-shrink: 0;
 }
 
 .board-title h2 {

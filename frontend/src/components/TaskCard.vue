@@ -30,6 +30,12 @@ const subDoneCount = computed(
   () => (props.task.subtasks || []).filter((s) => s.done).length
 )
 
+const subPct = computed(() => {
+  const all = props.task.subtasks || []
+  if (!all.length) return 0
+  return Math.round((subDoneCount.value / all.length) * 100)
+})
+
 function fmtTime(t) {
   if (!t) return ''
   return new Date(t).toLocaleString('zh-CN', {
@@ -63,8 +69,8 @@ function fmtTime(t) {
           <span class="bar"><span class="fill" :style="{ width: task.progress + '%' }"></span></span>
           <span>{{ task.progress }}%</span>
         </span>
-        <span v-if="task.subtasks?.length" class="subs">
-          <span class="meta-icon">✓</span>
+        <span v-if="task.subtasks?.length" class="subs-badge">
+          <span class="meta-icon">✅</span>
           <span>{{ subDoneCount }}/{{ task.subtasks.length }}</span>
         </span>
         <span v-if="task.files?.length" class="files">
@@ -72,11 +78,24 @@ function fmtTime(t) {
           <span>{{ task.files.length }}</span>
         </span>
       </div>
+
       <div v-if="task.subtasks?.length" class="sub-list">
+        <div class="sub-head">
+          <span class="sub-head-icon float-slow">🐚</span>
+          <span class="sub-head-text">子任务进度</span>
+          <span class="sub-head-pct">{{ subPct }}%</span>
+          <span class="sub-mini">
+            <span class="sub-mini-fill" :style="{ width: subPct + '%' }"></span>
+          </span>
+        </div>
         <div class="sub-item" v-for="s in task.subtasks" :key="s.id">
-          <span class="sub-mark" :class="{ done: s.done }">{{ s.done ? '✓' : '' }}</span>
+          <span class="sub-check" :class="{ done: s.done }">
+            <span v-if="s.done">✓</span>
+          </span>
           <span class="sub-title" :class="{ done: s.done }">{{ s.title }}</span>
-          <span v-if="s.completed_at" class="sub-time">{{ fmtTime(s.completed_at) }}</span>
+          <span v-if="s.completed_at" class="sub-done-tag">
+            <span>🕐</span><span>{{ fmtTime(s.completed_at) }}</span>
+          </span>
         </div>
       </div>
     </div>
@@ -199,13 +218,21 @@ function fmtTime(t) {
   transition: width 0.5s ease;
 }
 
-.subs {
+/* 子任务完成度徽标（常驻 meta 行） */
+.subs-badge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-weight: 700;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-inset);
 }
 
-/* hover 展开子任务：默认收起，悬停时展开 */
+/* hover 展开子任务详情 */
 .sub-list {
   max-height: 0;
   overflow: hidden;
@@ -215,43 +242,85 @@ function fmtTime(t) {
 }
 
 .task-card:hover .sub-list {
-  max-height: 300px;
+  max-height: 340px;
   opacity: 1;
-  margin-top: 11px;
+  margin-top: 12px;
+}
+
+.sub-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  border-radius: var(--radius-xs);
+  background: linear-gradient(135deg, var(--accent-soft), var(--surface-2));
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-inset);
+  margin-bottom: 4px;
+}
+
+.sub-head-icon {
+  font-size: 14px;
+}
+
+.sub-head-text {
+  flex: 1;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-soft);
+}
+
+.sub-head-pct {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--accent-hover);
+}
+
+.sub-mini {
+  width: 52px;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.sub-mini-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--sea-300));
+  border-radius: var(--radius-pill);
+  transition: width 0.5s ease;
 }
 
 .sub-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 2px;
+  gap: 9px;
+  padding: 6px 4px;
   font-size: 12.5px;
-  border-top: 1px dashed var(--border);
 }
 
-.sub-item:first-child {
-  border-top: none;
-}
-
-.sub-mark {
-  width: 15px;
-  height: 15px;
+.sub-check {
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 800;
   flex-shrink: 0;
-  color: var(--text-muted);
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--border-strong);
+  color: transparent;
+  background: var(--surface);
   box-shadow: var(--shadow-inset);
-  transition: background 0.2s ease, border-color 0.2s ease;
+  transition: background 0.25s ease, border-color 0.25s ease;
 }
 
-.sub-mark.done {
-  background: var(--pri-low);
-  border-color: var(--pri-low);
+.sub-check.done {
+  background: linear-gradient(135deg, var(--foam-400), var(--foam-500));
+  border-color: var(--foam-500);
   color: #fff;
 }
 
@@ -269,9 +338,17 @@ function fmtTime(t) {
   color: var(--text-muted);
 }
 
-.sub-time {
-  font-size: 11px;
-  color: var(--text-muted);
+.sub-done-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--foam-500);
+  background: rgba(116, 230, 156, 0.12);
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(116, 230, 156, 0.25);
   flex-shrink: 0;
 }
 </style>

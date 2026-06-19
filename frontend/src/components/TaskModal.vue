@@ -41,6 +41,12 @@ async function doDetach(file) {
 // 子任务：本地维护列表，增删/勾选后通知父组件刷新（进度由后端按完成率联动）
 const subtasks = ref([...(props.task?.subtasks || [])])
 const newSub = ref('')
+const subDoneCount = computed(() => subtasks.value.filter((s) => s.done).length)
+const subPct = computed(() =>
+  subtasks.value.length
+    ? Math.round((subDoneCount.value / subtasks.value.length) * 100)
+    : 0
+)
 
 async function addSub() {
   if (!props.task || !newSub.value.trim()) return
@@ -100,9 +106,18 @@ async function removeSub(s) {
       </section>
 
       <section v-if="task" class="subtasks-section">
-        <h3><span class="section-icon">✅</span>子任务<span class="muted hint">进度按完成率自动计算</span></h3>
+        <h3>
+          <span class="section-icon">✅</span>子任务
+          <span class="muted hint">进度按完成率自动计算</span>
+        </h3>
+        <div v-if="subtasks.length" class="sub-progress">
+          <span class="sub-progress-text">{{ subDoneCount }}/{{ subtasks.length }} 完成 · {{ subPct }}%</span>
+          <span class="sub-progress-bar">
+            <span class="sub-progress-fill" :style="{ width: subPct + '%' }"></span>
+          </span>
+        </div>
         <div v-if="!subtasks.length" class="muted empty-text">还没有子任务，拆成小步更容易推进。</div>
-        <div class="subtask-row" v-for="s in subtasks" :key="s.id">
+        <div class="subtask-row" :class="{ done: s.done }" v-for="s in subtasks" :key="s.id">
           <label class="sub-check">
             <input type="checkbox" :checked="s.done" @change="toggleSub(s)" />
             <span :class="{ done: s.done }">{{ s.title }}</span>
@@ -318,6 +333,47 @@ async function removeSub(s) {
 .hint {
   font-size: 12px;
   font-weight: 400;
+}
+
+.sub-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 9px 12px;
+  border-radius: var(--radius-xs);
+  background: linear-gradient(135deg, var(--accent-soft), var(--surface-2));
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-inset);
+}
+
+.sub-progress-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-soft);
+  white-space: nowrap;
+}
+
+.sub-progress-bar {
+  flex: 1;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.sub-progress-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--sea-300));
+  border-radius: var(--radius-pill);
+  transition: width 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.subtask-row.done {
+  background: rgba(116, 230, 156, 0.08);
+  border-color: rgba(116, 230, 156, 0.22);
 }
 
 .subtask-row {
