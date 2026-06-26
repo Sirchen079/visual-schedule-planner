@@ -84,7 +84,10 @@ const monthStats = computed(() => {
   <div class="calendar">
     <div class="cal-head">
       <div class="cal-title">
-        <h2 class="gradient-text">日历视图</h2>
+        <h2 class="page-title">
+          <span class="page-title-icon float">📅</span>
+          <span class="gradient-text">日历视图</span>
+        </h2>
         <p class="muted">按截止日期看任务分布，一眼发现哪天扎堆。</p>
       </div>
       <div class="cal-actions">

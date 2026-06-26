@@ -71,7 +71,10 @@ onMounted(load)
   <div class="library">
     <div class="library-head">
       <div>
-        <h2 class="gradient-text">资料库</h2>
+        <h2 class="page-title">
+        <span class="page-title-icon float">📚</span>
+        <span class="gradient-text">资料库</span>
+      </h2>
         <p class="muted">论文、课件、截图、数据文件都可以先放进海湾。</p>
       </div>
       <button class="upload-btn" @click="input?.click()">

@@ -127,7 +127,10 @@ const columnMeta = {
   <div class="board">
     <div class="board-head">
       <div class="board-title">
-        <h2 class="gradient-text">任务看板</h2>
+        <h2 class="page-title">
+          <span class="page-title-icon float">📋</span>
+          <span class="gradient-text">任务看板</span>
+        </h2>
         <p class="muted">拖动卡片在列间移动；按 / 搜索、按 N 新建。</p>
       </div>
       <button class="create-btn" @click="emit('create')">

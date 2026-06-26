@@ -83,7 +83,10 @@ const stats = computed(() => [
 <template>
   <div class="overview">
     <div class="overview-head">
-      <h2 class="gradient-text">日程总览</h2>
+      <h2 class="page-title">
+        <span class="page-title-icon float">🗺️</span>
+        <span class="gradient-text">日程总览</span>
+      </h2>
       <p class="muted">像俯瞰一片海湾，看清每颗贝壳的位置。</p>
     </div>
 

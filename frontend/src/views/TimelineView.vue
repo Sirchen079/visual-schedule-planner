@@ -103,7 +103,10 @@ function fmt(d) {
   <div class="timeline">
     <div class="tl-head">
       <div class="tl-title">
-        <h2 class="gradient-text">时间轴</h2>
+        <h2 class="page-title">
+          <span class="page-title-icon float">📈</span>
+          <span class="gradient-text">时间轴</span>
+        </h2>
         <p class="muted">每条横条 = 起止时间段；实色填充 = 完成进度。</p>
       </div>
       <button class="create-btn" @click="emit('create')">

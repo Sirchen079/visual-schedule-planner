@@ -61,9 +61,9 @@ onMounted(load)
 <template>
   <div class="trash">
     <div class="trash-head animate-in">
-      <div class="head-wave"></div>
-      <h2 class="gradient-text">
-        <span class="head-icon float">🌊</span>回收站
+      <h2 class="page-title">
+        <span class="page-title-icon float">🗑️</span>
+        <span class="gradient-text">回收站</span>
       </h2>
       <p class="muted">误删的东西在这里暂存 30 天，可随时恢复或彻底清除。</p>
     </div>
@@ -131,18 +131,6 @@ onMounted(load)
 
 .trash-head {
   position: relative;
-  padding-top: 6px;
-}
-
-.head-wave {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 64px;
-  height: 5px;
-  border-radius: var(--radius-pill);
-  background: linear-gradient(90deg, var(--sea-300), var(--accent), var(--foam-400));
-  opacity: 0.8;
 }
 
 .trash-head h2 {
