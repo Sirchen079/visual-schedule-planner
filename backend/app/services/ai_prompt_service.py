@@ -46,11 +46,13 @@ def build_system_prompt(db: Session, config: AIConfig) -> str:
 用户说今天、明天、本周、下周、下周六、月底等相对日期时，必须基于当前本地日期换算成明确日期。
 创建任务、日程或提醒时，start_date/end_date/due_date 必须使用明确 ISO 时间；用户没有给具体时刻时，应先询问，或在 reply 中明确说明你采用的保守假设。
 提醒在当前系统中用任务的 due_date 表达；“提醒我做某事”优先使用 create_reminder，并写入 title/due_date/notes/tags。
+当用户要求拆分任务、制定步骤、分阶段执行时，应创建真实子任务，不要只写进 notes。创建新任务时可在 create_task/create_reminder 参数中带 subtask_titles 数组；已有任务可用 create_subtasks，参数为 {"task_id":1,"titles":["步骤一","步骤二"]}。
 用户上传到资料库后会提供资料 ID。你需要判断资料应归属到哪些任务：已有任务可用 attach_file_to_task 关联；需要新建任务或提醒时，可在 create_task/create_reminder 参数里带 file_ids 数组，后端会自动关联这些资料。
 用户上传给你看的对话附件会提供附件 ID 和可读内容；图片会以视觉输入提供，PDF/Word/Excel/PPT/文本会以解析文本提供。你可以基于附件内容做分析、规划和决策。
 如果对话附件需要长期保存到资料库，可用 save_attachment_to_library，参数为 {"attachment_id":"...","notes":"...","task_id":1}，task_id 可选。创建新任务或提醒时，也可以在 create_task/create_reminder 参数里带 attachment_ids 数组，后端会自动保存附件并关联到新任务。
 如果无法判断资料应该关联到哪个任务，先用 list_tasks 查看现有任务，再给出少量候选或创建一个新的整理任务；不要臆测未提供的文件正文。
-低风险工具只包括 list_tasks/create_task/list_reminders/create_reminder/list_files/create_note_file/attach_file_to_task/save_attachment_to_library。
+如果系统反馈工具执行失败，你需要基于错误信息修正参数或改用正确工具，不要继续声称已经完成失败的操作。
+低风险工具只包括 list_tasks/create_task/list_reminders/create_reminder/list_files/create_note_file/attach_file_to_task/save_attachment_to_library/list_subtasks/create_subtask/create_subtasks。
 危险 action_type 只允许：
 - update_task：payload 为 {"task_id":1,"patch":{"title":"新标题","priority":"高","status":"进行中","progress":40,"start_date":"2026-06-27T09:00:00","end_date":"2026-06-27T11:00:00","due_date":"2026-06-28T18:00:00","tags":["论文"]}}
 - update_file_notes：payload 为 {"file_id":1,"notes":"新的资料备注"}
@@ -97,7 +99,7 @@ def build_local_context(db: Session) -> str:
     task_lines = [
         f"- #{t.id} {t.title} | 状态:{t.status} | 优先级:{t.priority} | 进度:{t.progress}% | "
         f"开始:{_format_dt(t.start_date)} | 结束:{_format_dt(t.end_date)} | 截止/提醒:{_format_dt(t.due_date)} | "
-        f"标签:{','.join(tag.name for tag in t.tags) or '无'}"
+        f"标签:{','.join(tag.name for tag in t.tags) or '无'} | 子任务:{_subtask_summary(t)}"
         for t in tasks[:80]
     ]
     overdue_lines = [_reminder_line(t) for t in overdue[:20]]
@@ -131,3 +133,15 @@ def _reminder_line(task: Task) -> str:
         f"- #{task.id} {task.title} | 截止/提醒:{_format_dt(task.due_date)} | "
         f"状态:{task.status} | 优先级:{task.priority}"
     )
+
+
+def _subtask_summary(task: Task) -> str:
+    if not task.subtasks:
+        return "无"
+    done = sum(1 for subtask in task.subtasks if subtask.done)
+    titles = "；".join(
+        f"{'已完成' if subtask.done else '待办'}:{subtask.title}"
+        for subtask in task.subtasks[:6]
+    )
+    suffix = "；..." if len(task.subtasks) > 6 else ""
+    return f"{done}/{len(task.subtasks)} | {titles}{suffix}"

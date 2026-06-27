@@ -70,6 +70,78 @@ def provider_failure_detail(operation: str, exc: Exception) -> str:
     return f"{operation}失败: {sanitize_provider_error(exc)}"
 
 
+def tool_signature(item: dict) -> str:
+    return json.dumps(
+        {"name": item.get("name", ""), "args": dict(item.get("args", {}))},
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+    )
+
+
+def execute_plan_tools(
+    db: Session,
+    plan: dict,
+    skip_successful_signatures: set[str] | None = None,
+) -> list[dict]:
+    skip_successful_signatures = skip_successful_signatures or set()
+    tool_results = []
+    for item in plan["tools"]:
+        name = item.get("name", "")
+        args = dict(item.get("args", {}))
+        signature = tool_signature(item)
+        if signature in skip_successful_signatures:
+            result = {"ok": True, "skipped": True, "message": "已跳过重复成功工具"}
+        else:
+            result = ai_tool_service.execute_tool(db, name, args)
+        tool_results.append({"tool": name, "args": args, "result": result})
+    return tool_results
+
+
+def failed_tool_results(tool_results: list[dict]) -> list[dict]:
+    return [
+        item
+        for item in tool_results
+        if isinstance(item.get("result"), dict) and item["result"].get("ok") is False
+    ]
+
+
+def successful_tool_signatures(tool_results: list[dict]) -> set[str]:
+    signatures = set()
+    for item in tool_results:
+        result = item.get("result")
+        if isinstance(result, dict) and result.get("ok") is True and not result.get("skipped"):
+            signatures.add(
+                json.dumps(
+                    {"name": item.get("tool", ""), "args": item.get("args", {})},
+                    sort_keys=True,
+                    ensure_ascii=False,
+                    default=str,
+                )
+            )
+    return signatures
+
+
+def build_tool_retry_message(
+    user_text: str,
+    plan: dict,
+    tool_results: list[dict],
+) -> str:
+    failed = failed_tool_results(tool_results)
+    return (
+        "你刚才给出的工具调用有失败项。请基于下面的失败反馈重新给出一个修正后的 JSON 计划。\n"
+        "要求：\n"
+        "- 不要重复执行已经成功的工具。\n"
+        "- 如果失败是因为缺少参数，请补齐参数；无法补齐时先询问用户。\n"
+        "- 如果工具需要待确认操作，请改放入 dangerous_actions。\n"
+        "- 只返回 reply/tools/dangerous_actions 结构。\n\n"
+        f"用户原始请求：{user_text}\n\n"
+        f"第一次计划：{json.dumps(plan, ensure_ascii=False, default=str)}\n\n"
+        f"工具执行结果：{json.dumps(tool_results, ensure_ascii=False, default=str)}\n\n"
+        f"失败项：{json.dumps(failed, ensure_ascii=False, default=str)}"
+    )
+
+
 def pending_action_response(db: Session, action) -> AIPendingActionResponse:
     data = AIPendingActionResponse.model_validate(action)
     data.preview = ai_action_service.action_preview(db, action)
@@ -401,15 +473,50 @@ async def chat(payload: AIChatRequest, db: Session = Depends(get_db)):
 
     text = ai_client.extract_text(config.provider, raw)
     plan = ai_client.parse_assistant_plan(text)
-    tool_results = []
-    for item in plan["tools"]:
-        result = ai_tool_service.execute_tool(
-            db, item.get("name", ""), dict(item.get("args", {}))
+    tool_results = execute_plan_tools(db, plan)
+    final_plan = plan
+    final_text = text
+
+    if failed_tool_results(tool_results):
+        retry_messages = [
+            *messages,
+            {"role": "assistant", "content": text},
+            {
+                "role": "user",
+                "content": build_tool_retry_message(user_text, plan, tool_results),
+            },
+        ]
+        retry_req = ai_client.build_provider_request(
+            provider=config.provider,
+            model=config.model,
+            api_key=config.api_key,
+            messages=retry_messages,
+            system_prompt=system_prompt,
+            extra_headers=ai_config_service.headers_from_json(config.extra_headers),
+            base_url=config.base_url,
+            full_url=config.full_url,
+            proxy_url=config.proxy_url,
         )
-        tool_results.append({"tool": item.get("name", ""), "result": result})
+        try:
+            retry_raw = await ai_client.call_provider(retry_req)
+            final_text = ai_client.extract_text(config.provider, retry_raw)
+            final_plan = ai_client.parse_assistant_plan(final_text)
+            retry_results = execute_plan_tools(
+                db, final_plan, successful_tool_signatures(tool_results)
+            )
+            tool_results.extend(retry_results)
+        except Exception as exc:
+            error_message = provider_failure_detail("工具失败后重试", exc)
+            tool_results.append(
+                {
+                    "tool": "ai_retry",
+                    "args": {},
+                    "result": {"ok": False, "error": error_message},
+                }
+            )
 
     pending = []
-    for item in plan["dangerous_actions"]:
+    for item in final_plan["dangerous_actions"]:
         action_type = item.get("action_type", "")
         if not ai_action_service.is_supported_action_type(action_type):
             continue
@@ -422,7 +529,19 @@ async def chat(payload: AIChatRequest, db: Session = Depends(get_db)):
         )
         pending.append(action)
 
-    reply = plan["reply"] or text
+    reply = final_plan["reply"] or final_text
+    retry_failed = next(
+        (
+            item["result"]["error"]
+            for item in tool_results
+            if item.get("tool") == "ai_retry"
+            and isinstance(item.get("result"), dict)
+            and item["result"].get("error")
+        ),
+        None,
+    )
+    if retry_failed:
+        reply = f"{reply}\n\n部分操作失败，自动重试也未完成：{retry_failed}"
     assistant_msg = AIMessage(
         conversation_id=conversation.id,
         role="assistant",

@@ -8,8 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Task
-from app.schemas import TaskCreate
-from app.services import ai_attachment_service, file_service, task_service
+from app.schemas import SubtaskCreate, TaskCreate
+from app.services import ai_attachment_service, file_service, subtask_service, task_service
 
 SAFE_TOOLS = {
     "list_tasks",
@@ -20,6 +20,9 @@ SAFE_TOOLS = {
     "create_note_file",
     "attach_file_to_task",
     "save_attachment_to_library",
+    "list_subtasks",
+    "create_subtask",
+    "create_subtasks",
 }
 CONFIRMATION_REQUIRED_TOOLS = {
     "update_task",
@@ -62,6 +65,25 @@ def execute_tool(db: Session, name: str, args: dict) -> dict:
                 "ok": True,
                 "files": [_file_dict(f) for f in file_service.list_files(db, args.get("q"))],
             }
+        if name == "list_subtasks":
+            task = task_service.get_task(db, int(args["task_id"]))
+            if task is None:
+                return {"ok": False, "error": "任务不存在"}
+            return {
+                "ok": True,
+                "task": _task_dict(task),
+                "subtasks": [_subtask_dict(s) for s in task.subtasks],
+            }
+        if name == "create_subtask":
+            subtask = subtask_service.create_subtask(
+                db, int(args["task_id"]), SubtaskCreate(title=str(args["title"]))
+            )
+            if subtask is None:
+                return {"ok": False, "error": "任务不存在"}
+            task = task_service.get_task(db, int(args["task_id"]))
+            return {"ok": True, "task": _task_dict(task), "subtask": _subtask_dict(subtask)}
+        if name == "create_subtasks":
+            return _create_subtasks(db, int(args["task_id"]), _pop_subtask_titles(args))
         if name == "create_note_file":
             title = (args.get("title") or "AI 资料笔记").strip()
             content = args.get("content") or ""
@@ -103,6 +125,7 @@ def _create_task_with_optional_files(db: Session, args: dict) -> dict:
     task_args = dict(args)
     file_ids = _pop_file_ids(task_args)
     attachment_ids = _pop_attachment_ids(task_args)
+    subtask_titles = _pop_subtask_titles(task_args)
     missing = _missing_file_ids(db, file_ids)
     if missing:
         return {"ok": False, "error": f"资料不存在: {', '.join(str(i) for i in missing)}"}
@@ -115,8 +138,27 @@ def _create_task_with_optional_files(db: Session, args: dict) -> dict:
             file_ids.append(db_file.id)
     for file_id in file_ids:
         file_service.attach_to_task(db, task.id, file_id)
+    for title in subtask_titles:
+        subtask_service.create_subtask(db, task.id, SubtaskCreate(title=title))
     task = task_service.get_task(db, task.id) or task
     return {"ok": True, "task": _task_dict(task)}
+
+
+def _create_subtasks(db: Session, task_id: int, titles: list[str]) -> dict:
+    if not titles:
+        return {"ok": False, "error": "创建子任务需要 titles 或 subtasks"}
+    created = []
+    for title in titles:
+        subtask = subtask_service.create_subtask(db, task_id, SubtaskCreate(title=title))
+        if subtask is None:
+            return {"ok": False, "error": "任务不存在"}
+        created.append(subtask)
+    task = task_service.get_task(db, task_id)
+    return {
+        "ok": True,
+        "task": _task_dict(task),
+        "subtasks": [_subtask_dict(s) for s in created],
+    }
 
 
 def _pop_file_ids(args: dict) -> list[int]:
@@ -151,6 +193,25 @@ def _pop_attachment_ids(args: dict) -> list[str]:
     return ids
 
 
+def _pop_subtask_titles(args: dict) -> list[str]:
+    raw = args.pop("titles", args.pop("subtask_titles", args.pop("subtasks", [])))
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        raise ValueError("子任务必须是字符串或数组")
+    titles = []
+    for item in raw:
+        if isinstance(item, dict):
+            title = str(item.get("title", "")).strip()
+        else:
+            title = str(item).strip()
+        if title and title not in titles:
+            titles.append(title)
+    return titles
+
+
 def _missing_file_ids(db: Session, file_ids: list[int]) -> list[int]:
     return [file_id for file_id in file_ids if file_service.get_file(db, file_id) is None]
 
@@ -168,6 +229,7 @@ def _task_dict(task) -> dict:
         "due_date": task.due_date.isoformat() if task.due_date else None,
         "tags": [t.name for t in task.tags],
         "files": [_file_dict(f) for f in task.files if f.deleted_at is None],
+        "subtasks": [_subtask_dict(s) for s in task.subtasks],
     }
 
 
@@ -178,4 +240,14 @@ def _file_dict(file) -> dict:
         "size": file.size,
         "mime_type": file.mime_type,
         "notes": file.notes,
+    }
+
+
+def _subtask_dict(subtask) -> dict:
+    return {
+        "id": subtask.id,
+        "task_id": subtask.task_id,
+        "title": subtask.title,
+        "done": subtask.done,
+        "completed_at": subtask.completed_at.isoformat() if subtask.completed_at else None,
     }
