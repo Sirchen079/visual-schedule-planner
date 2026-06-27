@@ -15,6 +15,7 @@ import {
   testAiConfig,
   updateAiConfig,
   updateAiSkill,
+  uploadAiAttachment,
 } from '../api/ai'
 import { uploadFile } from '../api/files'
 
@@ -39,7 +40,10 @@ const modelOptions = ref([])
 const modelLoading = ref(false)
 const fileInput = ref(null)
 const chatFileInput = ref(null)
+const aiAttachmentInput = ref(null)
 const uploadingFiles = ref(false)
+const attachingFiles = ref(false)
+const chatAttachments = ref([])
 const shellRef = ref(null)
 const messagesRef = ref(null)
 const open = ref(false)
@@ -197,6 +201,21 @@ function formatFileSize(size) {
 
 function uploadedFileLine(file) {
   return `- #${file.id} ${file.original_name} | 类型:${file.mime_type || '未知'} | 大小:${formatFileSize(file.size)} | 备注:${file.notes || '无'}`
+}
+
+function attachmentLine(file) {
+  return `- ${file.original_name} | ${file.kind === 'image' ? '图片识别' : '文档解析'} | 类型:${file.mime_type || '未知'} | 大小:${formatFileSize(file.size)}`
+}
+
+function chatDisplayText(text, attachments = []) {
+  const normalized = text?.trim() || (attachments.length ? '请分析这些附件。' : '')
+  if (!attachments.length) return normalized
+  return [
+    normalized,
+    '',
+    '本轮给 AI 查看：',
+    ...attachments.map(attachmentLine),
+  ].join('\n')
 }
 
 function uploadedFilesPrompt(files, instruction = '') {
@@ -560,16 +579,25 @@ async function onSkillFile(event) {
   }
 }
 
-async function sendChatText(text, { restoreToInput = false } = {}) {
-  if (!text || busy.value) return false
-  const messageIndex = messages.value.push(createMessage({ role: 'user', content: text })) - 1
+async function sendChatText(text, { restoreToInput = false, attachments = [] } = {}) {
+  const cleanText = text?.trim() || (attachments.length ? '请分析这些附件。' : '')
+  if ((!cleanText && !attachments.length) || busy.value) return false
+  const displayText = chatDisplayText(cleanText, attachments)
+  const messageIndex = messages.value.push(createMessage({ role: 'user', content: displayText })) - 1
   await scrollMessagesToBottom()
   busy.value = true
   error.value = ''
   const controller = new AbortController()
   chatAbortController.value = controller
   try {
-    const res = await sendAiChat({ conversation_id: conversationId.value, message: text }, { signal: controller.signal })
+    const res = await sendAiChat(
+      {
+        conversation_id: conversationId.value,
+        message: cleanText,
+        attachments: attachments.map((file) => ({ id: file.id })),
+      },
+      { signal: controller.signal }
+    )
     conversationId.value = res.conversation_id
     messages.value.push(createMessage({
       role: 'assistant',
@@ -582,7 +610,7 @@ async function sendChatText(text, { restoreToInput = false } = {}) {
     return true
   } catch (err) {
     messages.value.splice(messageIndex, 1)
-    if (restoreToInput && !input.value.trim()) input.value = text
+    if (restoreToInput && !input.value.trim()) input.value = text || ''
     if (!controller.signal.aborted) error.value = apiMessage(err)
     return false
   } finally {
@@ -593,15 +621,45 @@ async function sendChatText(text, { restoreToInput = false } = {}) {
 
 async function send() {
   const text = input.value.trim()
-  if (!text || busy.value || uploadingFiles.value) return
+  const attachments = [...chatAttachments.value]
+  if ((!text && !attachments.length) || busy.value || uploadingFiles.value || attachingFiles.value) return
   input.value = ''
-  await sendChatText(text, { restoreToInput: true })
+  chatAttachments.value = []
+  const ok = await sendChatText(text, { restoreToInput: true, attachments })
+  if (!ok && !chatAttachments.value.length) chatAttachments.value = attachments
+}
+
+async function onAiAttachmentFiles(event) {
+  const files = Array.from(event.target.files || [])
+  if (!files.length) return
+  if (busy.value || uploadingFiles.value || attachingFiles.value) {
+    event.target.value = ''
+    return
+  }
+  attachingFiles.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    for (const file of files) {
+      chatAttachments.value.push(await uploadAiAttachment(file))
+    }
+    notice.value = `已添加 ${files.length} 个对话附件`
+  } catch (err) {
+    error.value = apiMessage(err)
+  } finally {
+    attachingFiles.value = false
+    event.target.value = ''
+  }
+}
+
+function removeChatAttachment(id) {
+  chatAttachments.value = chatAttachments.value.filter((file) => file.id !== id)
 }
 
 async function onChatFiles(event) {
   const files = Array.from(event.target.files || [])
   if (!files.length) return
-  if (busy.value || uploadingFiles.value) {
+  if (busy.value || uploadingFiles.value || attachingFiles.value) {
     event.target.value = ''
     return
   }
@@ -934,7 +992,9 @@ onBeforeUnmount(() => {
             <h3>{{ assistantName }} 对话</h3>
             <p class="muted">低风险操作会直接执行；危险操作会显示二次确认卡片。</p>
           </div>
-          <span v-if="busy || uploadingFiles" class="tag">{{ uploadingFiles ? '上传中' : '处理中' }}</span>
+          <span v-if="busy || uploadingFiles || attachingFiles" class="tag">
+            {{ uploadingFiles ? '入库中' : attachingFiles ? '添加中' : '处理中' }}
+          </span>
           <button v-else class="ghost compact" @click="assistantMode = 'settings'">配置</button>
         </div>
 
@@ -1002,20 +1062,33 @@ onBeforeUnmount(() => {
             <textarea
               v-model="input"
               placeholder="例如：帮我把本周论文阅读拆成三天计划，并给明晚加一个提醒..."
-              :disabled="uploadingFiles"
+              :disabled="uploadingFiles || attachingFiles"
               @keydown.ctrl.enter.prevent="send"
             ></textarea>
             <div v-if="uploadingFiles" class="upload-hint">正在上传资料到资料库...</div>
+            <div v-if="attachingFiles" class="upload-hint">正在添加对话附件...</div>
+            <div v-if="chatAttachments.length" class="attachment-strip">
+              <span v-for="file in chatAttachments" :key="file.id" class="attachment-chip">
+                {{ file.kind === 'image' ? '图' : '文' }} {{ file.original_name }}
+                <button type="button" :aria-label="`移除 ${file.original_name}`" @click="removeChatAttachment(file.id)">
+                  移除
+                </button>
+              </span>
+            </div>
           </div>
           <div class="composer-actions">
-            <button class="ghost" :disabled="busy || uploadingFiles" @click="chatFileInput?.click()">
-              {{ uploadingFiles ? '上传中' : '资料' }}
+            <button class="ghost" :disabled="busy || uploadingFiles || attachingFiles" @click="aiAttachmentInput?.click()">
+              看文件
             </button>
-            <button :disabled="busy || uploadingFiles || !input.trim()" @click="send">
+            <button class="ghost" :disabled="busy || uploadingFiles || attachingFiles" @click="chatFileInput?.click()">
+              入库
+            </button>
+            <button :disabled="busy || uploadingFiles || attachingFiles || (!input.trim() && !chatAttachments.length)" @click="send">
               {{ busy ? '处理中...' : '发送' }}
             </button>
           </div>
           <input ref="chatFileInput" type="file" multiple hidden @change="onChatFiles" />
+          <input ref="aiAttachmentInput" type="file" multiple hidden @change="onAiAttachmentFiles" />
         </div>
       </section>
     </main>
@@ -1592,9 +1665,40 @@ pre {
   font-weight: 700;
 }
 
+.attachment-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.attachment-chip button {
+  min-height: 22px;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  box-shadow: none;
+  flex-shrink: 0;
+}
+
 .composer-actions {
   display: grid;
-  grid-template-columns: 58px 62px;
+  grid-template-columns: 72px 58px 62px;
   gap: 8px;
   align-items: stretch;
 }
@@ -1606,17 +1710,17 @@ pre {
 }
 
 .assistant-shell:not(.fullscreen) .composer {
-  grid-template-columns: minmax(0, 1fr) 62px;
+  grid-template-columns: minmax(0, 1fr) 72px;
   gap: 8px;
 }
 
 .assistant-shell:not(.fullscreen) .composer-actions {
   grid-template-columns: 1fr;
-  width: 62px;
+  width: 72px;
 }
 
 .assistant-shell:not(.fullscreen) .composer button {
-  min-width: 62px;
+  min-width: 72px;
   padding: 0;
 }
 
@@ -1666,7 +1770,7 @@ pre {
 
   .composer-actions {
     width: 100%;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .head-actions {

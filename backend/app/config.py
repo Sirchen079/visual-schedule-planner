@@ -12,6 +12,7 @@ class Settings(BaseSettings):
 
     database_dir: Path = Path("data")
     files_dir: Path = Path("data/files")
+    ai_attachments_dir: Path = Path("data/ai_attachments")
     backup_dir: Path = Path("data/backup")
     host: str = "127.0.0.1"
     port: int = 18731
@@ -19,6 +20,9 @@ class Settings(BaseSettings):
     backup_keep: int = 7
     trash_retain_days: int = 30
     max_upload_mb: int = 100
+    max_ai_attachment_mb: int = 50
+    max_ai_inline_image_mb: int = 12
+    max_ai_text_chars: int = 120000
 
     @property
     def db_path(self) -> Path:
@@ -28,6 +32,14 @@ class Settings(BaseSettings):
     @property
     def max_upload_bytes(self) -> int:
         return self.max_upload_mb * 1024 * 1024
+
+    @property
+    def max_ai_attachment_bytes(self) -> int:
+        return self.max_ai_attachment_mb * 1024 * 1024
+
+    @property
+    def max_ai_inline_image_bytes(self) -> int:
+        return self.max_ai_inline_image_mb * 1024 * 1024
 
 
 settings = Settings()

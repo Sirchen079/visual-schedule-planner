@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # 受控枚举：防止脏数据入库（priority/status 只允许这些取值）
 Priority = Literal["高", "中", "低"]
@@ -203,9 +203,28 @@ class AIPendingActionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AIChatAttachmentRef(BaseModel):
+    id: str = Field(..., min_length=8, max_length=120)
+
+
+class AIChatAttachmentResponse(BaseModel):
+    id: str
+    original_name: str
+    size: int
+    mime_type: str
+    kind: str
+
+
 class AIChatRequest(BaseModel):
     conversation_id: Optional[int] = None
-    message: str = Field(..., min_length=1)
+    message: str = ""
+    attachments: list[AIChatAttachmentRef] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def require_message_or_attachment(self):
+        if not self.message.strip() and not self.attachments:
+            raise ValueError("消息内容和附件不能同时为空")
+        return self
 
 
 class AIChatResponse(BaseModel):

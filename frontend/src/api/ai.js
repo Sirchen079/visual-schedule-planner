@@ -164,6 +164,15 @@ export function sendAiChat(payload, options = {}) {
   }, options.timeoutMs || CHAT_TIMEOUT_MS)
 }
 
+export function uploadAiAttachment(file) {
+  const form = new FormData()
+  form.append('file', file)
+  return request(`${BASE}/attachments`, {
+    method: 'POST',
+    body: form,
+  }, CHAT_TIMEOUT_MS)
+}
+
 export function confirmAiAction(id) {
   return request(`${BASE}/actions/${id}/confirm`, { method: 'POST' })
 }

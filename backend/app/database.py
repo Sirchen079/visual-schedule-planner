@@ -8,6 +8,7 @@ from app.config import settings
 # 确保数据目录存在
 settings.database_dir.mkdir(parents=True, exist_ok=True)
 settings.files_dir.mkdir(parents=True, exist_ok=True)
+settings.ai_attachments_dir.mkdir(parents=True, exist_ok=True)
 settings.backup_dir.mkdir(parents=True, exist_ok=True)
 
 DATABASE_URL = f"sqlite:///{settings.db_path}"

@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File as UploadFileParam, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import AIConfig, AIConversation, AIMessage
 from app.schemas import (
     AIActionExecute,
+    AIChatAttachmentResponse,
     AIChatRequest,
     AIChatResponse,
     AIConfigCreate,
@@ -25,6 +26,7 @@ from app.schemas import (
 )
 from app.services import (
     ai_action_service,
+    ai_attachment_service,
     ai_client,
     ai_config_service,
     ai_prompt_service,
@@ -171,6 +173,15 @@ async def list_models(payload: AIModelsRequest, db: Session = Depends(get_db)):
     return AIModelsResponse(models=ai_client.extract_model_ids(data))
 
 
+@router.post(
+    "/attachments",
+    response_model=AIChatAttachmentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def upload_chat_attachment(file: UploadFile = UploadFileParam(...)):
+    return ai_attachment_service.save_upload(file)
+
+
 @router.get("/skills", response_model=list[AISkillResponse])
 def list_skills(db: Session = Depends(get_db)):
     return ai_skill_service.list_skills(db)
@@ -244,19 +255,33 @@ async def chat(payload: AIChatRequest, db: Session = Depends(get_db)):
     if config is None:
         raise HTTPException(status_code=400, detail="未启用 AI 配置")
 
+    attachment_ids = [attachment.id for attachment in payload.attachments]
+    model_attachments = ai_attachment_service.build_model_attachments(attachment_ids)
+    user_text = payload.message.strip() or "请分析这些附件。"
+    stored_user_content = user_text
+    if model_attachments:
+        attachment_lines = [
+            f"- {item.get('filename')} ({item.get('mime_type')}, 附件 ID: {item.get('id')})"
+            for item in model_attachments
+        ]
+        stored_user_content = f"{user_text}\n\n[对话附件]\n" + "\n".join(attachment_lines)
+
     conversation = (
         db.get(AIConversation, payload.conversation_id)
         if payload.conversation_id
         else None
     )
     if conversation is None:
-        conversation = AIConversation(title=payload.message[:60] or "新的对话")
+        conversation = AIConversation(title=user_text[:60] or "新的对话")
         db.add(conversation)
         db.commit()
         db.refresh(conversation)
 
     user_msg = AIMessage(
-        conversation_id=conversation.id, role="user", content=payload.message
+        conversation_id=conversation.id,
+        role="user",
+        content=stored_user_content,
+        meta=json.dumps({"attachment_ids": attachment_ids}, ensure_ascii=False),
     )
     db.add(user_msg)
     db.commit()
@@ -272,6 +297,12 @@ async def chat(payload: AIChatRequest, db: Session = Depends(get_db)):
         for m in history
         if m.role in {"user", "assistant"}
     ][-20:]
+    if model_attachments and messages:
+        messages[-1] = {
+            "role": "user",
+            "content": user_text,
+            "attachments": model_attachments,
+        }
     system_prompt = (
         ai_prompt_service.build_system_prompt(db, config)
         + "\n\n"

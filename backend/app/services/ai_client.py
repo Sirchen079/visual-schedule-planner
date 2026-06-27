@@ -117,7 +117,7 @@ def build_provider_request(
     provider: str,
     model: str,
     api_key: str,
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     system_prompt: str,
     extra_headers: dict[str, str],
     base_url: str | None,
@@ -132,23 +132,25 @@ def build_provider_request(
         headers["x-api-key"] = api_key
         headers.setdefault("anthropic-version", "2023-06-01")
 
+    provider_messages = _provider_messages(provider, messages)
+
     if provider == "openai_chat":
         payload = {
             "model": model,
-            "messages": [{"role": "system", "content": system_prompt}, *messages],
+            "messages": [{"role": "system", "content": system_prompt}, *provider_messages],
             "temperature": 0.2,
         }
     elif provider == "openai_responses":
         payload = {
             "model": model,
-            "input": [{"role": "system", "content": system_prompt}, *messages],
+            "input": [{"role": "system", "content": system_prompt}, *provider_messages],
             "temperature": 0.2,
         }
     elif provider == "claude_messages":
         payload = {
             "model": model,
             "system": system_prompt,
-            "messages": messages,
+            "messages": provider_messages,
             "max_tokens": 2000,
             "temperature": 0.2,
         }
@@ -161,6 +163,101 @@ def build_provider_request(
         json=payload,
         proxy_url=validate_proxy_url(proxy_url) if proxy_url else None,
     )
+
+
+def _provider_messages(provider: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "role": message.get("role", "user"),
+            "content": _provider_content(
+                provider,
+                str(message.get("content", "")),
+                message.get("attachments") or [],
+            ),
+        }
+        for message in messages
+    ]
+
+
+def _provider_content(provider: str, text: str, attachments: list[dict[str, Any]]) -> Any:
+    if not attachments:
+        return text
+    if provider == "openai_chat":
+        blocks = [{"type": "text", "text": text or "请分析附件。"}]
+        for attachment in attachments:
+            blocks.extend(_openai_chat_attachment_blocks(attachment))
+        return blocks
+    if provider == "openai_responses":
+        blocks = [{"type": "input_text", "text": text or "请分析附件。"}]
+        for attachment in attachments:
+            blocks.extend(_openai_responses_attachment_blocks(attachment))
+        return blocks
+    if provider == "claude_messages":
+        blocks = [{"type": "text", "text": text or "请分析附件。"}]
+        for attachment in attachments:
+            blocks.extend(_claude_attachment_blocks(attachment))
+        return blocks
+    return text
+
+
+def _openai_chat_attachment_blocks(attachment: dict[str, Any]) -> list[dict[str, Any]]:
+    if attachment.get("kind") == "image":
+        return [
+            {"type": "text", "text": _attachment_meta_text(attachment)},
+            {
+                "type": "image_url",
+                "image_url": {"url": _data_url(attachment)},
+            },
+        ]
+    return [{"type": "text", "text": _document_text(attachment)}]
+
+
+def _openai_responses_attachment_blocks(attachment: dict[str, Any]) -> list[dict[str, Any]]:
+    if attachment.get("kind") == "image":
+        return [
+            {"type": "input_text", "text": _attachment_meta_text(attachment)},
+            {"type": "input_image", "image_url": _data_url(attachment)},
+        ]
+    return [{"type": "input_text", "text": _document_text(attachment)}]
+
+
+def _claude_attachment_blocks(attachment: dict[str, Any]) -> list[dict[str, Any]]:
+    if attachment.get("kind") == "image":
+        return [
+            {"type": "text", "text": _attachment_meta_text(attachment)},
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": attachment.get("mime_type") or "application/octet-stream",
+                    "data": attachment.get("data") or "",
+                },
+            },
+        ]
+    return [{"type": "text", "text": _document_text(attachment)}]
+
+
+def _document_text(attachment: dict[str, Any]) -> str:
+    return (
+        f"文档附件: {attachment.get('filename')}\n"
+        f"附件 ID: {attachment.get('id')}\n"
+        f"类型: {attachment.get('mime_type') or '未知'}\n"
+        f"大小: {attachment.get('size') or 0} bytes\n"
+        f"正文:\n{attachment.get('text') or '未提取到正文'}"
+    )
+
+
+def _attachment_meta_text(attachment: dict[str, Any]) -> str:
+    return (
+        f"图片附件: {attachment.get('filename')}\n"
+        f"附件 ID: {attachment.get('id')}\n"
+        f"类型: {attachment.get('mime_type') or '未知'}\n"
+        f"大小: {attachment.get('size') or 0} bytes"
+    )
+
+
+def _data_url(attachment: dict[str, Any]) -> str:
+    return f"data:{attachment.get('mime_type') or 'application/octet-stream'};base64,{attachment.get('data') or ''}"
 
 
 async def call_provider(request: ProviderRequest) -> dict[str, Any]:

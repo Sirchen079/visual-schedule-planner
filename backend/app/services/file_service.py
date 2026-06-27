@@ -58,6 +58,45 @@ def save_upload(db: Session, upload: UploadFile, notes: str = "") -> File:
     return db_file
 
 
+def save_local_file(
+    db: Session,
+    source_path: Path,
+    original_name: str,
+    mime_type: str,
+    notes: str = "",
+) -> File:
+    settings.files_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = _safe_name(original_name or source_path.name)
+    stored_name = f"{int(time.time() * 1000)}-{safe_name}"
+    destination = settings.files_dir / stored_name
+    limit = settings.max_upload_bytes
+
+    written = 0
+    with source_path.open("rb") as src, destination.open("wb") as out:
+        while chunk := src.read(_CHUNK):
+            written += len(chunk)
+            if written > limit:
+                out.close()
+                destination.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                    detail=f"文件超过上限 {settings.max_upload_mb}MB",
+                )
+            out.write(chunk)
+
+    db_file = File(
+        original_name=safe_name,
+        storage_path=str(destination.relative_to(settings.database_dir.parent)),
+        size=destination.stat().st_size,
+        mime_type=mime_type or "application/octet-stream",
+        notes=notes,
+    )
+    db.add(db_file)
+    db.commit()
+    db.refresh(db_file)
+    return db_file
+
+
 def list_files(db: Session, q: Optional[str] = None) -> list[File]:
     stmt = select(File).where(File.deleted_at.is_(None)).order_by(File.uploaded_at.desc())
     if q:

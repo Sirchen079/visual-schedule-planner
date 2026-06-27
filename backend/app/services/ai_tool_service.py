@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Task
 from app.schemas import TaskCreate
-from app.services import file_service, task_service
+from app.services import ai_attachment_service, file_service, task_service
 
 SAFE_TOOLS = {
     "list_tasks",
@@ -19,6 +19,7 @@ SAFE_TOOLS = {
     "list_files",
     "create_note_file",
     "attach_file_to_task",
+    "save_attachment_to_library",
 }
 CONFIRMATION_REQUIRED_TOOLS = {
     "update_task",
@@ -80,6 +81,19 @@ def execute_tool(db: Session, name: str, args: dict) -> dict:
             task = task_service.get_task(db, task_id)
             db_file = file_service.get_file(db, file_id)
             return {"ok": True, "task": _task_dict(task), "file": _file_dict(db_file)}
+        if name == "save_attachment_to_library":
+            task_id = int(args["task_id"]) if args.get("task_id") else None
+            db_file = ai_attachment_service.save_to_library(
+                db,
+                str(args["attachment_id"]),
+                args.get("notes", "由 AI 从对话附件保存到资料库"),
+                task_id,
+            )
+            result = {"ok": True, "file": _file_dict(db_file)}
+            if task_id:
+                task = task_service.get_task(db, task_id)
+                result["task"] = _task_dict(task)
+            return result
     except (ValidationError, KeyError, ValueError) as exc:
         return {"ok": False, "error": str(exc)}
     return {"ok": False, "error": "未处理的工具"}
@@ -88,10 +102,17 @@ def execute_tool(db: Session, name: str, args: dict) -> dict:
 def _create_task_with_optional_files(db: Session, args: dict) -> dict:
     task_args = dict(args)
     file_ids = _pop_file_ids(task_args)
+    attachment_ids = _pop_attachment_ids(task_args)
     missing = _missing_file_ids(db, file_ids)
     if missing:
         return {"ok": False, "error": f"资料不存在: {', '.join(str(i) for i in missing)}"}
     task = task_service.create_task(db, TaskCreate(**task_args))
+    for attachment_id in attachment_ids:
+        db_file = ai_attachment_service.save_to_library(
+            db, attachment_id, "由 AI 从对话附件保存到资料库", task.id
+        )
+        if db_file.id not in file_ids:
+            file_ids.append(db_file.id)
     for file_id in file_ids:
         file_service.attach_to_task(db, task.id, file_id)
     task = task_service.get_task(db, task.id) or task
@@ -111,6 +132,22 @@ def _pop_file_ids(args: dict) -> list[int]:
         file_id = int(item)
         if file_id not in ids:
             ids.append(file_id)
+    return ids
+
+
+def _pop_attachment_ids(args: dict) -> list[str]:
+    raw = args.pop("attachment_ids", args.pop("attachments", []))
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        raise ValueError("attachment_ids 必须是字符串或字符串数组")
+    ids = []
+    for item in raw:
+        attachment_id = str(item)
+        if attachment_id not in ids:
+            ids.append(attachment_id)
     return ids
 
 
