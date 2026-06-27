@@ -13,7 +13,7 @@ import sqlite3
 import json
 from datetime import date, datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from app.config import settings
 from app.services import ai_config_service
@@ -80,7 +80,29 @@ def _redact_ai_secrets(conn: sqlite3.Connection) -> None:
                 "UPDATE ai_configs SET extra_headers = ? WHERE id = ?",
                 (json.dumps(redacted, ensure_ascii=False, separators=(",", ":")), row_id),
             )
+    if "native_web_search_options" in columns:
+        for row_id, raw_options in conn.execute(
+            "SELECT id, native_web_search_options FROM ai_configs"
+        ).fetchall():
+            options = ai_config_service.options_from_json(raw_options)
+            redacted = _drop_sensitive_options(options)
+            conn.execute(
+                "UPDATE ai_configs SET native_web_search_options = ? WHERE id = ?",
+                (json.dumps(redacted, ensure_ascii=False, separators=(",", ":")), row_id),
+            )
     conn.commit()
+
+
+def _drop_sensitive_options(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(name): _drop_sensitive_options(item)
+            for name, item in value.items()
+            if not ai_config_service.is_sensitive_header(str(name))
+        }
+    if isinstance(value, list):
+        return [_drop_sensitive_options(item) for item in value]
+    return value
 
 
 def list_backups(backup_dir: Optional[Path] = None) -> list[Path]:

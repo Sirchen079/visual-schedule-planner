@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -34,6 +35,20 @@ def headers_from_json(raw: str | None) -> dict[str, str]:
     return {str(k): str(v) for k, v in parsed.items()}
 
 
+def options_to_json(options: dict[str, Any] | None) -> str:
+    return json.dumps(options or {}, ensure_ascii=False)
+
+
+def options_from_json(raw: str | None) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def is_sensitive_header(name: str) -> bool:
     normalized = name.lower()
     return any(part in normalized for part in SENSITIVE_HEADER_PARTS)
@@ -46,6 +61,17 @@ def mask_headers(headers: dict[str, str]) -> dict[str, str]:
     }
 
 
+def mask_options(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(name): MASKED_SECRET if is_sensitive_header(str(name)) else mask_options(item)
+            for name, item in value.items()
+        }
+    if isinstance(value, list):
+        return [mask_options(item) for item in value]
+    return value
+
+
 def merge_masked_headers(config: AIConfig, headers: dict[str, str] | None) -> dict[str, str]:
     current = headers_from_json(config.extra_headers)
     merged = {}
@@ -55,6 +81,28 @@ def merge_masked_headers(config: AIConfig, headers: dict[str, str] | None) -> di
         else:
             merged[name] = value
     return merged
+
+
+def merge_masked_options(config: AIConfig, options: dict[str, Any] | None) -> dict[str, Any]:
+    current = options_from_json(config.native_web_search_options)
+    return _merge_masked_value(current, options or {})
+
+
+def _merge_masked_value(current: Any, incoming: Any) -> Any:
+    if incoming == MASKED_SECRET:
+        return current
+    if isinstance(current, dict) and isinstance(incoming, dict):
+        return {
+            str(name): _merge_masked_value(current.get(str(name)), value)
+            for name, value in incoming.items()
+        }
+    if isinstance(current, list) and isinstance(incoming, list):
+        merged = []
+        for index, value in enumerate(incoming):
+            current_value = current[index] if index < len(current) else None
+            merged.append(_merge_masked_value(current_value, value))
+        return merged
+    return incoming
 
 
 def to_response(config: AIConfig) -> AIConfigResponse:
@@ -70,6 +118,10 @@ def to_response(config: AIConfig) -> AIConfigResponse:
         full_url=config.full_url,
         proxy_url=config.proxy_url,
         extra_headers=mask_headers(headers_from_json(config.extra_headers)),
+        native_web_search_enabled=bool(config.native_web_search_enabled),
+        native_web_search_options=mask_options(
+            options_from_json(config.native_web_search_options)
+        ),
         enabled=config.enabled,
         active_skill_id=config.active_skill_id,
         created_at=config.created_at,
@@ -85,6 +137,9 @@ def list_configs(db: Session) -> list[AIConfigResponse]:
 def create_config(db: Session, payload: AIConfigCreate) -> AIConfigResponse:
     data = payload.model_dump()
     data["extra_headers"] = headers_to_json(data.pop("extra_headers", {}))
+    data["native_web_search_options"] = options_to_json(
+        data.pop("native_web_search_options", {})
+    )
     config = AIConfig(**data)
     db.add(config)
     db.commit()
@@ -102,6 +157,10 @@ def update_config(
     if "extra_headers" in data:
         data["extra_headers"] = headers_to_json(
             merge_masked_headers(config, data["extra_headers"])
+        )
+    if "native_web_search_options" in data:
+        data["native_web_search_options"] = options_to_json(
+            merge_masked_options(config, data["native_web_search_options"])
         )
     for field, value in data.items():
         setattr(config, field, value)

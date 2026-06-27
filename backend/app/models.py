@@ -121,6 +121,8 @@ class AIConfig(Base):
     full_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     proxy_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     extra_headers: Mapped[str] = mapped_column(Text, default="{}")
+    native_web_search_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    native_web_search_options: Mapped[str] = mapped_column(Text, default="{}")
     enabled: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     active_skill_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("ai_skills.id"), nullable=True

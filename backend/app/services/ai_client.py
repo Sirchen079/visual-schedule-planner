@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import re
 import socket
@@ -15,6 +16,18 @@ DEFAULT_PATHS = {
     "claude_messages": "/v1/messages",
 }
 MODEL_LIST_PATH = "/v1/models"
+NATIVE_WEB_SEARCH_DEFAULTS: dict[str, dict[str, Any]] = {
+    "openai_chat": {"web_search_options": {}},
+    "openai_responses": {
+        "tools": [{"type": "web_search_preview"}],
+        "tool_choice": "auto",
+    },
+    "claude_messages": {
+        "tools": [
+            {"type": "web_search_20250305", "name": "web_search", "max_uses": 5}
+        ],
+    },
+}
 
 
 @dataclass
@@ -123,6 +136,8 @@ def build_provider_request(
     base_url: str | None,
     full_url: str | None,
     proxy_url: str | None,
+    native_web_search_enabled: bool = False,
+    native_web_search_options: dict[str, Any] | None = None,
 ) -> ProviderRequest:
     url = resolve_url(provider, base_url, full_url)
     headers = {"Content-Type": "application/json", **(extra_headers or {})}
@@ -157,12 +172,39 @@ def build_provider_request(
     else:
         raise ValueError(f"不支持的 provider: {provider}")
 
+    if native_web_search_enabled:
+        _apply_native_web_search(
+            provider=provider,
+            payload=payload,
+            options=native_web_search_options or {},
+        )
+
     return ProviderRequest(
         url=url,
         headers=headers,
         json=payload,
         proxy_url=validate_proxy_url(proxy_url) if proxy_url else None,
     )
+
+
+def _apply_native_web_search(
+    *,
+    provider: str,
+    payload: dict[str, Any],
+    options: dict[str, Any],
+) -> None:
+    additions = copy.deepcopy(NATIVE_WEB_SEARCH_DEFAULTS.get(provider, {}))
+    _merge_request_options(additions, options)
+    payload.update(additions)
+
+
+def _merge_request_options(target: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
+    for key, value in (source or {}).items():
+        if isinstance(target.get(key), dict) and isinstance(value, dict):
+            _merge_request_options(target[key], value)
+        else:
+            target[key] = value
+    return target
 
 
 def _provider_messages(provider: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:

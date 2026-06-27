@@ -62,6 +62,11 @@ def build_system_prompt(db: Session, config: AIConfig) -> str:
 - bulk_delete_tasks / bulk_delete_files：payload 为 {"task_ids":[1,2]} 或 {"file_ids":[1,2]}
 - empty_trash：payload 为 {}
 修改既有任务、修改资料备注、取消资料关联、删除、清空和批量操作必须放入 dangerous_actions，不能放入 tools。"""
+    if getattr(config, "native_web_search_enabled", False):
+        base += """
+
+联网搜索规则：
+当前模型配置允许使用模型原生联网搜索。涉及最新事实、当前网页信息、论文/资料补充检索、近期政策或库版本时，应优先使用模型原生联网能力；如果使用了联网搜索，请在 reply 中保留关键来源名称或链接，并区分搜索得到的信息与当前本地任务/资料状态。"""
     return base
 
 

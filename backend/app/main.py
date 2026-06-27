@@ -28,6 +28,8 @@ def _migrate() -> None:
         "full_url": "VARCHAR(500)",
         "proxy_url": "VARCHAR(500)",
         "extra_headers": "TEXT DEFAULT '{}'",
+        "native_web_search_enabled": "BOOLEAN DEFAULT 0",
+        "native_web_search_options": "TEXT DEFAULT '{}'",
         "enabled": "BOOLEAN DEFAULT 0",
         "active_skill_id": "INTEGER",
         "created_at": "DATETIME DEFAULT CURRENT_TIMESTAMP",

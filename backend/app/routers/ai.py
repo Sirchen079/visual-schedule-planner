@@ -232,6 +232,10 @@ async def test_config(config_id: int, db: Session = Depends(get_db)):
         base_url=config.base_url,
         full_url=config.full_url,
         proxy_url=config.proxy_url,
+        native_web_search_enabled=bool(config.native_web_search_enabled),
+        native_web_search_options=ai_config_service.options_from_json(
+            config.native_web_search_options
+        ),
     )
     try:
         await ai_client.call_provider(req)
@@ -463,6 +467,10 @@ async def chat(payload: AIChatRequest, db: Session = Depends(get_db)):
         base_url=config.base_url,
         full_url=config.full_url,
         proxy_url=config.proxy_url,
+        native_web_search_enabled=bool(config.native_web_search_enabled),
+        native_web_search_options=ai_config_service.options_from_json(
+            config.native_web_search_options
+        ),
     )
     try:
         raw = await ai_client.call_provider(req)
@@ -496,6 +504,10 @@ async def chat(payload: AIChatRequest, db: Session = Depends(get_db)):
             base_url=config.base_url,
             full_url=config.full_url,
             proxy_url=config.proxy_url,
+            native_web_search_enabled=bool(config.native_web_search_enabled),
+            native_web_search_options=ai_config_service.options_from_json(
+                config.native_web_search_options
+            ),
         )
         try:
             retry_raw = await ai_client.call_provider(retry_req)

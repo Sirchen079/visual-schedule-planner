@@ -142,6 +142,8 @@ function defaultConfig() {
     full_url: '',
     proxy_url: '',
     extra_headers_text: '{}',
+    native_web_search_enabled: false,
+    native_web_search_options_text: '{}',
   }
 }
 
@@ -161,6 +163,8 @@ function configToForm(config) {
     full_url: config.full_url || '',
     proxy_url: config.proxy_url || '',
     extra_headers_text: JSON.stringify(config.extra_headers || {}, null, 2),
+    native_web_search_enabled: Boolean(config.native_web_search_enabled),
+    native_web_search_options_text: JSON.stringify(config.native_web_search_options || {}, null, 2),
   }
 }
 
@@ -170,6 +174,16 @@ function parseHeaders() {
   const parsed = JSON.parse(raw)
   if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
     throw new Error('额外请求头必须是 JSON 对象')
+  }
+  return parsed
+}
+
+function parseNativeWebSearchOptions() {
+  const raw = configForm.value.native_web_search_options_text.trim()
+  if (!raw) return {}
+  const parsed = JSON.parse(raw)
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+    throw new Error('原生联网参数必须是 JSON 对象')
   }
   return parsed
 }
@@ -185,6 +199,8 @@ function configPayload({ includeConfigId = false } = {}) {
     full_url: configForm.value.full_url.trim() || null,
     proxy_url: configForm.value.proxy_url.trim() || null,
     extra_headers: parseHeaders(),
+    native_web_search_enabled: configForm.value.native_web_search_enabled,
+    native_web_search_options: parseNativeWebSearchOptions(),
     active_skill_id: activeSkillId.value || null,
   }
   if (configForm.value.api_key.trim()) payload.api_key = configForm.value.api_key.trim()
@@ -974,6 +990,22 @@ onBeforeUnmount(() => {
               <span>HTTP Proxy</span>
               <input v-model="configForm.proxy_url" placeholder="可选，例如 http://127.0.0.1:7890" />
             </label>
+            <label class="check-field">
+              <input v-model="configForm.native_web_search_enabled" type="checkbox" />
+              <span class="check-copy">
+                <strong>启用模型原生联网搜索</strong>
+                <small>由模型接口自身执行搜索；适合 Kimi Code、Claude 或 OpenAI 的内置联网能力。</small>
+              </span>
+            </label>
+            <label v-if="configForm.native_web_search_enabled" class="wide-field">
+              <span>原生联网参数 JSON</span>
+              <textarea
+                v-model="configForm.native_web_search_options_text"
+                class="headers-input native-options-input"
+                spellcheck="false"
+                placeholder='可选。例如 OpenAI Chat: {"web_search_options":{"search_context_size":"low"}}'
+              ></textarea>
+            </label>
             <label>
               <span>额外 Headers</span>
               <textarea v-model="configForm.extra_headers_text" class="headers-input" spellcheck="false"></textarea>
@@ -1513,6 +1545,47 @@ label span {
   font-weight: 700;
 }
 
+.check-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-inset);
+}
+
+.check-field input {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.check-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.check-copy strong {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.check-copy small {
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.wide-field {
+  min-width: 0;
+}
+
 .model-picker {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1532,6 +1605,10 @@ label span {
 .persona-input {
   min-height: 82px;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+
+.native-options-input {
+  min-height: 96px;
 }
 
 .persona-input {

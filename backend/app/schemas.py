@@ -107,6 +107,8 @@ class AIConfigCreate(BaseModel):
     full_url: Optional[str] = None
     proxy_url: Optional[str] = None
     extra_headers: dict[str, str] = Field(default_factory=dict)
+    native_web_search_enabled: bool = False
+    native_web_search_options: dict[str, Any] = Field(default_factory=dict)
 
 
 class AIConfigUpdate(BaseModel):
@@ -120,6 +122,8 @@ class AIConfigUpdate(BaseModel):
     full_url: Optional[str] = None
     proxy_url: Optional[str] = None
     extra_headers: Optional[dict[str, str]] = None
+    native_web_search_enabled: Optional[bool] = None
+    native_web_search_options: Optional[dict[str, Any]] = None
     active_skill_id: Optional[int] = None
 
 
@@ -135,6 +139,8 @@ class AIConfigResponse(BaseModel):
     full_url: Optional[str] = None
     proxy_url: Optional[str] = None
     extra_headers: dict[str, str] = Field(default_factory=dict)
+    native_web_search_enabled: bool = False
+    native_web_search_options: dict[str, Any] = Field(default_factory=dict)
     enabled: bool
     active_skill_id: Optional[int] = None
     created_at: datetime
