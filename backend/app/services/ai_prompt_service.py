@@ -46,17 +46,18 @@ def build_system_prompt(db: Session, config: AIConfig) -> str:
 用户说今天、明天、本周、下周、下周六、月底等相对日期时，必须基于当前本地日期换算成明确日期。
 创建任务、日程或提醒时，start_date/end_date/due_date 必须使用明确 ISO 时间；用户没有给具体时刻时，应先询问，或在 reply 中明确说明你采用的保守假设。
 提醒在当前系统中用任务的 due_date 表达；“提醒我做某事”优先使用 create_reminder，并写入 title/due_date/notes/tags。
-低风险工具只包括 list_tasks/create_task/list_reminders/create_reminder/list_files/create_note_file。
+用户上传资料后会提供资料 ID。你需要判断资料应归属到哪些任务：已有任务可用 attach_file_to_task 关联；需要新建任务或提醒时，可在 create_task/create_reminder 参数里带 file_ids 数组，后端会自动关联这些资料。
+如果无法判断资料应该关联到哪个任务，先用 list_tasks 查看现有任务，再给出少量候选或创建一个新的整理任务；不要臆测未提供的文件正文。
+低风险工具只包括 list_tasks/create_task/list_reminders/create_reminder/list_files/create_note_file/attach_file_to_task。
 危险 action_type 只允许：
 - update_task：payload 为 {"task_id":1,"patch":{"title":"新标题","priority":"高","status":"进行中","progress":40,"start_date":"2026-06-27T09:00:00","end_date":"2026-06-27T11:00:00","due_date":"2026-06-28T18:00:00","tags":["论文"]}}
 - update_file_notes：payload 为 {"file_id":1,"notes":"新的资料备注"}
-- attach_file_to_task：payload 为 {"task_id":1,"file_id":1}
 - detach_file_from_task：payload 为 {"task_id":1,"file_id":1}
 - delete_task / delete_file：payload 为 {"task_id":1} 或 {"file_id":1}
 - bulk_update_tasks：payload 为 {"task_ids":[1,2],"patch":{"priority":"高"}}
 - bulk_delete_tasks / bulk_delete_files：payload 为 {"task_ids":[1,2]} 或 {"file_ids":[1,2]}
 - empty_trash：payload 为 {}
-修改既有任务、修改资料备注、关联资料、取消资料关联、删除、清空和批量操作必须放入 dangerous_actions，不能放入 tools。"""
+修改既有任务、修改资料备注、取消资料关联、删除、清空和批量操作必须放入 dangerous_actions，不能放入 tools。"""
     return base
 
 

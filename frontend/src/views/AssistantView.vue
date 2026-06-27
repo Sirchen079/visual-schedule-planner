@@ -16,6 +16,7 @@ import {
   updateAiConfig,
   updateAiSkill,
 } from '../api/ai'
+import { uploadFile } from '../api/files'
 
 const emit = defineEmits(['changed'])
 
@@ -37,6 +38,8 @@ const pendingTokens = ref({})
 const modelOptions = ref([])
 const modelLoading = ref(false)
 const fileInput = ref(null)
+const chatFileInput = ref(null)
+const uploadingFiles = ref(false)
 const shellRef = ref(null)
 const messagesRef = ref(null)
 const open = ref(false)
@@ -51,6 +54,7 @@ const assistantName = computed(
   () => activeConfig.value?.assistant_name || configForm.value.assistant_name || '知时助手'
 )
 const hasConfig = computed(() => Boolean(activeConfig.value))
+const hasEnabledConfig = computed(() => Boolean(activeConfig.value?.enabled))
 const canSaveConfig = computed(() => {
   const f = configForm.value
   return f.name.trim() && f.assistant_name.trim() && f.provider && f.model.trim() && (f.api_key.trim() || activeConfig.value)
@@ -182,6 +186,30 @@ function configPayload({ includeConfigId = false } = {}) {
 
 function apiMessage(err) {
   return err?.message || '操作失败'
+}
+
+function formatFileSize(size) {
+  const value = Number(size || 0)
+  if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`
+  if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`
+  return `${value} B`
+}
+
+function uploadedFileLine(file) {
+  return `- #${file.id} ${file.original_name} | 类型:${file.mime_type || '未知'} | 大小:${formatFileSize(file.size)} | 备注:${file.notes || '无'}`
+}
+
+function uploadedFilesPrompt(files, instruction = '') {
+  return [
+    '我刚把以下资料交给你处理；系统已经把它们保存到资料库。',
+    instruction ? `用户补充说明：${instruction}` : '用户没有补充说明，请根据文件名、备注和当前任务上下文判断。',
+    '请你根据当前任务和资料信息判断它们应该归属到哪些任务，并自动完成整理：',
+    '- 如果已有合适任务，请用 attach_file_to_task 关联资料。',
+    '- 如果需要新任务或提醒，请创建任务/提醒，并在参数里带上 file_ids 自动关联资料。',
+    '- 如果信息不足，请先列出你的判断和少量候选，不要臆测未提供的文件正文。',
+    '',
+    ...files.map(uploadedFileLine),
+  ].join('\n')
 }
 
 function pendingStatusText(action) {
@@ -532,10 +560,8 @@ async function onSkillFile(event) {
   }
 }
 
-async function send() {
-  const text = input.value.trim()
-  if (!text || busy.value) return
-  input.value = ''
+async function sendChatText(text, { restoreToInput = false } = {}) {
+  if (!text || busy.value) return false
   const messageIndex = messages.value.push(createMessage({ role: 'user', content: text })) - 1
   await scrollMessagesToBottom()
   busy.value = true
@@ -553,13 +579,63 @@ async function send() {
     }))
     await scrollMessagesToBottom()
     emit('changed')
+    return true
   } catch (err) {
     messages.value.splice(messageIndex, 1)
-    if (!input.value.trim()) input.value = text
+    if (restoreToInput && !input.value.trim()) input.value = text
     if (!controller.signal.aborted) error.value = apiMessage(err)
+    return false
   } finally {
     if (chatAbortController.value === controller) chatAbortController.value = null
     busy.value = false
+  }
+}
+
+async function send() {
+  const text = input.value.trim()
+  if (!text || busy.value || uploadingFiles.value) return
+  input.value = ''
+  await sendChatText(text, { restoreToInput: true })
+}
+
+async function onChatFiles(event) {
+  const files = Array.from(event.target.files || [])
+  if (!files.length) return
+  if (busy.value || uploadingFiles.value) {
+    event.target.value = ''
+    return
+  }
+  const instruction = input.value.trim()
+  uploadingFiles.value = true
+  error.value = ''
+  notice.value = ''
+  const uploaded = []
+  try {
+    for (const file of files) {
+      const note = instruction
+        ? `对话上传说明：${instruction}`
+        : `由${assistantName.value}对话上传，等待 AI 判断归属并关联任务`
+      uploaded.push(await uploadFile(file, note))
+    }
+  } catch (err) {
+    error.value = apiMessage(err)
+  } finally {
+    uploadingFiles.value = false
+    event.target.value = ''
+  }
+  if (!uploaded.length) return
+  if (instruction && input.value.trim() === instruction) input.value = ''
+  notice.value = `已上传 ${uploaded.length} 个资料`
+  emit('changed')
+  const text = uploadedFilesPrompt(uploaded, instruction)
+  if (hasEnabledConfig.value) {
+    await sendChatText(text)
+  } else {
+    messages.value.push(createMessage({
+      role: 'system',
+      content: `${text}\n\n请先在设置中配置并启用模型，再让${assistantName.value}整理这些资料。`,
+    }))
+    await scrollMessagesToBottom()
   }
 }
 
@@ -858,7 +934,7 @@ onBeforeUnmount(() => {
             <h3>{{ assistantName }} 对话</h3>
             <p class="muted">低风险操作会直接执行；危险操作会显示二次确认卡片。</p>
           </div>
-          <span v-if="busy" class="tag">处理中</span>
+          <span v-if="busy || uploadingFiles" class="tag">{{ uploadingFiles ? '上传中' : '处理中' }}</span>
           <button v-else class="ghost compact" @click="assistantMode = 'settings'">配置</button>
         </div>
 
@@ -922,12 +998,24 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="composer">
-          <textarea
-            v-model="input"
-            placeholder="例如：帮我把本周论文阅读拆成三天计划，并给明晚加一个提醒..."
-            @keydown.ctrl.enter.prevent="send"
-          ></textarea>
-          <button :disabled="busy || !input.trim()" @click="send">{{ busy ? '处理中...' : '发送' }}</button>
+          <div class="composer-input">
+            <textarea
+              v-model="input"
+              placeholder="例如：帮我把本周论文阅读拆成三天计划，并给明晚加一个提醒..."
+              :disabled="uploadingFiles"
+              @keydown.ctrl.enter.prevent="send"
+            ></textarea>
+            <div v-if="uploadingFiles" class="upload-hint">正在上传资料到资料库...</div>
+          </div>
+          <div class="composer-actions">
+            <button class="ghost" :disabled="busy || uploadingFiles" @click="chatFileInput?.click()">
+              {{ uploadingFiles ? '上传中' : '资料' }}
+            </button>
+            <button :disabled="busy || uploadingFiles || !input.trim()" @click="send">
+              {{ busy ? '处理中...' : '发送' }}
+            </button>
+          </div>
+          <input ref="chatFileInput" type="file" multiple hidden @change="onChatFiles" />
         </div>
       </section>
     </main>
@@ -1485,11 +1573,36 @@ pre {
   flex-shrink: 0;
 }
 
+.composer-input {
+  min-width: 0;
+}
+
 .composer textarea {
+  width: 100%;
   min-height: 58px;
   max-height: 104px;
   resize: none;
   overflow-y: auto;
+}
+
+.upload-hint {
+  margin-top: 5px;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.composer-actions {
+  display: grid;
+  grid-template-columns: 58px 62px;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.composer-actions button {
+  min-width: 0;
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .assistant-shell:not(.fullscreen) .composer {
@@ -1497,8 +1610,12 @@ pre {
   gap: 8px;
 }
 
-.assistant-shell:not(.fullscreen) .composer button {
+.assistant-shell:not(.fullscreen) .composer-actions {
+  grid-template-columns: 1fr;
   width: 62px;
+}
+
+.assistant-shell:not(.fullscreen) .composer button {
   min-width: 62px;
   padding: 0;
 }
@@ -1547,14 +1664,22 @@ pre {
     grid-template-columns: 1fr;
   }
 
+  .composer-actions {
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .head-actions {
     display: flex;
     width: auto;
     flex-wrap: nowrap;
   }
 
-  .composer button {
+  .composer button,
+  .assistant-shell:not(.fullscreen) .composer-actions,
+  .assistant-shell:not(.fullscreen) .composer button {
     width: 100%;
+    min-width: 0;
   }
 
   .assistant-fab {

@@ -18,11 +18,11 @@ SAFE_TOOLS = {
     "create_reminder",
     "list_files",
     "create_note_file",
+    "attach_file_to_task",
 }
 CONFIRMATION_REQUIRED_TOOLS = {
     "update_task",
     "update_file_notes",
-    "attach_file_to_task",
     "detach_file_from_task",
 }
 
@@ -37,8 +37,7 @@ def execute_tool(db: Session, name: str, args: dict) -> dict:
         if name == "list_tasks":
             return {"ok": True, "tasks": [_task_dict(t) for t in task_service.list_tasks(db)]}
         if name == "create_task":
-            task = task_service.create_task(db, TaskCreate(**args))
-            return {"ok": True, "task": _task_dict(task)}
+            return _create_task_with_optional_files(db, args)
         if name == "list_reminders":
             stmt = (
                 select(Task)
@@ -56,8 +55,7 @@ def execute_tool(db: Session, name: str, args: dict) -> dict:
             tags = reminder_args.get("tags") or []
             if "提醒" not in tags:
                 reminder_args["tags"] = [*tags, "提醒"]
-            task = task_service.create_task(db, TaskCreate(**reminder_args))
-            return {"ok": True, "task": _task_dict(task)}
+            return _create_task_with_optional_files(db, reminder_args)
         if name == "list_files":
             return {
                 "ok": True,
@@ -73,9 +71,51 @@ def execute_tool(db: Session, name: str, args: dict) -> dict:
                 db, upload, args.get("notes", "AI 保存的资料笔记")
             )
             return {"ok": True, "file": _file_dict(db_file)}
+        if name == "attach_file_to_task":
+            task_id = int(args["task_id"])
+            file_id = int(args["file_id"])
+            ok = file_service.attach_to_task(db, task_id, file_id)
+            if not ok:
+                return {"ok": False, "error": "任务或资料不存在"}
+            task = task_service.get_task(db, task_id)
+            db_file = file_service.get_file(db, file_id)
+            return {"ok": True, "task": _task_dict(task), "file": _file_dict(db_file)}
     except (ValidationError, KeyError, ValueError) as exc:
         return {"ok": False, "error": str(exc)}
     return {"ok": False, "error": "未处理的工具"}
+
+
+def _create_task_with_optional_files(db: Session, args: dict) -> dict:
+    task_args = dict(args)
+    file_ids = _pop_file_ids(task_args)
+    missing = _missing_file_ids(db, file_ids)
+    if missing:
+        return {"ok": False, "error": f"资料不存在: {', '.join(str(i) for i in missing)}"}
+    task = task_service.create_task(db, TaskCreate(**task_args))
+    for file_id in file_ids:
+        file_service.attach_to_task(db, task.id, file_id)
+    task = task_service.get_task(db, task.id) or task
+    return {"ok": True, "task": _task_dict(task)}
+
+
+def _pop_file_ids(args: dict) -> list[int]:
+    raw = args.pop("file_ids", args.pop("files", []))
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, (int, str)):
+        raw = [raw]
+    if not isinstance(raw, list):
+        raise ValueError("file_ids 必须是数字或数字数组")
+    ids = []
+    for item in raw:
+        file_id = int(item)
+        if file_id not in ids:
+            ids.append(file_id)
+    return ids
+
+
+def _missing_file_ids(db: Session, file_ids: list[int]) -> list[int]:
+    return [file_id for file_id in file_ids if file_service.get_file(db, file_id) is None]
 
 
 def _task_dict(task) -> dict:
@@ -90,6 +130,7 @@ def _task_dict(task) -> dict:
         "end_date": task.end_date.isoformat() if task.end_date else None,
         "due_date": task.due_date.isoformat() if task.due_date else None,
         "tags": [t.name for t in task.tags],
+        "files": [_file_dict(f) for f in task.files if f.deleted_at is None],
     }
 
 
