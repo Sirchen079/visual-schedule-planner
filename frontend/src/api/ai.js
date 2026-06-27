@@ -123,6 +123,14 @@ export function listAiModels(payload) {
   }, TEST_TIMEOUT_MS)
 }
 
+export function listAiConversations() {
+  return request(`${BASE}/conversations`)
+}
+
+export function getAiConversation(id) {
+  return request(`${BASE}/conversations/${id}`)
+}
+
 export function listAiSkills() {
   return request(`${BASE}/skills`)
 }

@@ -2,17 +2,21 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, File as UploadFileParam, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File as UploadFileParam, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import AIConfig, AIConversation, AIMessage
+from app.models import AIConfig, AIConversation, AIMessage, AIPendingAction
 from app.schemas import (
     AIActionExecute,
     AIChatAttachmentResponse,
     AIChatRequest,
     AIChatResponse,
+    AIConversationDetailResponse,
+    AIConversationMessageResponse,
+    AIConversationSummaryResponse,
     AIConfigCreate,
     AIConfigResponse,
     AIConfigUpdate,
@@ -70,6 +74,45 @@ def pending_action_response(db: Session, action) -> AIPendingActionResponse:
     data = AIPendingActionResponse.model_validate(action)
     data.preview = ai_action_service.action_preview(db, action)
     return data
+
+
+def message_meta(message: AIMessage) -> dict:
+    try:
+        data = json.loads(message.meta or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def conversation_summary(conversation: AIConversation) -> AIConversationSummaryResponse:
+    messages = list(conversation.messages or [])
+    last = next((message for message in reversed(messages) if message.content), None)
+    updated_at = conversation.updated_at or conversation.created_at
+    return AIConversationSummaryResponse(
+        id=conversation.id,
+        title=conversation.title,
+        last_message=(last.content[:120] if last else ""),
+        message_count=len(messages),
+        created_at=conversation.created_at,
+        updated_at=updated_at,
+    )
+
+
+def conversation_message_response(db: Session, message: AIMessage) -> AIConversationMessageResponse:
+    meta = message_meta(message)
+    pending = []
+    for action_id in meta.get("pending_action_ids", []):
+        action = db.get(AIPendingAction, action_id)
+        if action is not None:
+            pending.append(pending_action_response(db, action))
+    return AIConversationMessageResponse(
+        id=message.id,
+        role=message.role,
+        content=message.content,
+        tool_results=meta.get("tool_results", []) if isinstance(meta.get("tool_results", []), list) else [],
+        pending_actions=pending,
+        created_at=message.created_at,
+    )
 
 
 @router.get("/configs", response_model=list[AIConfigResponse])
@@ -180,6 +223,36 @@ async def list_models(payload: AIModelsRequest, db: Session = Depends(get_db)):
 )
 def upload_chat_attachment(file: UploadFile = UploadFileParam(...)):
     return ai_attachment_service.save_upload(file)
+
+
+@router.get("/conversations", response_model=list[AIConversationSummaryResponse])
+def list_conversations(
+    limit: int = Query(50, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    rows = (
+        db.query(AIConversation)
+        .order_by(AIConversation.updated_at.desc(), AIConversation.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return [conversation_summary(conversation) for conversation in rows]
+
+
+@router.get("/conversations/{conversation_id}", response_model=AIConversationDetailResponse)
+def get_conversation(conversation_id: int, db: Session = Depends(get_db)):
+    conversation = db.get(AIConversation, conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="AI 会话不存在")
+    summary = conversation_summary(conversation)
+    return AIConversationDetailResponse(
+        **summary.model_dump(),
+        messages=[
+            conversation_message_response(db, message)
+            for message in conversation.messages
+            if message.role in {"user", "assistant", "system"}
+        ],
+    )
 
 
 @router.get("/skills", response_model=list[AISkillResponse])
@@ -363,6 +436,7 @@ async def chat(payload: AIChatRequest, db: Session = Depends(get_db)):
         ),
     )
     db.add(assistant_msg)
+    conversation.updated_at = datetime.now()
     db.commit()
 
     return AIChatResponse(

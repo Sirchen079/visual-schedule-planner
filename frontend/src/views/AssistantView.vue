@@ -8,7 +8,9 @@ import {
   enableAiSkill,
   executeAiAction,
   importAiSkill,
+  getAiConversation,
   listAiConfigs,
+  listAiConversations,
   listAiModels,
   listAiSkills,
   sendAiChat,
@@ -36,6 +38,8 @@ const loading = ref(false)
 const error = ref('')
 const notice = ref('')
 const pendingTokens = ref({})
+const conversations = ref([])
+const historyLoading = ref(false)
 const modelOptions = ref([])
 const modelLoading = ref(false)
 const fileInput = ref(null)
@@ -415,6 +419,77 @@ async function load() {
   }
 }
 
+async function loadConversations() {
+  historyLoading.value = true
+  error.value = ''
+  try {
+    conversations.value = await listAiConversations()
+  } catch (err) {
+    error.value = apiMessage(err)
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+function showHistory() {
+  if (assistantMode.value === 'history') {
+    loadConversations()
+    return
+  }
+  assistantMode.value = 'history'
+}
+
+function startNewChat() {
+  if (busy.value || uploadingFiles.value || attachingFiles.value) return
+  conversationId.value = null
+  messages.value = []
+  input.value = ''
+  chatAttachments.value = []
+  pendingTokens.value = {}
+  assistantMode.value = 'chat'
+  notice.value = '已开始新聊天'
+  nextTick(scrollMessagesToBottom)
+}
+
+async function openConversation(row) {
+  if (!row || busy.value || uploadingFiles.value || attachingFiles.value) return
+  historyLoading.value = true
+  error.value = ''
+  try {
+    const data = await getAiConversation(row.id)
+    conversationId.value = data.id
+    messages.value = (data.messages || []).map(createMessage)
+    chatAttachments.value = []
+    pendingTokens.value = {}
+    assistantMode.value = 'chat'
+    await scrollMessagesToBottom()
+  } catch (err) {
+    error.value = apiMessage(err)
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+function formatHistoryTime(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function refreshActiveView() {
+  if (assistantMode.value === 'history') {
+    loadConversations()
+    return
+  }
+  load()
+}
+
 function selectConfig(config) {
   activeConfig.value = config
   configForm.value = configToForm(config)
@@ -740,6 +815,7 @@ onMounted(() => {
 
 watch(assistantMode, (mode) => {
   if (mode === 'chat') scrollMessagesToBottom()
+  if (mode === 'history') loadConversations()
 })
 
 onBeforeUnmount(() => {
@@ -796,6 +872,15 @@ onBeforeUnmount(() => {
           </button>
           <button
             class="ghost compact"
+            :class="{ active: assistantMode === 'history' }"
+            role="tab"
+            :aria-selected="assistantMode === 'history'"
+            @click="showHistory"
+          >
+            历史
+          </button>
+          <button
+            class="ghost compact"
             :class="{ active: assistantMode === 'settings' }"
             role="tab"
             :aria-selected="assistantMode === 'settings'"
@@ -804,7 +889,10 @@ onBeforeUnmount(() => {
             设置
           </button>
         </div>
-        <button class="ghost compact refresh-action" :disabled="loading || busy" @click="load">刷新</button>
+        <button class="ghost compact new-chat-action" :disabled="busy || uploadingFiles || attachingFiles" @click="startNewChat">
+          新聊天
+        </button>
+        <button class="ghost compact refresh-action" :disabled="loading || historyLoading || busy" @click="refreshActiveView">刷新</button>
         <button class="ghost compact fullscreen-action" @click="toggleFullscreen">
           {{ fullscreen ? '退出全屏' : '全屏' }}
         </button>
@@ -986,6 +1074,37 @@ onBeforeUnmount(() => {
         </section>
       </div>
 
+      <section v-else-if="assistantMode === 'history'" class="card history-panel">
+        <div class="history-head">
+          <div>
+            <h3>历史会话</h3>
+            <p class="muted">保留最近 50 次会话，点击可回溯上下文。</p>
+          </div>
+          <button class="ghost compact" :disabled="busy || uploadingFiles || attachingFiles" @click="startNewChat">
+            新聊天
+          </button>
+        </div>
+
+        <div v-if="historyLoading" class="history-empty">正在加载历史...</div>
+        <div v-else-if="!conversations.length" class="history-empty">暂无历史会话</div>
+        <div v-else class="history-list" role="list">
+          <button
+            v-for="row in conversations"
+            :key="row.id"
+            class="history-row"
+            :class="{ active: row.id === conversationId }"
+            type="button"
+            @click="openConversation(row)"
+          >
+            <span class="history-title">{{ row.title || '新的会话' }}</span>
+            <span class="history-snippet">{{ row.last_message || '暂无消息' }}</span>
+            <span class="history-meta">
+              {{ formatHistoryTime(row.updated_at) }} · {{ row.message_count }} 条
+            </span>
+          </button>
+        </div>
+      </section>
+
       <section v-else class="card chat-panel chat-stage">
         <div class="chat-head">
           <div class="chat-copy">
@@ -1076,14 +1195,20 @@ onBeforeUnmount(() => {
               </span>
             </div>
           </div>
-          <div class="composer-actions">
-            <button class="ghost" :disabled="busy || uploadingFiles || attachingFiles" @click="aiAttachmentInput?.click()">
-              看文件
-            </button>
-            <button class="ghost" :disabled="busy || uploadingFiles || attachingFiles" @click="chatFileInput?.click()">
-              入库
-            </button>
-            <button :disabled="busy || uploadingFiles || attachingFiles || (!input.trim() && !chatAttachments.length)" @click="send">
+          <div class="composer-toolbar">
+            <div class="composer-file-actions">
+              <button class="ghost compact" :disabled="busy || uploadingFiles || attachingFiles" @click="aiAttachmentInput?.click()">
+                看文件
+              </button>
+              <button class="ghost compact" :disabled="busy || uploadingFiles || attachingFiles" @click="chatFileInput?.click()">
+                入库
+              </button>
+            </div>
+            <button
+              class="send-action"
+              :disabled="busy || uploadingFiles || attachingFiles || (!input.trim() && !chatAttachments.length)"
+              @click="send"
+            >
               {{ busy ? '处理中...' : '发送' }}
             </button>
           </div>
@@ -1188,6 +1313,7 @@ onBeforeUnmount(() => {
 .panel-actions,
 .head-actions,
 .chat-head,
+.history-head,
 .pending-head,
 .pending-actions,
 .skill-tools {
@@ -1310,7 +1436,7 @@ onBeforeUnmount(() => {
 
 .mode-switch {
   display: inline-grid;
-  grid-template-columns: repeat(2, minmax(54px, 1fr));
+  grid-template-columns: repeat(3, minmax(52px, 1fr));
   gap: 4px;
   padding: 4px;
   border: 1px solid var(--border);
@@ -1333,13 +1459,15 @@ onBeforeUnmount(() => {
 
 .panel-title,
 .chat-head,
+.history-head,
 .pending-head {
   align-items: flex-start;
   justify-content: space-between;
 }
 
 .panel-title h3,
-.chat-head h3 {
+.chat-head h3,
+.history-head h3 {
   font-size: 16px;
   font-weight: 800;
 }
@@ -1449,6 +1577,89 @@ label span {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.history-panel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.history-head {
+  flex-shrink: 0;
+}
+
+.history-head h3 {
+  margin: 0;
+}
+
+.history-head p {
+  margin: 4px 0 0;
+}
+
+.history-list {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.history-row {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  min-height: 76px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  text-align: left;
+  box-shadow: var(--shadow-inset);
+}
+
+.history-row.active {
+  border-color: var(--border-strong);
+  background: var(--accent-soft);
+}
+
+.history-title,
+.history-snippet,
+.history-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-title {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.history-snippet {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.history-meta,
+.history-empty {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.history-empty {
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  text-align: center;
 }
 
 .chat-stage {
@@ -1638,8 +1849,8 @@ pre {
 }
 
 .composer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--border);
@@ -1696,32 +1907,26 @@ pre {
   flex-shrink: 0;
 }
 
-.composer-actions {
-  display: grid;
-  grid-template-columns: 72px 58px 62px;
-  gap: 8px;
-  align-items: stretch;
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
-.composer-actions button {
+.composer-file-actions {
+  display: flex;
+  gap: 8px;
   min-width: 0;
-  padding-left: 0;
-  padding-right: 0;
 }
 
-.assistant-shell:not(.fullscreen) .composer {
-  grid-template-columns: minmax(0, 1fr) 72px;
-  gap: 8px;
+.composer-file-actions button {
+  min-width: 70px;
 }
 
-.assistant-shell:not(.fullscreen) .composer-actions {
-  grid-template-columns: 1fr;
-  width: 72px;
-}
-
-.assistant-shell:not(.fullscreen) .composer button {
-  min-width: 72px;
-  padding: 0;
+.send-action {
+  min-width: 82px;
+  flex-shrink: 0;
 }
 
 @media (max-width: 980px) {
@@ -1768,9 +1973,18 @@ pre {
     grid-template-columns: 1fr;
   }
 
-  .composer-actions {
-    width: 100%;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .composer-toolbar {
+    align-items: stretch;
+  }
+
+  .composer-file-actions {
+    flex: 1;
+  }
+
+  .composer-file-actions button,
+  .send-action {
+    flex: 1;
+    min-width: 0;
   }
 
   .head-actions {
@@ -1779,9 +1993,7 @@ pre {
     flex-wrap: nowrap;
   }
 
-  .composer button,
-  .assistant-shell:not(.fullscreen) .composer-actions,
-  .assistant-shell:not(.fullscreen) .composer button {
+  .composer button {
     width: 100%;
     min-width: 0;
   }

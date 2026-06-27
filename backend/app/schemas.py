@@ -233,3 +233,25 @@ class AIChatResponse(BaseModel):
     reply: str
     tool_results: list[dict[str, Any]] = Field(default_factory=list)
     pending_actions: list[AIPendingActionResponse] = Field(default_factory=list)
+
+
+class AIConversationMessageResponse(BaseModel):
+    id: int
+    role: str
+    content: str
+    tool_results: list[dict[str, Any]] = Field(default_factory=list)
+    pending_actions: list[AIPendingActionResponse] = Field(default_factory=list)
+    created_at: datetime
+
+
+class AIConversationSummaryResponse(BaseModel):
+    id: int
+    title: str
+    last_message: str = ""
+    message_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+
+class AIConversationDetailResponse(AIConversationSummaryResponse):
+    messages: list[AIConversationMessageResponse] = Field(default_factory=list)
