@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import json
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
 from app.config import settings
+from app.services import ai_config_service
 
 _NAME_RE = re.compile(r"app-(\d{8})-\d{6}\.db$")
 
@@ -44,10 +46,41 @@ def backup_db(
     dst = sqlite3.connect(str(dest))
     try:
         src.backup(dst)
+        _redact_ai_secrets(dst)
     finally:
         dst.close()
         src.close()
     return dest
+
+
+def _redact_ai_secrets(conn: sqlite3.Connection) -> None:
+    tables = {
+        row[0]
+        for row in conn.execute(
+            "select name from sqlite_master where type = 'table'"
+        ).fetchall()
+    }
+    if "ai_configs" not in tables:
+        return
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(ai_configs)")]
+    if "api_key" not in columns:
+        return
+    conn.execute("UPDATE ai_configs SET api_key = ''")
+    if "extra_headers" in columns:
+        for row_id, raw_headers in conn.execute(
+            "SELECT id, extra_headers FROM ai_configs"
+        ).fetchall():
+            headers = ai_config_service.headers_from_json(raw_headers)
+            redacted = {
+                name: value
+                for name, value in headers.items()
+                if not ai_config_service.is_sensitive_header(name)
+            }
+            conn.execute(
+                "UPDATE ai_configs SET extra_headers = ? WHERE id = ?",
+                (json.dumps(redacted, ensure_ascii=False, separators=(",", ":")), row_id),
+            )
+    conn.commit()
 
 
 def list_backups(backup_dir: Optional[Path] = None) -> list[Path]:

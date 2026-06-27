@@ -9,7 +9,7 @@ from sqlalchemy import text
 
 from app.database import engine
 from app.models import Base
-from app.routers import files, reminders, tasks
+from app.routers import ai, files, reminders, tasks
 from app.services import backup_service
 
 
@@ -21,10 +21,27 @@ def init_db() -> None:
 
 def _migrate() -> None:
     """轻量列迁移：为旧库补齐新字段（单人 SQLite，无需 Alembic）。"""
+    ai_config_columns = {
+        "assistant_name": "VARCHAR(100) DEFAULT '知时助手'",
+        "persona": "TEXT DEFAULT ''",
+        "base_url": "VARCHAR(500)",
+        "full_url": "VARCHAR(500)",
+        "proxy_url": "VARCHAR(500)",
+        "extra_headers": "TEXT DEFAULT '{}'",
+        "enabled": "BOOLEAN DEFAULT 0",
+        "active_skill_id": "INTEGER",
+        "created_at": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+        "updated_at": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+    }
     with engine.connect() as conn:
         cols = [row[1] for row in conn.execute(text("PRAGMA table_info(subtasks)"))]
         if cols and "completed_at" not in cols:
             conn.execute(text("ALTER TABLE subtasks ADD COLUMN completed_at DATETIME"))
+        ai_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(ai_configs)"))]
+        if ai_cols:
+            for name, column_type in ai_config_columns.items():
+                if name not in ai_cols:
+                    conn.execute(text(f"ALTER TABLE ai_configs ADD COLUMN {name} {column_type}"))
             conn.commit()
 
 
@@ -40,6 +57,12 @@ app = FastAPI(title="可视化日程安排", lifespan=lifespan)
 app.include_router(tasks.router)
 app.include_router(files.router)
 app.include_router(reminders.router)
+app.include_router(ai.router)
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 
 @app.post("/shutdown")

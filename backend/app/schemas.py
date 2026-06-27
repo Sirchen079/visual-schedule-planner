@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -91,3 +91,126 @@ class TaskResponse(TaskBase):
     subtasks: list[SubtaskResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+
+AIProvider = Literal["openai_chat", "openai_responses", "claude_messages"]
+
+
+class AIConfigCreate(BaseModel):
+    name: str = Field("默认配置", min_length=1, max_length=100)
+    assistant_name: str = Field("知时助手", min_length=1, max_length=100)
+    persona: str = ""
+    provider: AIProvider
+    model: str = Field(..., min_length=1, max_length=100)
+    api_key: str = Field(..., min_length=1)
+    base_url: Optional[str] = None
+    full_url: Optional[str] = None
+    proxy_url: Optional[str] = None
+    extra_headers: dict[str, str] = Field(default_factory=dict)
+
+
+class AIConfigUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    assistant_name: Optional[str] = Field(None, min_length=1, max_length=100)
+    persona: Optional[str] = None
+    provider: Optional[AIProvider] = None
+    model: Optional[str] = Field(None, min_length=1, max_length=100)
+    api_key: Optional[str] = Field(None, min_length=1)
+    base_url: Optional[str] = None
+    full_url: Optional[str] = None
+    proxy_url: Optional[str] = None
+    extra_headers: Optional[dict[str, str]] = None
+    active_skill_id: Optional[int] = None
+
+
+class AIConfigResponse(BaseModel):
+    id: int
+    name: str
+    assistant_name: str
+    persona: str = ""
+    provider: AIProvider
+    model: str
+    api_key_masked: str
+    base_url: Optional[str] = None
+    full_url: Optional[str] = None
+    proxy_url: Optional[str] = None
+    extra_headers: dict[str, str] = Field(default_factory=dict)
+    enabled: bool
+    active_skill_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AIModelsRequest(BaseModel):
+    config_id: Optional[int] = None
+    provider: Optional[AIProvider] = None
+    api_key: Optional[str] = Field(None, min_length=1)
+    base_url: Optional[str] = None
+    full_url: Optional[str] = None
+    proxy_url: Optional[str] = None
+    extra_headers: dict[str, str] = Field(default_factory=dict)
+
+
+class AIModelsResponse(BaseModel):
+    models: list[str] = Field(default_factory=list)
+
+
+class AISkillCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str = ""
+    content: str = Field(..., min_length=1)
+
+
+class AISkillUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = None
+    content: Optional[str] = Field(None, min_length=1)
+
+
+class AISkillImport(BaseModel):
+    filename: str = Field(..., min_length=1, max_length=255)
+    content: str = Field(..., min_length=1)
+
+
+class AISkillResponse(BaseModel):
+    id: int
+    name: str
+    description: str
+    content: str
+    enabled: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AIActionExecute(BaseModel):
+    confirm_token: str = Field(..., min_length=1)
+
+
+class AIPendingActionResponse(BaseModel):
+    id: int
+    conversation_id: Optional[int] = None
+    action_type: str
+    summary: str
+    preview: list[str] = Field(default_factory=list)
+    status: str
+    expires_at: datetime
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AIChatRequest(BaseModel):
+    conversation_id: Optional[int] = None
+    message: str = Field(..., min_length=1)
+
+
+class AIChatResponse(BaseModel):
+    conversation_id: int
+    assistant_name: str
+    reply: str
+    tool_results: list[dict[str, Any]] = Field(default_factory=list)
+    pending_actions: list[AIPendingActionResponse] = Field(default_factory=list)

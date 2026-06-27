@@ -12,10 +12,12 @@ export default defineConfig({
     proxy: {
       '/tasks': backend,
       '/files': backend,
+      '/ai': backend,
       '/shutdown': backend,
     },
   },
   build: {
     outDir: 'dist',
+    emptyOutDir: true,
   },
 })

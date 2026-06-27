@@ -6,6 +6,7 @@ import { restoreTask } from './api/tasks'
 import BoardView from './views/BoardView.vue'
 import OverviewView from './views/OverviewView.vue'
 import LibraryView from './views/LibraryView.vue'
+import AssistantView from './views/AssistantView.vue'
 import CalendarView from './views/CalendarView.vue'
 import TimelineView from './views/TimelineView.vue'
 import TrashView from './views/TrashView.vue'
@@ -149,7 +150,7 @@ async function undoDelete() {
           <span class="theme-icon">{{ theme === 'light' ? '🌙' : '☀️' }}</span>
         </button>
         <button class="ghost shutdown" :disabled="shuttingDown" @click="shutdownService">
-          {{ shuttingDown ? '正在关闭…' : '关闭服务' }}
+          <span>{{ shuttingDown ? '正在关闭…' : '关闭服务' }}</span>
         </button>
       </div>
     </header>
@@ -178,6 +179,8 @@ async function undoDelete() {
         <LibraryView v-else />
       </Transition>
     </main>
+
+    <AssistantView @changed="load" />
 
     <TaskModal
       v-if="modalOpen"
@@ -266,10 +269,17 @@ async function undoDelete() {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
+  max-width: min(760px, calc(100vw - 360px));
+  overflow-x: auto;
   background: var(--surface-2);
   padding: 4px;
   border-radius: var(--radius-pill);
   box-shadow: var(--shadow-inset);
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .tab {
@@ -280,6 +290,7 @@ async function undoDelete() {
   border-radius: var(--radius-pill);
   font-size: 14px;
   font-weight: 600;
+  white-space: nowrap;
   box-shadow: none;
   overflow: hidden;
   transition: color 0.25s ease;
@@ -430,7 +441,8 @@ async function undoDelete() {
     position: static;
     transform: none;
     flex: 1;
-    justify-content: center;
+    justify-content: flex-start;
+    max-width: none;
   }
   .tab {
     padding: 6px 12px;

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from datetime import datetime
 from typing import Optional
 
@@ -104,3 +105,98 @@ class Subtask(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     task: Mapped["Task"] = relationship("Task", back_populates="subtasks")
+
+
+class AIConfig(Base):
+    __tablename__ = "ai_configs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(100), default="默认配置")
+    assistant_name: Mapped[str] = mapped_column(String(100), default="知时助手")
+    persona: Mapped[str] = mapped_column(Text, default="")
+    provider: Mapped[str] = mapped_column(String(30), nullable=False)
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
+    api_key: Mapped[str] = mapped_column(Text, nullable=False)
+    base_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    full_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    proxy_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    extra_headers: Mapped[str] = mapped_column(Text, default="{}")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    active_skill_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("ai_skills.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class AISkill(Base):
+    __tablename__ = "ai_skills"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="")
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class AIConversation(Base):
+    __tablename__ = "ai_conversations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String(200), default="新的对话")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    messages: Mapped[list["AIMessage"]] = relationship(
+        "AIMessage",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="AIMessage.id",
+    )
+
+
+class AIMessage(Base):
+    __tablename__ = "ai_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("ai_conversations.id"), index=True
+    )
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    content: Mapped[str] = mapped_column(Text, default="")
+    meta: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    conversation: Mapped["AIConversation"] = relationship(
+        "AIConversation", back_populates="messages"
+    )
+
+
+class AIPendingAction(Base):
+    __tablename__ = "ai_pending_actions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    conversation_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("ai_conversations.id"), nullable=True
+    )
+    action_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    confirm_token: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    executed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    @staticmethod
+    def new_token() -> str:
+        return secrets.token_urlsafe(32)

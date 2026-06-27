@@ -23,4 +23,8 @@ node_modules/
 # 设计参考截图与临时测试产物（不入库）
 /*.png
 /.playwright-mcp/
+frontend/test-results/
+
+# Git worktrees for isolated feature work
+.worktrees/
 
