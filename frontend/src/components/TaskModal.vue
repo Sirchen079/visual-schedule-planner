@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import TaskForm from './TaskForm.vue'
+import ArtIcon from './ArtIcon.vue'
 import { attachFile, detachFile, getContentUrl, listFiles } from '../api/files'
 import { createSubtask, deleteSubtask, updateSubtask } from '../api/tasks'
 
@@ -25,9 +26,9 @@ function fileHref(file) {
 }
 
 function fileIcon(file) {
-  if (file?.resource_type === 'video') return '▶️'
-  if (isLink(file)) return '🔗'
-  return '📎'
+  if (file?.resource_type === 'video') return { name: 'file', labelText: 'VID', tone: 'sand' }
+  if (isLink(file)) return { name: 'link', labelText: 'LINK', tone: 'aqua' }
+  return { name: 'file', labelText: 'FILE', tone: 'pearl' }
 }
 
 function fileSubtitle(file) {
@@ -96,30 +97,43 @@ async function removeSub(s) {
 <template>
   <div class="overlay" @click.self="emit('close')">
     <div class="modal">
-      <div class="modal-wave"></div>
       <div class="modal-head">
-        <div class="modal-title">
-          <span class="title-icon">{{ task ? '🐚' : '🌊' }}</span>
-          <span>{{ task ? '编辑任务' : '新建任务' }}</span>
-        </div>
-        <button class="ghost close-btn" @click="emit('close')">✕</button>
+        <div class="modal-title">{{ task ? '编辑任务' : '新建任务' }}</div>
+        <button class="ghost close-btn" @click="emit('close')">
+          <ArtIcon name="close" tone="pearl" :size="18" />
+          <span>关闭</span>
+        </button>
       </div>
 
       <TaskForm :model-value="task" @save="(p) => emit('save', p)" @cancel="emit('close')" />
 
       <section v-if="task" class="files-section">
-        <h3><span class="section-icon">📎</span>关联资料</h3>
-        <p v-if="fileError" class="muted error-text">⚠️ {{ fileError }}</p>
+        <h3>
+          <ArtIcon name="library" tone="aqua" :size="24" tile label="关联资料" />
+          <span>关联资料</span>
+        </h3>
+        <p v-if="fileError" class="muted error-text">{{ fileError }}</p>
         <div v-if="!task.files?.length" class="muted empty-text">还没有关联资料。</div>
         <div class="file-row" v-for="file in task.files" :key="file.id">
           <a :href="fileHref(file)" target="_blank" rel="noopener noreferrer" :title="file.original_name">
-            <span class="file-icon">{{ fileIcon(file) }}</span>
+            <ArtIcon
+              class="file-art compact"
+              :name="fileIcon(file).name"
+              :tone="fileIcon(file).tone"
+              :label-text="fileIcon(file).labelText"
+              :label="fileIcon(file).labelText + ' 资料'"
+              :size="40"
+              tile
+            />
             <span class="file-copy">
               <span class="file-name">{{ file.original_name }}</span>
               <span class="file-subtitle">{{ fileSubtitle(file) }}</span>
             </span>
           </a>
-          <button class="ghost" @click="doDetach(file)">移除</button>
+          <button class="ghost icon-text-btn" @click="doDetach(file)">
+            <ArtIcon name="close" tone="pearl" :size="16" />
+            <span>移除</span>
+          </button>
         </div>
         <div class="attach-row" v-if="attachableFiles.length">
           <select v-model="selectedFileId">
@@ -128,14 +142,18 @@ async function removeSub(s) {
               {{ file.original_name }}
             </option>
           </select>
-          <button type="button" @click="doAttach">添加</button>
+          <button type="button" @click="doAttach">
+            <ArtIcon name="plus" tone="pearl" :size="18" />
+            <span>添加</span>
+          </button>
         </div>
         <div v-else class="muted empty-text">资料库暂无可添加文件。</div>
       </section>
 
       <section v-if="task" class="subtasks-section">
         <h3>
-          <span class="section-icon">✅</span>子任务
+          <ArtIcon name="steps" tone="mint" :size="24" tile label="子任务" />
+          <span>子任务</span>
           <span class="muted hint">进度按完成率自动计算</span>
         </h3>
         <div v-if="subtasks.length" class="sub-progress">
@@ -150,15 +168,23 @@ async function removeSub(s) {
             <input type="checkbox" :checked="s.done" @change="toggleSub(s)" />
             <span :class="{ done: s.done }">{{ s.title }}</span>
           </label>
-          <button class="ghost sub-del" @click="removeSub(s)">✕</button>
+          <button class="ghost sub-del" @click="removeSub(s)">
+            <ArtIcon name="close" tone="pearl" :size="16" label="删除子任务" />
+          </button>
         </div>
         <div class="sub-add">
           <input v-model="newSub" placeholder="添加子任务，回车确认" @keydown.enter.prevent="addSub" />
-          <button type="button" @click="addSub">添加</button>
+          <button type="button" @click="addSub">
+            <ArtIcon name="plus" tone="pearl" :size="18" />
+            <span>添加</span>
+          </button>
         </div>
       </section>
 
-      <button v-if="task" class="danger" @click="emit('delete', task)">删除任务</button>
+      <button v-if="task" class="danger icon-text-btn" @click="emit('delete', task)">
+        <ArtIcon name="trash" tone="pearl" :size="18" />
+        <span>删除任务</span>
+      </button>
     </div>
   </div>
 </template>
@@ -207,17 +233,6 @@ async function removeSub(s) {
   }
 }
 
-.modal-wave {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 5px;
-  background: linear-gradient(90deg, var(--sea-300), var(--accent), var(--sea-300));
-  opacity: 0.75;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-}
-
 .modal-head {
   display: flex;
   align-items: center;
@@ -229,36 +244,16 @@ async function removeSub(s) {
 }
 
 .modal-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.modal-title span:last-child {
-  background: linear-gradient(135deg, var(--accent), var(--sea-700));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-[data-theme="dark"] .modal-title span:last-child {
-  background: linear-gradient(135deg, var(--accent), var(--sea-300));
-  -webkit-background-clip: text;
-  background-clip: text;
-}
-
-.title-icon {
-  font-size: 22px;
+  color: var(--text);
 }
 
 .close-btn {
-  width: 36px;
-  height: 36px;
-  padding: 0;
+  padding: 7px 12px;
   display: flex;
   align-items: center;
+  gap: 5px;
   justify-content: center;
-  border-radius: 50%;
+  border-radius: var(--radius-sm);
   flex-shrink: 0;
 }
 
@@ -275,10 +270,6 @@ async function removeSub(s) {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.section-icon {
-  font-size: 16px;
 }
 
 .error-text {
@@ -316,8 +307,20 @@ async function removeSub(s) {
   min-width: 0;
 }
 
-.file-icon {
+.file-art {
   flex-shrink: 0;
+}
+
+.file-art.compact {
+  margin-right: 2px;
+}
+
+.icon-text-btn,
+.attach-row button,
+.sub-add button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .file-name {

@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import draggable from 'vuedraggable'
 import TaskCard from '../components/TaskCard.vue'
+import ArtIcon from '../components/ArtIcon.vue'
 
 const props = defineProps({
   tasks: { type: Array, required: true },
@@ -100,25 +101,19 @@ function onEnd(evt, targetStatus) {
 
 const columnMeta = {
   待办: {
-    icon: '🐚',
-    hint: '把任务轻轻放进海里',
-    bg: 'linear-gradient(180deg, rgba(165, 223, 247, 0.18) 0%, rgba(165, 223, 247, 0.06) 100%)',
-    accent: 'var(--sea-300)',
-    shadow: 'rgba(165, 223, 247, 0.35)',
+    hint: '暂无待办任务',
+    tone: 'todo',
+    accent: 'var(--info)',
   },
   进行中: {
-    icon: '🌊',
-    hint: '像海浪一样慢慢推进',
-    bg: 'linear-gradient(180deg, rgba(116, 204, 242, 0.16) 0%, rgba(116, 204, 242, 0.04) 100%)',
+    hint: '正在推进的任务会显示在这里',
+    tone: 'doing',
     accent: 'var(--accent)',
-    shadow: 'rgba(116, 204, 242, 0.35)',
   },
   完成: {
-    icon: '✨',
-    hint: '贝壳已经拾上岸啦',
-    bg: 'linear-gradient(180deg, rgba(165, 242, 193, 0.16) 0%, rgba(165, 242, 193, 0.04) 100%)',
-    accent: 'var(--foam-400)',
-    shadow: 'rgba(165, 242, 193, 0.35)',
+    hint: '完成后的任务会归到这里',
+    tone: 'done',
+    accent: 'var(--success)',
   },
 }
 </script>
@@ -128,25 +123,25 @@ const columnMeta = {
     <div class="board-head">
       <div class="board-title">
         <h2 class="page-title">
-          <span class="page-title-icon float">📋</span>
-          <span class="gradient-text">任务看板</span>
+          <ArtIcon name="board" tone="aqua" :size="36" tile label="任务看板" />
+          <span>任务看板</span>
         </h2>
-        <p class="muted">拖动卡片在列间移动；按 / 搜索、按 N 新建。</p>
+        <p class="muted">像潮汐一样把任务归位，保持推进节奏清晰。</p>
       </div>
       <button class="create-btn" @click="emit('create')">
-        <span class="btn-icon">＋</span>
+        <ArtIcon name="plus" tone="on-accent" :size="20" />
         <span>新建任务</span>
       </button>
     </div>
 
     <div class="board-toolbar">
       <div class="ctl">
-        <span class="ctl-ico">🔍</span>
+        <ArtIcon class="ctl-icon" name="search" tone="aqua" :size="18" />
         <input ref="searchInput" v-model="search" placeholder="搜索标题或备注…" />
       </div>
       <span class="tb-divider"></span>
       <div class="ctl">
-        <span class="ctl-ico">🎯</span>
+        <ArtIcon class="ctl-icon" name="priority" tone="coral" :size="18" />
         <select v-model="filterPriority">
           <option value="">全部优先级</option>
           <option value="高">高</option>
@@ -155,14 +150,14 @@ const columnMeta = {
         </select>
       </div>
       <div class="ctl">
-        <span class="ctl-ico">🏷️</span>
+        <ArtIcon class="ctl-icon" name="tag" tone="mint" :size="18" />
         <select v-model="filterTag">
           <option value="">全部标签</option>
           <option v-for="t in allTags" :key="t.name" :value="t.name">{{ t.name }}</option>
         </select>
       </div>
       <div class="ctl">
-        <span class="ctl-ico">↕️</span>
+        <ArtIcon class="ctl-icon" name="sort" tone="sand" :size="18" />
         <select v-model="sortBy">
           <option value="created">最近创建</option>
           <option value="due">截止日期</option>
@@ -176,18 +171,12 @@ const columnMeta = {
         class="column"
         v-for="(col, index) in COLUMNS"
         :key="col"
-        :style="{
-          background: columnMeta[col].bg,
-          boxShadow: `0 8px 32px ${columnMeta[col].shadow}, var(--shadow-inset)`,
-          animationDelay: `${index * 0.08}s`,
-        }"
-        :class="['animate-in']"
+        :class="[columnMeta[col].tone, 'animate-in']"
+        :style="{ animationDelay: `${index * 0.06}s` }"
       >
         <div class="col-head">
           <div class="col-title">
-            <span class="col-icon-wrap" :style="{ background: `${columnMeta[col].accent}20`, color: columnMeta[col].accent }">
-              <span class="col-icon">{{ columnMeta[col].icon }}</span>
-            </span>
+            <span class="col-status" :style="{ background: columnMeta[col].accent }"></span>
             <span class="col-name">{{ col }}</span>
           </div>
           <span class="count">{{ lists[col].length }}</span>
@@ -210,7 +199,6 @@ const columnMeta = {
           </template>
           <template #footer>
             <div v-if="!lists[col].length" class="empty-hint muted">
-              <span class="hint-icon float">{{ columnMeta[col].icon }}</span>
               <span>{{ columnMeta[col].hint }}</span>
             </div>
           </template>
@@ -227,7 +215,7 @@ const columnMeta = {
   display: flex;
   flex-direction: column;
   height: 100%;
-  gap: 22px;
+  gap: 16px;
   max-width: 1440px;
   margin: 0 auto;
 }
@@ -243,9 +231,16 @@ const columnMeta = {
 .board-toolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
   flex-shrink: 0;
+  padding: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-xs), var(--shadow-inset);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .ctl {
@@ -261,11 +256,9 @@ const columnMeta = {
   max-width: 320px;
 }
 
-.ctl-ico {
+.ctl-icon {
   position: absolute;
-  left: 14px;
-  font-size: 13px;
-  opacity: 0.55;
+  left: 12px;
   pointer-events: none;
   z-index: 1;
 }
@@ -274,7 +267,7 @@ const columnMeta = {
   width: 100%;
   padding-left: 36px;
   height: 40px;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-sm);
   font-size: 13px;
 }
 
@@ -283,7 +276,7 @@ const columnMeta = {
   padding-left: 36px;
   padding-right: 30px;
   height: 40px;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-sm);
   font-size: 13px;
   cursor: pointer;
 }
@@ -314,25 +307,23 @@ const columnMeta = {
   align-items: center;
   gap: 6px;
   padding: 11px 22px;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-sm);
   font-size: 14px;
   font-weight: 600;
 }
 
-.btn-icon {
-  display: inline-block;
-  font-size: 16px;
-  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+.create-btn :deep(.art-icon) {
+  transition: transform 0.2s ease;
 }
 
-.create-btn:hover .btn-icon {
-  transform: rotate(90deg) scale(1.1);
+.create-btn:hover :deep(.art-icon) {
+  transform: rotate(90deg);
 }
 
 .columns {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 20px;
+  gap: 14px;
   flex: 1;
   min-height: 0;
 }
@@ -342,17 +333,30 @@ const columnMeta = {
   flex-direction: column;
   min-height: 0;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 16px;
+  border-radius: var(--radius);
+  padding: 14px;
+  background: linear-gradient(180deg, var(--surface), var(--surface-2));
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  box-shadow: var(--shadow-xs), var(--shadow-inset);
   position: relative;
   overflow: hidden;
 }
 
-.column:hover {
-  transform: translateY(-3px);
+.column::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  background: var(--info);
+}
+
+.column.doing::before {
+  background: var(--accent);
+}
+
+.column.done::before {
+  background: var(--success);
 }
 
 .col-head {
@@ -369,19 +373,12 @@ const columnMeta = {
   gap: 10px;
 }
 
-.col-icon-wrap {
-  width: 36px;
-  height: 36px;
-  border-radius: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: var(--shadow-inset);
-}
-
-.col-icon {
-  font-size: 19px;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.08));
+.col-status {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 12%, transparent);
+  flex-shrink: 0;
 }
 
 .col-name {
@@ -398,7 +395,7 @@ const columnMeta = {
   font-size: 12px;
   font-weight: 700;
   border: 1px solid var(--border);
-  box-shadow: var(--shadow-inset);
+  box-shadow: none;
   min-width: 28px;
   text-align: center;
 }
@@ -423,28 +420,21 @@ const columnMeta = {
   background: var(--accent-soft);
   border: 2px dashed var(--accent);
   border-radius: var(--radius-sm);
-  transform: scale(0.96);
 }
 
 .col-body:deep(.sortable-drag) {
   opacity: 0.96;
-  transform: rotate(1.5deg) scale(1.03);
-  box-shadow: var(--shadow-xl);
+  box-shadow: var(--shadow-lg);
 }
 
 .empty-hint {
   text-align: center;
-  padding: 36px 16px;
+  padding: 32px 16px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   opacity: 0.75;
-}
-
-.hint-icon {
-  font-size: 36px;
-  opacity: 0.85;
 }
 
 .col-foot {
@@ -454,7 +444,7 @@ const columnMeta = {
   right: 0;
   height: 4px;
   opacity: 0.6;
-  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  border-radius: 0 0 var(--radius) var(--radius);
 }
 
 @media (max-width: 960px) {
@@ -465,6 +455,15 @@ const columnMeta = {
 }
 
 @media (max-width: 640px) {
+  .board-toolbar {
+    gap: 12px;
+  }
+  .tb-divider {
+    display: none;
+  }
+  .ctl:first-child {
+    max-width: none;
+  }
   .board-head {
     align-items: center;
   }

@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { listTrash, purgeTask, restoreTask } from '../api/tasks'
 import { listTrashFiles, purgeFile, restoreFile } from '../api/files'
+import ArtIcon from '../components/ArtIcon.vue'
 
 const emit = defineEmits(['changed'])
 
@@ -62,13 +63,13 @@ onMounted(load)
   <div class="trash">
     <div class="trash-head animate-in">
       <h2 class="page-title">
-        <span class="page-title-icon float">🗑️</span>
-        <span class="gradient-text">回收站</span>
+        <ArtIcon name="trash" tone="coral" :size="36" tile label="回收站" />
+        <span>回收站</span>
       </h2>
       <p class="muted">误删的东西在这里暂存 30 天，可随时恢复或彻底清除。</p>
     </div>
 
-    <div v-if="error" class="card error animate-in">⚠️ {{ error }}</div>
+    <div v-if="error" class="card error animate-in">{{ error }}</div>
     <div v-if="loading" class="center muted">
       <span class="spinner"></span>
       <p>加载中…</p>
@@ -79,16 +80,26 @@ onMounted(load)
       class="card group animate-in"
       style="animation-delay: 0.05s"
     >
-      <h3><span class="section-icon">🗂️</span>任务<span class="count-pill">{{ tasks.length }}</span></h3>
+      <h3>
+        <ArtIcon name="task" tone="aqua" :size="24" tile label="任务" />
+        <span>任务</span>
+        <span class="count-pill">{{ tasks.length }}</span>
+      </h3>
       <div class="row" v-for="t in tasks" :key="t.id">
-        <div class="row-icon" style="--ic: var(--cat-mentor)">🗂️</div>
+        <ArtIcon class="row-art" name="task" tone="aqua" :size="42" tile label="任务" />
         <div class="row-main">
           <span class="row-title">{{ t.title }}</span>
-          <span class="row-time"><span>🗑️</span>{{ timeText(t.deleted_at) }}</span>
+          <span class="row-time">删除于 {{ timeText(t.deleted_at) }}</span>
         </div>
         <div class="row-actions">
-          <button class="restore-btn" @click="restoreTaskItem(t)"><span>↩</span>恢复</button>
-          <button class="ghost purge-btn" @click="purgeTaskItem(t)">彻底删除</button>
+          <button class="restore-btn" @click="restoreTaskItem(t)">
+            <ArtIcon name="restore" tone="mint" :size="18" />
+            <span>恢复</span>
+          </button>
+          <button class="ghost purge-btn" @click="purgeTaskItem(t)">
+            <ArtIcon name="trash" tone="coral" :size="18" />
+            <span>彻底删除</span>
+          </button>
         </div>
       </div>
     </section>
@@ -98,24 +109,33 @@ onMounted(load)
       class="card group animate-in"
       style="animation-delay: 0.1s"
     >
-      <h3><span class="section-icon">📎</span>文件<span class="count-pill">{{ files.length }}</span></h3>
+      <h3>
+        <ArtIcon name="file" tone="sand" :size="24" tile label="文件" />
+        <span>文件</span>
+        <span class="count-pill">{{ files.length }}</span>
+      </h3>
       <div class="row" v-for="f in files" :key="f.id">
-        <div class="row-icon" style="--ic: var(--cat-misc)">📎</div>
+        <ArtIcon class="row-art" name="file" tone="sand" :size="42" tile label="文件" />
         <div class="row-main">
           <span class="row-title">{{ f.original_name }}</span>
-          <span class="row-time"><span>🗑️</span>{{ timeText(f.deleted_at) }}</span>
+          <span class="row-time">删除于 {{ timeText(f.deleted_at) }}</span>
         </div>
         <div class="row-actions">
-          <button class="restore-btn" @click="restoreFileItem(f)"><span>↩</span>恢复</button>
-          <button class="ghost purge-btn" @click="purgeFileItem(f)">彻底删除</button>
+          <button class="restore-btn" @click="restoreFileItem(f)">
+            <ArtIcon name="restore" tone="mint" :size="18" />
+            <span>恢复</span>
+          </button>
+          <button class="ghost purge-btn" @click="purgeFileItem(f)">
+            <ArtIcon name="trash" tone="coral" :size="18" />
+            <span>彻底删除</span>
+          </button>
         </div>
       </div>
     </section>
 
     <div v-if="!loading && !tasks.length && !files.length" class="card empty animate-in">
-      <div class="empty-icon float-slow">🏖️</div>
-      <div class="empty-title">回收站是空的</div>
-      <div class="muted">海湾很干净，没有漂浮的杂物。</div>
+      <div class="empty-title">回收站为空</div>
+      <div class="muted">删除的任务和文件会显示在这里。</div>
     </div>
   </div>
 </template>
@@ -143,11 +163,6 @@ onMounted(load)
   gap: 10px;
 }
 
-.head-icon {
-  font-size: 24px;
-  filter: drop-shadow(0 2px 6px var(--accent-glow));
-}
-
 .trash-head p {
   margin: 6px 0 0;
   font-size: 14px;
@@ -165,10 +180,6 @@ onMounted(load)
   align-items: center;
   gap: 8px;
   color: var(--text);
-}
-
-.section-icon {
-  font-size: 18px;
 }
 
 .count-pill {
@@ -202,18 +213,8 @@ onMounted(load)
   box-shadow: var(--shadow-sm), var(--shadow-inset);
 }
 
-.row-icon {
-  width: 38px;
-  height: 38px;
+.row-art {
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 12px;
-  font-size: 18px;
-  background: color-mix(in srgb, var(--ic, var(--accent)) 16%, transparent);
-  border: 1px solid color-mix(in srgb, var(--ic, var(--accent)) 28%, transparent);
-  box-shadow: var(--shadow-inset);
 }
 
 .row-main {
@@ -252,16 +253,15 @@ onMounted(load)
   flex-shrink: 0;
 }
 
-.restore-btn {
-  padding: 7px 15px;
-  font-size: 13px;
+.row-actions button {
   display: inline-flex;
   align-items: center;
   gap: 5px;
 }
 
-.restore-btn span {
-  font-size: 14px;
+.restore-btn {
+  padding: 7px 15px;
+  font-size: 13px;
 }
 
 .purge-btn {
@@ -283,12 +283,6 @@ onMounted(load)
   flex-direction: column;
   align-items: center;
   gap: 6px;
-}
-
-.empty-icon {
-  font-size: 46px;
-  margin-bottom: 8px;
-  opacity: 0.85;
 }
 
 .empty-title {

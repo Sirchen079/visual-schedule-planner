@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import ArtIcon from '../components/ArtIcon.vue'
 
 const props = defineProps({
   tasks: { type: Array, required: true },
@@ -24,10 +25,10 @@ function span(t) {
 
 const priMeta = (p) =>
   ({
-    高: { color: 'var(--pri-high)', glow: 'rgba(242, 107, 122, 0.35)' },
-    中: { color: 'var(--pri-mid)', glow: 'rgba(251, 191, 122, 0.4)' },
-    低: { color: 'var(--pri-low)', glow: 'rgba(116, 230, 156, 0.35)' },
-  })[p] || { color: 'var(--pri-mid)', glow: 'rgba(251, 191, 122, 0.4)' }
+    高: { color: 'var(--pri-high)' },
+    中: { color: 'var(--pri-mid)' },
+    低: { color: 'var(--pri-low)' },
+  })[p] || { color: 'var(--pri-mid)' }
 
 const ranged = computed(() =>
   props.tasks.filter((t) => {
@@ -104,45 +105,42 @@ function fmt(d) {
     <div class="tl-head">
       <div class="tl-title">
         <h2 class="page-title">
-          <span class="page-title-icon float">📈</span>
-          <span class="gradient-text">时间轴</span>
+          <ArtIcon name="timeline" tone="sand" :size="36" tile label="时间轴" />
+          <span>时间轴</span>
         </h2>
-        <p class="muted">每条横条 = 起止时间段；实色填充 = 完成进度。</p>
+        <p class="muted">查看任务跨度、并行关系和完成进度。</p>
       </div>
       <button class="create-btn" @click="emit('create')">
-        <span class="btn-icon">＋</span>
+        <ArtIcon name="plus" tone="on-accent" :size="20" />
         <span>新建任务</span>
       </button>
     </div>
 
     <div class="legend card">
       <div class="legend-item">
-        <span class="dot" style="background: var(--pri-high)"></span>
+        <ArtIcon name="priority" tone="coral" :size="18" />
         <span>高优先级</span>
       </div>
       <div class="legend-item">
-        <span class="dot" style="background: var(--pri-mid)"></span>
+        <ArtIcon name="priority" tone="sand" :size="18" />
         <span>中优先级</span>
       </div>
       <div class="legend-item">
-        <span class="dot" style="background: var(--pri-low)"></span>
+        <ArtIcon name="priority" tone="mint" :size="18" />
         <span>低优先级</span>
       </div>
       <div class="legend-sep"></div>
-      <div class="legend-item">
-        <span class="bar-sample bg"></span>
-        <span>未完成</span>
-      </div>
-      <div class="legend-item">
-        <span class="bar-sample fill"></span>
-        <span>已完成</span>
+      <div class="legend-progress">
+        <span class="progress-sample">
+          <span class="progress-sample-fill"></span>
+        </span>
+        <span>浅色为跨度，深色为进度</span>
       </div>
     </div>
 
     <div v-if="!ranged.length" class="card empty">
-      <div class="empty-icon float-slow">🌊</div>
       <div class="empty-title">还没有带起止时间的任务</div>
-      <div class="muted">在任务里填「开始日期」+「截止日期」，时间轴就能显示。</div>
+      <div class="muted">在任务里填写开始日期和结束日期后，这里会显示时间跨度。</div>
     </div>
 
     <div v-else class="tl-scroll card">
@@ -173,7 +171,6 @@ function fmt(d) {
                 left: posOf(t).left + '%',
                 width: posOf(t).width + '%',
                 background: priMeta(t.priority).color,
-                boxShadow: `0 0 12px ${priMeta(t.priority).glow}`,
               }"
               @click="emit('open', t)"
               :title="`${t.title}（${t.priority}，进度 ${t.progress || 0}%）`"
@@ -248,21 +245,19 @@ function fmt(d) {
   font-weight: 600;
 }
 
-.btn-icon {
-  display: inline-block;
-  font-size: 16px;
-  transition: transform 0.3s ease;
+.create-btn :deep(.art-icon) {
+  transition: transform 0.2s ease;
 }
 
-.create-btn:hover .btn-icon {
+.create-btn:hover :deep(.art-icon) {
   transform: rotate(90deg);
 }
 
 .legend {
   display: inline-flex;
   align-items: center;
-  gap: 18px;
-  padding: 10px 18px;
+  gap: 12px;
+  padding: 10px 14px;
   align-self: flex-start;
   flex-wrap: wrap;
 }
@@ -271,9 +266,14 @@ function fmt(d) {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  min-width: 0;
   font-size: 13px;
   color: var(--text-soft);
   font-weight: 500;
+}
+
+.legend-item span:last-child {
+  white-space: nowrap;
 }
 
 .dot {
@@ -288,18 +288,30 @@ function fmt(d) {
   background: var(--border);
 }
 
-.bar-sample {
-  width: 20px;
+.legend-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.progress-sample {
+  position: relative;
+  width: 52px;
   height: 8px;
+  flex-shrink: 0;
+  overflow: hidden;
   border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--pri-mid) 28%, transparent);
 }
 
-.bar-sample.bg {
-  background: var(--pri-mid);
-  opacity: 0.3;
-}
-
-.bar-sample.fill {
+.progress-sample-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 58%;
+  border-radius: inherit;
   background: var(--pri-mid);
 }
 
@@ -310,11 +322,6 @@ function fmt(d) {
   flex-direction: column;
   align-items: center;
   gap: 10px;
-}
-
-.empty-icon {
-  font-size: 44px;
-  opacity: 0.75;
 }
 
 .empty-title {

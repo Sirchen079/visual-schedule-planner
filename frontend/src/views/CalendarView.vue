@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
+import ArtIcon from '../components/ArtIcon.vue'
 
 const props = defineProps({
   tasks: { type: Array, required: true },
@@ -85,20 +86,24 @@ const monthStats = computed(() => {
     <div class="cal-head">
       <div class="cal-title">
         <h2 class="page-title">
-          <span class="page-title-icon float">📅</span>
-          <span class="gradient-text">日历视图</span>
+          <ArtIcon name="calendar" tone="aqua" :size="36" tile label="日历视图" />
+          <span>日历视图</span>
         </h2>
-        <p class="muted">按截止日期看任务分布，一眼发现哪天扎堆。</p>
+        <p class="muted">按截止日期查看任务分布，提前看见拥挤日期。</p>
       </div>
       <div class="cal-actions">
         <div class="cal-nav">
-          <button class="ghost nav-btn" @click="prevMonth">‹</button>
+          <button class="ghost nav-btn" @click="prevMonth">
+            <ArtIcon name="chevron-left" tone="pearl" :size="18" label="上个月" />
+          </button>
           <span class="cursor">{{ cursorLabel }}</span>
-          <button class="ghost nav-btn" @click="nextMonth">›</button>
+          <button class="ghost nav-btn" @click="nextMonth">
+            <ArtIcon name="chevron-right" tone="pearl" :size="18" label="下个月" />
+          </button>
         </div>
         <button class="ghost today-btn" @click="goToday">今天</button>
         <button class="create-btn" @click="emit('create')">
-          <span class="btn-icon">＋</span>
+          <ArtIcon name="plus" tone="on-accent" :size="20" />
           <span>新建</span>
         </button>
       </div>
@@ -225,13 +230,11 @@ const monthStats = computed(() => {
   font-weight: 600;
 }
 
-.btn-icon {
-  display: inline-block;
-  font-size: 16px;
-  transition: transform 0.3s ease;
+.create-btn :deep(.art-icon) {
+  transition: transform 0.2s ease;
 }
 
-.create-btn:hover .btn-icon {
+.create-btn:hover :deep(.art-icon) {
   transform: rotate(90deg);
 }
 
@@ -308,11 +311,11 @@ const monthStats = computed(() => {
 
 .cell.today {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-glow), var(--shadow-sm), var(--shadow-inset);
+  box-shadow: inset 0 0 0 1px var(--accent), var(--shadow-sm), var(--shadow-inset);
 }
 
 .cell.today:hover {
-  box-shadow: 0 0 0 4px var(--accent-glow), var(--shadow-md), var(--shadow-inset);
+  box-shadow: inset 0 0 0 1px var(--accent), var(--shadow-sm), var(--shadow-inset);
 }
 
 .day-bar {
@@ -337,7 +340,7 @@ const monthStats = computed(() => {
 .cell.today .day-num {
   background: var(--accent);
   color: #fff;
-  box-shadow: 0 2px 8px var(--accent-glow);
+  box-shadow: var(--shadow-xs);
 }
 
 .day-count {
@@ -388,21 +391,30 @@ const monthStats = computed(() => {
 
 @media (max-width: 760px) {
   .cal-head {
-    align-items: center;
+    align-items: stretch;
+    flex-direction: column;
   }
   .cal-title p {
     display: none;
   }
   .cal-actions {
-    gap: 6px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    width: 100%;
+    gap: 8px;
   }
-  .today-btn span,
-  .create-btn span:last-child {
-    display: none;
+  .cal-nav {
+    min-width: 0;
+    border-radius: var(--radius);
   }
   .cursor {
-    min-width: 90px;
+    min-width: 0;
     font-size: 13px;
+  }
+  .today-btn,
+  .create-btn {
+    justify-content: center;
+    padding-inline: 14px;
   }
   .grid {
     gap: 6px;

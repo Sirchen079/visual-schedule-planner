@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import ArtIcon from '../components/ArtIcon.vue'
 
 const props = defineProps({
   tasks: { type: Array, required: true },
@@ -73,10 +74,22 @@ const doneRate = computed(() => {
 })
 
 const stats = computed(() => [
-  { label: '今日到期', value: todayDue.value.length, icon: '🐚', tone: 'calm' },
-  { label: '本周截止', value: weekDue.value.length, icon: '🌊', tone: 'calm' },
-  { label: overdue.value.length ? '已逾期' : '无逾期', value: overdue.value.length, icon: overdue.value.length ? '⛈️' : '☀️', tone: overdue.value.length ? 'alert' : 'calm' },
-  { label: '完成率', value: `${doneRate.value}%`, icon: '✨', tone: 'calm' },
+  {
+    label: overdue.value.length ? '已逾期' : '无逾期',
+    value: overdue.value.length,
+    tone: overdue.value.length ? 'alert' : 'calm',
+    icon: 'priority',
+    iconTone: overdue.value.length ? 'coral' : 'mint',
+  },
+  {
+    label: '今日到期',
+    value: todayDue.value.length,
+    tone: todayDue.value.length ? 'focus' : 'calm',
+    icon: 'calendar',
+    iconTone: 'aqua',
+  },
+  { label: '本周截止', value: weekDue.value.length, tone: 'calm', icon: 'timeline', iconTone: 'sand' },
+  { label: '完成率', value: `${doneRate.value}%`, tone: 'calm', icon: 'overview', iconTone: 'mint' },
 ])
 </script>
 
@@ -84,10 +97,10 @@ const stats = computed(() => [
   <div class="overview">
     <div class="overview-head">
       <h2 class="page-title">
-        <span class="page-title-icon float">🗺️</span>
-        <span class="gradient-text">日程总览</span>
+        <ArtIcon name="overview" tone="mint" :size="36" tile label="日程总览" />
+        <span>日程总览</span>
       </h2>
-      <p class="muted">像俯瞰一片海湾，看清每颗贝壳的位置。</p>
+      <p class="muted">从全局看清轻重缓急，让节奏保持平稳。</p>
     </div>
 
     <div class="stats-grid">
@@ -98,7 +111,14 @@ const stats = computed(() => [
         :class="[s.tone, 'animate-in']"
         :style="{ animationDelay: `${i * 0.08}s` }"
       >
-        <div class="stat-icon float-slow">{{ s.icon }}</div>
+        <ArtIcon
+          class="stat-icon"
+          :name="s.icon"
+          :tone="s.iconTone"
+          :size="50"
+          tile
+          :label="s.label"
+        />
         <div class="stat-main">
           <div class="num">{{ s.value }}</div>
           <div class="label">{{ s.label }}</div>
@@ -108,7 +128,7 @@ const stats = computed(() => [
 
     <div class="sections">
       <div class="section card" v-if="overdue.length">
-        <h3><span class="section-icon">⛈️</span>逾期未完成</h3>
+        <h3>逾期未完成</h3>
         <div class="task-list">
           <div class="li" v-for="t in overdue" :key="t.id" @click="emit('open', t)">
             <span class="li-title">{{ t.title }}</span>
@@ -118,7 +138,7 @@ const stats = computed(() => [
       </div>
 
       <div class="section card" v-if="todayDue.length">
-        <h3><span class="section-icon">🐚</span>今日到期</h3>
+        <h3>今日到期</h3>
         <div class="task-list">
           <div class="li" v-for="t in todayDue" :key="t.id" @click="emit('open', t)">
             <span class="li-title">{{ t.title }}</span>
@@ -128,7 +148,7 @@ const stats = computed(() => [
       </div>
 
       <div class="section card" v-if="weekDue.length">
-        <h3><span class="section-icon">🌊</span>本周截止</h3>
+        <h3>本周截止</h3>
         <div class="task-list">
           <div class="li" v-for="t in weekDue" :key="t.id" @click="emit('open', t)">
             <span class="li-title">{{ t.title }}</span>
@@ -138,7 +158,7 @@ const stats = computed(() => [
       </div>
 
       <div class="section card status-section">
-        <h3><span class="section-icon">🗺️</span>状态分布</h3>
+        <h3>状态分布</h3>
         <div class="status-grid">
           <div class="status-item" v-for="(count, status) in statusCount" :key="status">
             <span class="status-dot" :class="status"></span>
@@ -198,20 +218,11 @@ const stats = computed(() => [
 }
 
 .stat-icon {
-  width: 50px;
-  height: 50px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 16px;
-  background: var(--surface-2);
-  font-size: 26px;
   flex-shrink: 0;
-  box-shadow: var(--shadow-inset);
 }
 
 .stat.alert .stat-icon {
-  background: rgba(242, 107, 122, 0.1);
+  color: var(--pri-high);
 }
 
 .stat-main {
@@ -250,10 +261,6 @@ const stats = computed(() => [
   align-items: center;
   gap: 8px;
   color: var(--text);
-}
-
-.section-icon {
-  font-size: 18px;
 }
 
 .task-list {

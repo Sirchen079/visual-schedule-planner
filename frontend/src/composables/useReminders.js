@@ -29,7 +29,7 @@ export function useReminders() {
   const count = computed(() => upcoming.value.length + overdue.value.length)
 
   function notify(task, isOverdue = false) {
-    const title = isOverdue ? '⚠️ 任务已逾期' : '⏰ 任务即将到期'
+    const title = isOverdue ? '任务已逾期' : '任务即将到期'
     const body = `${task.title}${task.due_date ? '\n截止：' + new Date(task.due_date).toLocaleString('zh-CN') : ''}`
     try {
       if (window.Notification && Notification.permission === 'granted') {

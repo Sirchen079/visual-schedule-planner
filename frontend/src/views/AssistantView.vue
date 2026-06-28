@@ -20,6 +20,7 @@ import {
   uploadAiAttachment,
 } from '../api/ai'
 import { uploadFile } from '../api/files'
+import ArtIcon from '../components/ArtIcon.vue'
 
 const emit = defineEmits(['changed'])
 
@@ -844,8 +845,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <button v-if="!open" class="assistant-fab" @click="openAssistant">
-    <span>✦</span>
+  <button v-if="!open" class="assistant-fab" :aria-label="assistantName" @click="openAssistant">
+    <ArtIcon name="assistant" tone="aqua" :size="38" tile />
     <strong>{{ assistantName }}</strong>
   </button>
 
@@ -873,10 +874,10 @@ onBeforeUnmount(() => {
     <header class="assistant-head" @pointerdown="startDrag">
       <div class="head-copy">
         <h2 class="page-title">
-          <span class="page-title-icon float">✦</span>
-          <span class="gradient-text">{{ assistantName }}</span>
+          <ArtIcon name="assistant" tone="aqua" :size="36" tile :label="assistantName" />
+          <span>{{ assistantName }}</span>
         </h2>
-        <p class="muted">幕僚式日程与资料参谋，可对话安排、查看和规划事项。</p>
+        <p class="muted">安静地整理日程、资料和下一步行动。</p>
       </div>
       <div class="head-actions">
         <div class="mode-switch compact-mode-switch" role="tablist" aria-label="助手视图">
@@ -909,13 +910,21 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <button class="ghost compact new-chat-action" :disabled="busy || uploadingFiles || attachingFiles" @click="startNewChat">
-          新聊天
+          <ArtIcon name="plus" tone="aqua" :size="16" />
+          <span>新聊天</span>
         </button>
-        <button class="ghost compact refresh-action" :disabled="loading || historyLoading || busy" @click="refreshActiveView">刷新</button>
+        <button class="ghost compact refresh-action" :disabled="loading || historyLoading || busy" @click="refreshActiveView">
+          <ArtIcon name="refresh" tone="aqua" :size="16" />
+          <span>刷新</span>
+        </button>
         <button class="ghost compact fullscreen-action" @click="toggleFullscreen">
-          {{ fullscreen ? '退出全屏' : '全屏' }}
+          <ArtIcon name="expand" tone="pearl" :size="16" />
+          <span>{{ fullscreen ? '退出全屏' : '全屏' }}</span>
         </button>
-        <button class="ghost compact close-action" @click="closeAssistant">收起</button>
+        <button class="ghost compact close-action" @click="closeAssistant">
+          <ArtIcon name="close" tone="pearl" :size="16" />
+          <span>收起</span>
+        </button>
       </div>
     </header>
 
@@ -1126,7 +1135,8 @@ onBeforeUnmount(() => {
             <p class="muted">保留最近 50 次会话，点击可回溯上下文。</p>
           </div>
           <button class="ghost compact" :disabled="busy || uploadingFiles || attachingFiles" @click="startNewChat">
-            新聊天
+            <ArtIcon name="plus" tone="aqua" :size="16" />
+            <span>新聊天</span>
           </button>
         </div>
 
@@ -1159,12 +1169,15 @@ onBeforeUnmount(() => {
           <span v-if="busy || uploadingFiles || attachingFiles" class="tag">
             {{ uploadingFiles ? '入库中' : attachingFiles ? '添加中' : '处理中' }}
           </span>
-          <button v-else class="ghost compact" @click="assistantMode = 'settings'">配置</button>
+          <button v-else class="ghost compact" @click="assistantMode = 'settings'">
+            <ArtIcon name="assistant" tone="aqua" :size="16" />
+            <span>配置</span>
+          </button>
         </div>
 
         <div ref="messagesRef" class="messages" role="log" aria-live="polite" :aria-busy="busy">
           <div v-if="!messages.length" class="empty-chat">
-            <div class="empty-icon float-slow">✧</div>
+            <div class="empty-title">从一个想法开始</div>
             <div>告诉{{ assistantName }}你要安排什么，或让它整理刚上传的资料。</div>
           </div>
 
@@ -1233,9 +1246,10 @@ onBeforeUnmount(() => {
             <div v-if="attachingFiles" class="upload-hint">正在添加对话附件...</div>
             <div v-if="chatAttachments.length" class="attachment-strip">
               <span v-for="file in chatAttachments" :key="file.id" class="attachment-chip">
-                {{ file.kind === 'image' ? '图' : '文' }} {{ file.original_name }}
+                <ArtIcon :name="file.kind === 'image' ? 'image' : 'file'" tone="aqua" :size="15" />
+                <span>{{ file.original_name }}</span>
                 <button type="button" :aria-label="`移除 ${file.original_name}`" @click="removeChatAttachment(file.id)">
-                  移除
+                  <ArtIcon name="close" tone="pearl" :size="14" />
                 </button>
               </span>
             </div>
@@ -1243,10 +1257,12 @@ onBeforeUnmount(() => {
           <div class="composer-toolbar">
             <div class="composer-file-actions">
               <button class="ghost compact" :disabled="busy || uploadingFiles || attachingFiles" @click="aiAttachmentInput?.click()">
-                看文件
+                <ArtIcon name="file" tone="aqua" :size="18" />
+                <span>看文件</span>
               </button>
               <button class="ghost compact" :disabled="busy || uploadingFiles || attachingFiles" @click="chatFileInput?.click()">
-                入库
+                <ArtIcon name="upload" tone="mint" :size="18" />
+                <span>入库</span>
               </button>
             </div>
             <button
@@ -1254,7 +1270,8 @@ onBeforeUnmount(() => {
               :disabled="busy || uploadingFiles || attachingFiles || (!input.trim() && !chatAttachments.length)"
               @click="send"
             >
-              {{ busy ? '处理中...' : '发送' }}
+              <ArtIcon name="send" tone="on-accent" :size="20" />
+              <span>{{ busy ? '处理中...' : '发送' }}</span>
             </button>
           </div>
           <input ref="chatFileInput" type="file" multiple hidden @change="onChatFiles" />
@@ -1277,9 +1294,18 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 9px;
   max-width: min(360px, calc(100vw - 32px));
-  padding: 13px 18px 13px 14px;
+  padding: 12px 18px 12px 12px;
   border-radius: var(--radius-pill);
-  box-shadow: var(--shadow-xl), 0 0 28px var(--accent-glow);
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--sea-400));
+  box-shadow: var(--shadow-xl), 0 0 24px var(--accent-glow);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+}
+
+.assistant-fab:hover {
+  transform: translateY(-2px);
+  filter: saturate(1.04);
+  box-shadow: var(--shadow-xl), 0 0 30px var(--accent-glow);
 }
 
 .assistant-fab strong {
@@ -1289,15 +1315,13 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.assistant-fab span {
-  width: 34px;
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.28);
-  box-shadow: var(--shadow-inset);
+.assistant-fab :deep(.art-icon.tile) {
+  color: #fff;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.16)),
+    rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.46);
+  box-shadow: var(--shadow-inset), 0 0 18px rgba(255, 255, 255, 0.22);
 }
 
 .assistant-layer {
@@ -1309,9 +1333,9 @@ onBeforeUnmount(() => {
 }
 
 .assistant-layer.fullscreen {
-  background: rgba(232, 248, 255, 0.62);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
+  background: rgba(232, 248, 255, 0.68);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
 }
 
 .assistant-shell {
@@ -1323,7 +1347,7 @@ onBeforeUnmount(() => {
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: rgba(255, 255, 255, 0.98);
+  background: color-mix(in srgb, var(--surface) 92%, white 8%);
   box-shadow: var(--shadow-xl), var(--shadow-inset);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
@@ -1372,7 +1396,7 @@ onBeforeUnmount(() => {
   cursor: grab;
   touch-action: none;
   gap: 10px;
-  padding-bottom: 10px;
+  padding: 2px 2px 12px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -1386,12 +1410,6 @@ onBeforeUnmount(() => {
 
 .assistant-shell:not(.fullscreen) .page-title {
   gap: 8px;
-}
-
-.assistant-shell:not(.fullscreen) .page-title-icon {
-  width: 36px;
-  height: 36px;
-  font-size: 18px;
 }
 
 .assistant-shell:not(.fullscreen) .assistant-head h2 {
@@ -1411,7 +1429,22 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
-.assistant-head .page-title,
+.head-copy {
+  flex: 1;
+}
+
+.assistant-head .page-title {
+  color: var(--text);
+  min-width: 0;
+}
+
+.assistant-head .page-title span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chat-head h3 {
   overflow-wrap: anywhere;
 }
@@ -1485,14 +1518,14 @@ onBeforeUnmount(() => {
   gap: 4px;
   padding: 4px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-sm);
   background: rgba(255, 255, 255, 0.7);
   box-shadow: var(--shadow-inset);
 }
 
 .mode-switch button {
   min-height: 30px;
-  border-radius: var(--radius-pill);
+  border-radius: 10px;
   box-shadow: none;
 }
 
@@ -1640,6 +1673,10 @@ label span {
 }
 
 .compact {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   padding: 7px 14px;
   font-size: 12px;
 }
@@ -1788,11 +1825,18 @@ label span {
   text-align: center;
   color: var(--text-soft);
   max-width: 380px;
+  display: grid;
+  gap: 6px;
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-inset);
 }
 
-.empty-icon {
-  font-size: 42px;
-  margin-bottom: 8px;
+.empty-title {
+  color: var(--text);
+  font-weight: 800;
 }
 
 .message {
@@ -1989,8 +2033,12 @@ pre {
 }
 
 .attachment-chip button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 22px;
-  padding: 0 7px;
+  width: 22px;
+  padding: 0;
   border-radius: var(--radius-pill);
   font-size: 11px;
   box-shadow: none;
@@ -2011,10 +2059,18 @@ pre {
 }
 
 .composer-file-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   min-width: 70px;
 }
 
 .send-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   min-width: 82px;
   flex-shrink: 0;
 }
@@ -2091,6 +2147,20 @@ pre {
   .assistant-fab {
     right: 14px;
     bottom: 14px;
+    width: 58px;
+    height: 58px;
+    padding: 0;
+    justify-content: center;
+    border-radius: 50%;
+  }
+
+  .assistant-fab strong {
+    display: none;
+  }
+
+  .assistant-fab :deep(.art-icon.tile) {
+    width: 40px;
+    height: 40px;
   }
 
   .message {

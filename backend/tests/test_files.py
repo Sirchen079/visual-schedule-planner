@@ -36,6 +36,27 @@ def test_get_file_content(client):
     assert resp.content == b"hello"
 
 
+def test_link_resource_redirects_to_source_url(client, db_session):
+    from app.services import file_service
+
+    resource = file_service.save_link_resource(
+        db_session,
+        title="Vue 教程视频",
+        url="https://example.com/video",
+        notes="AI 查找到的视频教程",
+        resource_type="video",
+    )
+
+    body = client.get(f"/files/{resource.id}").json()
+    assert body["original_name"] == "Vue 教程视频"
+    assert body["source_url"] == "https://example.com/video"
+    assert body["resource_type"] == "video"
+
+    resp = client.get(f"/files/{resource.id}/content", follow_redirects=False)
+    assert resp.status_code in {302, 307}
+    assert resp.headers["location"] == "https://example.com/video"
+
+
 def test_soft_delete_file(client):
     fid = client.post(
         "/files",

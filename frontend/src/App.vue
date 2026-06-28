@@ -12,6 +12,7 @@ import TimelineView from './views/TimelineView.vue'
 import TrashView from './views/TrashView.vue'
 import TaskModal from './components/TaskModal.vue'
 import RemindersPanel from './components/RemindersPanel.vue'
+import ArtIcon from './components/ArtIcon.vue'
 
 const { tasks, loading, error, load, add, update, remove } = useTasks()
 const { upcoming, overdue, count, panelOpen, start: startReminders, refresh: refreshReminders } = useReminders()
@@ -25,6 +26,14 @@ onMounted(() => {
 })
 
 const view = ref('board')
+const tabs = [
+  { key: 'board', label: '看板', icon: 'board' },
+  { key: 'overview', label: '总览', icon: 'overview' },
+  { key: 'calendar', label: '日历', icon: 'calendar' },
+  { key: 'timeline', label: '时间轴', icon: 'timeline' },
+  { key: 'library', label: '资料库', icon: 'library' },
+  { key: 'trash', label: '回收站', icon: 'trash' },
+]
 
 const theme = ref(localStorage.getItem('theme') || 'light')
 const shuttingDown = ref(false)
@@ -110,25 +119,21 @@ async function undoDelete() {
   <div class="app">
     <header class="topbar">
       <div class="brand">
-        <span class="brand-icon float">🌊</span>
-        <span class="brand-text gradient-text">可视化日程</span>
+        <ArtIcon name="brand" tone="aqua" :size="38" tile label="可视化日程" />
+        <span class="brand-text">可视化日程</span>
       </div>
 
       <nav class="tabs">
         <button
-          v-for="tab in [
-            { key: 'board', label: '看板' },
-            { key: 'overview', label: '总览' },
-            { key: 'calendar', label: '日历' },
-            { key: 'timeline', label: '时间轴' },
-            { key: 'library', label: '资料库' },
-            { key: 'trash', label: '回收站' },
-          ]"
+          v-for="tab in tabs"
           :key="tab.key"
           :class="['tab', view === tab.key && 'active']"
+          :aria-label="tab.label"
+          :title="tab.label"
           @click="view = tab.key"
         >
-          {{ tab.label }}
+          <ArtIcon :name="tab.icon" :tone="view === tab.key ? 'aqua' : 'pearl'" :size="20" />
+          <span class="tab-label">{{ tab.label }}</span>
         </button>
       </nav>
 
@@ -139,7 +144,7 @@ async function undoDelete() {
           :title="count > 0 ? `有 ${count} 条提醒` : '提醒'"
           @click="panelOpen = true; refreshReminders()"
         >
-          <span class="bell">🔔</span>
+          <ArtIcon name="bell" tone="aqua" :size="20" label="提醒" />
           <span v-if="count" class="badge">{{ count > 99 ? '99+' : count }}</span>
         </button>
         <button
@@ -147,7 +152,12 @@ async function undoDelete() {
           @click="toggleTheme"
           :title="theme === 'light' ? '切换深色' : '切换浅色'"
         >
-          <span class="theme-icon">{{ theme === 'light' ? '🌙' : '☀️' }}</span>
+          <ArtIcon
+            :name="theme === 'light' ? 'moon' : 'sun'"
+            tone="aqua"
+            :size="20"
+            :label="theme === 'light' ? '切换深色' : '切换浅色'"
+          />
         </button>
         <button class="ghost shutdown" :disabled="shuttingDown" @click="shutdownService">
           <span>{{ shuttingDown ? '正在关闭…' : '关闭服务' }}</span>
@@ -161,7 +171,7 @@ async function undoDelete() {
         <p>加载中…</p>
       </div>
       <div v-else-if="error" class="center">
-        <p class="muted">⚠️ {{ error }}</p>
+        <p class="muted">请求未完成：{{ error }}</p>
         <button @click="load">重试</button>
       </div>
       <Transition name="fade" mode="out-in" v-else>
@@ -202,10 +212,12 @@ async function undoDelete() {
     <Transition name="toast">
       <div v-if="toast" class="toast">
         <span class="toast-bar"></span>
-        <span class="toast-icon float">↩️</span>
+        <ArtIcon class="toast-icon" name="restore" tone="mint" :size="22" tile label="撤销" />
         <span class="toast-msg">{{ toast.message }}</span>
         <button class="toast-undo" @click="undoDelete">撤销</button>
-        <button class="ghost toast-close" @click="dismissToast">✕</button>
+        <button class="ghost toast-close" @click="dismissToast">
+          <ArtIcon name="close" tone="pearl" :size="16" label="关闭提示" />
+        </button>
       </div>
     </Transition>
   </div>
@@ -222,18 +234,18 @@ async function undoDelete() {
 .topbar {
   position: relative;
   z-index: 50;
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin: 14px 24px 0;
-  padding: 10px 14px;
+  gap: 18px;
+  margin: 14px 22px 0;
+  padding: 10px 12px 10px 14px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  box-shadow: var(--shadow-md), var(--shadow-inset);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: var(--shadow-sm), var(--shadow-inset);
   flex-shrink: 0;
 }
 
@@ -241,39 +253,28 @@ async function undoDelete() {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding-left: 6px;
-}
-
-.brand-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent-soft), var(--sea-100));
-  font-size: 20px;
-  box-shadow: 0 3px 12px var(--accent-glow), var(--shadow-inset);
+  min-width: 0;
 }
 
 .brand-text {
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 800;
-  letter-spacing: 0.8px;
+  color: var(--text);
+  letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .tabs {
   display: flex;
   align-items: center;
-  gap: 4px;
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: min(760px, calc(100vw - 360px));
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
   overflow-x: auto;
   background: var(--surface-2);
   padding: 4px;
-  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   box-shadow: var(--shadow-inset);
   scrollbar-width: none;
 }
@@ -283,39 +284,24 @@ async function undoDelete() {
 }
 
 .tab {
-  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   background: transparent;
   color: var(--text-soft);
-  padding: 7px 20px;
-  border-radius: var(--radius-pill);
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 650;
   white-space: nowrap;
   box-shadow: none;
-  overflow: hidden;
-  transition: color 0.25s ease;
-}
-
-.tab::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, var(--accent), var(--sea-400));
-  border-radius: var(--radius-pill);
-  opacity: 0;
-  transform: scale(0.9);
-  transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  z-index: -1;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
 .tab.active {
-  color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-}
-
-.tab.active::before {
-  opacity: 1;
-  transform: scale(1);
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
 }
 
 .tab:not(.active):hover {
@@ -332,33 +318,25 @@ async function undoDelete() {
 
 .theme-btn {
   padding: 0;
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  min-width: 38px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
+  border-radius: var(--radius-sm);
 }
 
 .bell-btn {
   position: relative;
   padding: 0;
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  min-width: 38px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-}
-.bell {
-  font-size: 17px;
-  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.bell-btn:hover .bell {
-  transform: rotate(12deg) scale(1.12);
-}
-.bell-btn.has .bell {
-  animation: ring 1.6s ease-in-out infinite;
+  border-radius: var(--radius-sm);
 }
 .badge {
   position: absolute;
@@ -376,23 +354,6 @@ async function undoDelete() {
   text-align: center;
   box-shadow: 0 2px 6px rgba(242, 107, 122, 0.5);
 }
-@keyframes ring {
-  0%, 60%, 100% { transform: rotate(0); }
-  70% { transform: rotate(-12deg); }
-  80% { transform: rotate(10deg); }
-  90% { transform: rotate(-6deg); }
-}
-
-.theme-icon {
-  font-size: 17px;
-  display: inline-block;
-  transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.theme-btn:hover .theme-icon {
-  transform: rotate(25deg) scale(1.15);
-}
-
 .shutdown {
   color: var(--text-soft);
   white-space: nowrap;
@@ -401,7 +362,7 @@ async function undoDelete() {
 
 .content {
   flex: 1;
-  padding: 24px 28px 32px;
+  padding: 22px 28px 32px;
   overflow: auto;
   min-height: 0;
 }
@@ -433,20 +394,35 @@ async function undoDelete() {
     margin: 10px 12px 0;
     padding: 8px 10px;
     gap: 10px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
   }
   .brand-text {
     display: none;
   }
   .tabs {
-    position: static;
-    transform: none;
     flex: 1;
     justify-content: flex-start;
     max-width: none;
+    gap: 4px;
   }
   .tab {
-    padding: 6px 12px;
+    width: 38px;
+    min-width: 38px;
+    height: 34px;
+    justify-content: center;
+    padding: 0;
     font-size: 13px;
+  }
+  .tab :deep(.art-icon) {
+    width: 22px;
+    height: 22px;
+  }
+  .tab :deep(.art-icon svg) {
+    width: 82%;
+    height: 82%;
+  }
+  .tab-label {
+    display: none;
   }
   .shutdown span {
     display: none;
@@ -455,7 +431,7 @@ async function undoDelete() {
     content: '关闭';
   }
   .content {
-    padding: 16px 14px 24px;
+    padding: 16px 14px 112px;
   }
 }
 
@@ -471,8 +447,8 @@ async function undoDelete() {
   padding: 11px 16px 11px 12px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  box-shadow: var(--shadow-xl), var(--shadow-inset);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg), var(--shadow-inset);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   font-size: 14px;
@@ -489,8 +465,7 @@ async function undoDelete() {
 }
 
 .toast-icon {
-  font-size: 18px;
-  filter: drop-shadow(0 2px 4px var(--accent-glow));
+  flex-shrink: 0;
 }
 
 .toast-msg {
@@ -503,7 +478,12 @@ async function undoDelete() {
 }
 
 .toast-close {
-  padding: 2px 8px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .toast-enter-active,

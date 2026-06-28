@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import ArtIcon from './ArtIcon.vue'
 
 const props = defineProps({
   task: { type: Object, required: true },
@@ -36,15 +37,6 @@ const subPct = computed(() => {
   return Math.round((subDoneCount.value / all.length) * 100)
 })
 
-function fmtTime(t) {
-  if (!t) return ''
-  return new Date(t).toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
 </script>
 
 <template>
@@ -57,12 +49,13 @@ function fmtTime(t) {
           class="pri-badge"
           :style="{ color: priMeta.color, background: priMeta.bg }"
         >
-          {{ task.priority }}
+          <ArtIcon name="priority" tone="coral" :size="15" />
+          <span>{{ task.priority }}</span>
         </span>
       </div>
       <div class="row meta">
         <span v-if="dueLabel" class="due" :class="{ overdue: isOverdue }">
-          <span class="meta-icon">⏰</span>
+          <ArtIcon name="calendar" :tone="isOverdue ? 'coral' : 'pearl'" :size="15" />
           <span>{{ dueLabel }}</span>
         </span>
         <span v-if="task.status === '进行中'" class="progress">
@@ -70,33 +63,21 @@ function fmtTime(t) {
           <span>{{ task.progress }}%</span>
         </span>
         <span v-if="task.subtasks?.length" class="subs-badge">
-          <span class="meta-icon">✅</span>
+          <ArtIcon name="steps" tone="mint" :size="15" />
           <span>{{ subDoneCount }}/{{ task.subtasks.length }}</span>
         </span>
         <span v-if="task.files?.length" class="files">
-          <span class="meta-icon">📎</span>
+          <ArtIcon name="file" tone="aqua" :size="15" />
           <span>{{ task.files.length }}</span>
         </span>
       </div>
 
-      <div v-if="task.subtasks?.length" class="sub-list">
-        <div class="sub-head">
-          <span class="sub-head-icon float-slow">🐚</span>
-          <span class="sub-head-text">子任务进度</span>
-          <span class="sub-head-pct">{{ subPct }}%</span>
-          <span class="sub-mini">
-            <span class="sub-mini-fill" :style="{ width: subPct + '%' }"></span>
-          </span>
-        </div>
-        <div class="sub-item" v-for="s in task.subtasks" :key="s.id">
-          <span class="sub-check" :class="{ done: s.done }">
-            <span v-if="s.done">✓</span>
-          </span>
-          <span class="sub-title" :class="{ done: s.done }">{{ s.title }}</span>
-          <span v-if="s.completed_at" class="sub-done-tag">
-            <span>🕐</span><span>{{ fmtTime(s.completed_at) }}</span>
-          </span>
-        </div>
+      <div v-if="task.subtasks?.length" class="sub-summary">
+        <span>{{ subDoneCount }}/{{ task.subtasks.length }} 子任务</span>
+        <span class="sub-mini">
+          <span class="sub-mini-fill" :style="{ width: subPct + '%' }"></span>
+        </span>
+        <span>{{ subPct }}%</span>
       </div>
     </div>
   </div>
@@ -106,37 +87,32 @@ function fmtTime(t) {
 .task-card {
   position: relative;
   cursor: pointer;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   border-radius: var(--radius-sm);
   background: var(--surface);
   border: 1px solid var(--border);
-  box-shadow: var(--shadow-sm), var(--shadow-inset);
+  box-shadow: var(--shadow-xs), var(--shadow-inset);
   overflow: hidden;
-  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
-    box-shadow 0.25s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 
 .task-card:hover {
-  transform: translateY(-4px) rotate(0.3deg);
-  box-shadow: var(--shadow-md), var(--shadow-inset);
+  transform: translateY(-1px);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm), var(--shadow-inset);
 }
 
 .card-glow {
   position: absolute;
   top: 0;
   left: 0;
-  width: 5px;
+  width: 4px;
   height: 100%;
-  opacity: 0.85;
-  transition: width 0.25s ease;
-}
-
-.task-card:hover .card-glow {
-  width: 7px;
+  opacity: 0.95;
 }
 
 .card-inner {
-  padding: 14px 15px;
+  padding: 13px 14px 13px 15px;
   position: relative;
 }
 
@@ -152,16 +128,19 @@ function fmtTime(t) {
 }
 
 .title {
-  font-weight: 500;
+  font-weight: 650;
   font-size: 14.5px;
   word-break: break-word;
   color: var(--text);
   line-height: 1.5;
   flex: 1;
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
 }
 
 .pri-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 11px;
   font-weight: 700;
   padding: 3px 9px;
@@ -176,10 +155,6 @@ function fmtTime(t) {
   font-size: 12px;
   gap: 14px;
   flex-wrap: wrap;
-}
-
-.meta-icon {
-  font-size: 11px;
 }
 
 .due,
@@ -232,52 +207,18 @@ function fmtTime(t) {
   box-shadow: var(--shadow-inset);
 }
 
-/* hover 展开子任务详情 */
-.sub-list {
-  max-height: 0;
-  overflow: hidden;
-  opacity: 0;
-  margin-top: 0;
-  transition: max-height 0.32s ease, opacity 0.25s ease, margin-top 0.3s ease;
-}
-
-.task-card:hover .sub-list {
-  max-height: 340px;
-  opacity: 1;
-  margin-top: 12px;
-}
-
-.sub-head {
+.sub-summary {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 11px;
-  border-radius: var(--radius-xs);
-  background: linear-gradient(135deg, var(--accent-soft), var(--surface-2));
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-inset);
-  margin-bottom: 4px;
-}
-
-.sub-head-icon {
-  font-size: 14px;
-}
-
-.sub-head-text {
-  flex: 1;
-  font-size: 11.5px;
-  font-weight: 700;
+  margin-top: 10px;
   color: var(--text-soft);
-}
-
-.sub-head-pct {
   font-size: 12px;
-  font-weight: 800;
-  color: var(--accent-hover);
 }
 
 .sub-mini {
-  width: 52px;
+  flex: 1;
+  min-width: 52px;
   height: 5px;
   border-radius: var(--radius-pill);
   background: var(--surface-3);
@@ -291,64 +232,5 @@ function fmtTime(t) {
   background: linear-gradient(90deg, var(--accent), var(--sea-300));
   border-radius: var(--radius-pill);
   transition: width 0.5s ease;
-}
-
-.sub-item {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 6px 4px;
-  font-size: 12.5px;
-}
-
-.sub-check {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  font-weight: 800;
-  flex-shrink: 0;
-  border: 1.5px solid var(--border-strong);
-  color: transparent;
-  background: var(--surface);
-  box-shadow: var(--shadow-inset);
-  transition: background 0.25s ease, border-color 0.25s ease;
-}
-
-.sub-check.done {
-  background: linear-gradient(135deg, var(--foam-400), var(--foam-500));
-  border-color: var(--foam-500);
-  color: #fff;
-}
-
-.sub-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-soft);
-}
-
-.sub-title.done {
-  text-decoration: line-through;
-  color: var(--text-muted);
-}
-
-.sub-done-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 10.5px;
-  font-weight: 600;
-  color: var(--foam-500);
-  background: rgba(116, 230, 156, 0.12);
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
-  border: 1px solid rgba(116, 230, 156, 0.25);
-  flex-shrink: 0;
 }
 </style>

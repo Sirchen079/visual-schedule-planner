@@ -1,9 +1,19 @@
 <script setup>
+import { onBeforeUnmount, onMounted } from 'vue'
+import ArtIcon from './ArtIcon.vue'
+
 defineProps({
   upcoming: { type: Array, required: true },
   overdue: { type: Array, required: true },
 })
 const emit = defineEmits(['open', 'close'])
+
+function onKeydown(event) {
+  if (event.key === 'Escape') emit('close')
+}
+
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 function fmt(d) {
   if (!d) return ''
@@ -14,18 +24,20 @@ function fmt(d) {
 <template>
   <div class="overlay" @click.self="emit('close')">
     <div class="panel">
-      <div class="panel-wave"></div>
       <div class="head">
         <div class="head-title">
-          <span class="bell-icon">🔔</span>
+          <ArtIcon name="bell" tone="aqua" :size="28" tile label="提醒" />
           <span>提醒</span>
         </div>
-        <button class="ghost close-btn" @click="emit('close')">✕</button>
+        <button class="ghost close-btn" @click="emit('close')">
+          <ArtIcon name="close" tone="pearl" :size="18" />
+          <span>关闭</span>
+        </button>
       </div>
 
       <section v-if="overdue.length" class="section">
         <h3 class="section-title overdue-title">
-          <span class="title-dot" style="background: var(--pri-high)"></span>
+          <ArtIcon name="priority" tone="coral" :size="18" />
           已逾期（{{ overdue.length }}）
         </h3>
         <div class="item overdue" v-for="t in overdue" :key="t.id" @click="emit('open', t)">
@@ -33,13 +45,16 @@ function fmt(d) {
             <span class="title">{{ t.title }}</span>
             <span class="muted">{{ fmt(t.due_date) }}</span>
           </div>
-          <span class="tag urgent">逾期</span>
+          <span class="tag urgent">
+            <ArtIcon name="priority" tone="coral" :size="15" />
+            <span>逾期</span>
+          </span>
         </div>
       </section>
 
       <section v-if="upcoming.length" class="section">
         <h3 class="section-title">
-          <span class="title-dot" style="background: var(--accent)"></span>
+          <ArtIcon name="calendar" tone="aqua" :size="18" />
           即将到期（24 小时内，{{ upcoming.length }}）
         </h3>
         <div class="item" v-for="t in upcoming" :key="t.id" @click="emit('open', t)">
@@ -47,14 +62,16 @@ function fmt(d) {
             <span class="title">{{ t.title }}</span>
             <span class="muted">{{ fmt(t.due_date) }}</span>
           </div>
-          <span class="tag soon">快到期</span>
+          <span class="tag soon">
+            <ArtIcon name="bell" tone="aqua" :size="15" />
+            <span>快到期</span>
+          </span>
         </div>
       </section>
 
       <div v-if="!overdue.length && !upcoming.length" class="empty">
-        <div class="empty-icon float-slow">🌊</div>
-        <div class="empty-title">海面平静</div>
-        <div class="muted">暂无到期或逾期任务</div>
+        <div class="empty-title">节奏平稳</div>
+        <div class="muted">暂无到期或逾期任务。</div>
       </div>
     </div>
   </div>
@@ -92,7 +109,7 @@ function fmt(d) {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   padding: 22px;
-  animation: panel-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: panel-in 0.22s ease-out;
   position: relative;
 }
 
@@ -107,17 +124,6 @@ function fmt(d) {
   }
 }
 
-.panel-wave {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 5px;
-  background: linear-gradient(90deg, var(--sea-300), var(--accent), var(--sea-300));
-  opacity: 0.75;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-}
-
 .head {
   display: flex;
   align-items: center;
@@ -126,36 +132,22 @@ function fmt(d) {
 }
 
 .head-title {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   font-size: 18px;
   font-weight: 800;
-  background: linear-gradient(135deg, var(--accent), var(--sea-700));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-[data-theme="dark"] .head-title {
-  background: linear-gradient(135deg, var(--accent), var(--sea-300));
-  -webkit-background-clip: text;
-  background-clip: text;
-}
-
-.bell-icon {
-  font-size: 20px;
-  -webkit-text-fill-color: initial;
+  color: var(--text);
 }
 
 .close-btn {
-  width: 34px;
-  height: 34px;
-  padding: 0;
+  min-height: 34px;
+  padding: 7px 12px;
   display: flex;
   align-items: center;
+  gap: 5px;
   justify-content: center;
-  border-radius: 50%;
+  border-radius: var(--radius-sm);
 }
 
 .section {
@@ -170,12 +162,6 @@ function fmt(d) {
   font-size: 13px;
   font-weight: 700;
   color: var(--text-soft);
-}
-
-.title-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
 }
 
 .overdue-title {
@@ -197,7 +183,7 @@ function fmt(d) {
 }
 
 .item:hover {
-  transform: translateX(4px);
+  transform: translateX(2px);
   box-shadow: var(--shadow-sm);
   border-color: var(--border);
   background: var(--surface);
@@ -219,6 +205,9 @@ function fmt(d) {
 }
 
 .tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 11px;
   font-weight: 700;
   padding: 3px 9px;
@@ -243,11 +232,6 @@ function fmt(d) {
   flex-direction: column;
   align-items: center;
   gap: 8px;
-}
-
-.empty-icon {
-  font-size: 40px;
-  opacity: 0.7;
 }
 
 .empty-title {

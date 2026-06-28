@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { deleteFile, getContentUrl, listFiles, uploadFile } from '../api/files'
+import ArtIcon from '../components/ArtIcon.vue'
 
 const files = ref([])
 const q = ref('')
@@ -9,17 +10,20 @@ const error = ref(null)
 const preview = ref(null)
 const input = ref(null)
 const dragOver = ref(false)
+const previewFailures = ref(new Set())
 
 const isLink = (file) => Boolean(file.source_url)
 const isImage = (file) => file.mime_type?.startsWith('image/')
 const isPdf = (file) => file.mime_type === 'application/pdf'
 const iconFor = (file) => {
-  if (file.resource_type === 'video') return '▶️'
-  if (isLink(file)) return '🔗'
-  if (isImage(file)) return '🖼️'
-  if (isPdf(file)) return '📄'
-  if (file.mime_type?.includes('zip') || file.original_name.endsWith('.zip')) return '🗜️'
-  return '📎'
+  if (file.resource_type === 'video') return { name: 'file', labelText: 'VID', tone: 'sand' }
+  if (isLink(file)) return { name: 'link', labelText: 'LINK', tone: 'aqua' }
+  if (isImage(file)) return { name: 'image', labelText: 'IMG', tone: 'mint' }
+  if (isPdf(file)) return { name: 'file', labelText: 'PDF', tone: 'coral' }
+  if (file.mime_type?.includes('zip') || file.original_name.endsWith('.zip')) {
+    return { name: 'archive', labelText: 'ZIP', tone: 'sand' }
+  }
+  return { name: 'file', labelText: 'FILE', tone: 'pearl' }
 }
 const resourceTypeText = (file) => {
   const map = {
@@ -89,6 +93,14 @@ function open(file) {
   else window.open(getContentUrl(file.id), '_blank')
 }
 
+function previewFailed(file) {
+  return previewFailures.value.has(file.id)
+}
+
+function markPreviewFailed(file) {
+  previewFailures.value = new Set([...previewFailures.value, file.id])
+}
+
 const emptyText = computed(() => (q.value ? '没有匹配的资料' : '还没有资料，拖文件进来试试'))
 
 onMounted(load)
@@ -99,13 +111,13 @@ onMounted(load)
     <div class="library-head">
       <div>
         <h2 class="page-title">
-        <span class="page-title-icon float">📚</span>
-        <span class="gradient-text">资料库</span>
+        <ArtIcon name="library" tone="aqua" :size="36" tile label="资料库" />
+        <span>资料库</span>
       </h2>
-        <p class="muted">论文、课件、截图、数据文件都可以先放进海湾。</p>
+        <p class="muted">集中管理论文、课件、截图、链接和任务资料。</p>
       </div>
       <button class="upload-btn" @click="input?.click()">
-        <span class="btn-icon">☁️</span>
+        <ArtIcon name="upload" tone="on-accent" :size="20" />
         <span>上传资料</span>
       </button>
       <input ref="input" type="file" multiple hidden @change="uploadMany($event.target.files)" />
@@ -119,14 +131,16 @@ onMounted(load)
       @drop.prevent="uploadMany($event.dataTransfer.files)"
       @click="input?.click()"
     >
-      <div class="drop-icon float">{{ dragOver ? '🌊' : '☁️' }}</div>
-      <div class="drop-title">拖拽文件到这里，或点击选择</div>
-      <div class="muted">文件存到本机 data/files；联网资料可作为链接保存到资料库</div>
+      <div class="drop-title">{{ dragOver ? '松开以上传文件' : '拖拽文件到这里，或点击选择' }}</div>
+      <div class="muted">文件将保存到本机资料库，便于后续关联任务。</div>
     </div>
 
     <div class="toolbar">
       <input v-model="q" placeholder="搜索文件名或备注…" @keyup.enter="load" />
-      <button class="ghost" @click="load">搜索</button>
+      <button class="ghost search-btn" @click="load">
+        <ArtIcon name="search" tone="aqua" :size="18" />
+        <span>搜索</span>
+      </button>
     </div>
 
     <div v-if="error" class="card error">{{ error }}</div>
@@ -136,16 +150,28 @@ onMounted(load)
     </div>
 
     <div v-if="!loading && !files.length" class="card empty">
-      <div class="empty-icon float-slow">🐚</div>
       <div>{{ emptyText }}</div>
     </div>
 
     <div class="grid" v-else>
       <div class="file-card card" v-for="file in files" :key="file.id">
         <div class="preview" @click="open(file)">
-          <img v-if="!isLink(file) && isImage(file)" :src="getContentUrl(file.id)" alt="" />
-          <iframe v-else-if="!isLink(file) && isPdf(file)" :src="getContentUrl(file.id)"></iframe>
-          <div v-else class="file-icon">{{ iconFor(file) }}</div>
+          <img
+            v-if="!isLink(file) && isImage(file) && !previewFailed(file)"
+            :src="getContentUrl(file.id)"
+            alt=""
+            @error="markPreviewFailed(file)"
+          />
+          <ArtIcon
+            v-else
+            class="file-art"
+            :name="iconFor(file).name"
+            :tone="iconFor(file).tone"
+            :label-text="iconFor(file).labelText"
+            :label="iconFor(file).labelText + ' 文件'"
+            :size="84"
+            tile
+          />
         </div>
         <div class="file-info">
           <div class="name" :title="file.original_name">{{ file.original_name }}</div>
@@ -169,7 +195,7 @@ onMounted(load)
       <div class="preview-modal card">
         <div class="modal-head">
           <span class="preview-name" :title="preview.original_name">{{ preview.original_name }}</span>
-          <button class="ghost" @click="preview = null">✕</button>
+          <button class="ghost" @click="preview = null">关闭</button>
         </div>
         <img v-if="isImage(preview)" :src="getContentUrl(preview.id)" />
         <iframe v-else :src="getContentUrl(preview.id)"></iframe>
@@ -217,13 +243,11 @@ p {
   font-weight: 600;
 }
 
-.btn-icon {
-  font-size: 16px;
-  display: inline-block;
-  transition: transform 0.4s ease;
+.upload-btn :deep(.art-icon) {
+  transition: transform 0.2s ease;
 }
 
-.upload-btn:hover .btn-icon {
+.upload-btn:hover :deep(.art-icon) {
   transform: translateY(-2px);
 }
 
@@ -242,16 +266,6 @@ p {
   transform: translateY(-3px);
 }
 
-.drop-icon {
-  font-size: 44px;
-  margin-bottom: 12px;
-  transition: transform 0.3s ease;
-}
-
-.drop.active .drop-icon {
-  transform: scale(1.2);
-}
-
 .drop-title {
   font-weight: 600;
   font-size: 15px;
@@ -261,6 +275,12 @@ p {
 .toolbar {
   display: flex;
   gap: 10px;
+}
+
+.search-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .toolbar input {
@@ -330,8 +350,8 @@ p {
   border: none;
 }
 
-.file-icon {
-  font-size: 44px;
+.file-art {
+  flex-shrink: 0;
 }
 
 .file-info {
@@ -368,12 +388,6 @@ p {
 .error {
   text-align: center;
   padding: 40px;
-}
-
-.empty-icon {
-  font-size: 42px;
-  margin-bottom: 12px;
-  opacity: 0.7;
 }
 
 .error {

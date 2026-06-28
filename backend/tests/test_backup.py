@@ -12,6 +12,38 @@ def _make_db(path) -> None:
     con.close()
 
 
+def _make_db_with_ai_key(path) -> None:
+    con = sqlite3.connect(str(path))
+    con.execute(
+        """
+        create table ai_configs(
+            id integer primary key,
+            name text not null,
+            provider varchar(50) not null,
+            model varchar(200) not null,
+            api_key text not null,
+            extra_headers text default '{}',
+            native_web_search_options text default '{}'
+        )
+        """
+    )
+    con.execute(
+        """
+        insert into ai_configs(name, provider, model, api_key, extra_headers, native_web_search_options)
+        values (
+            'kimi',
+            'claude_messages',
+            'kimi-for-coding',
+            'sk-secret-value',
+            '{"Authorization":"Bearer proxy-secret","x-api-key":"header-key","X-Trace":"trace-id"}',
+            '{"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":3}],"token":"native-secret-token","user_location":{"country":"CN"}}'
+        )
+        """
+    )
+    con.commit()
+    con.close()
+
+
 def _touch_backup(backup_dir, name: str) -> None:
     backup_dir.mkdir(parents=True, exist_ok=True)
     (backup_dir / name).write_bytes(b"")
@@ -26,6 +58,44 @@ def test_backup_db_is_valid_copy(tmp_path):
     con = sqlite3.connect(str(dest))
     assert con.execute("select x from t").fetchone()[0] == 42
     con.close()
+
+
+def test_backup_db_redacts_ai_config_api_keys(tmp_path):
+    src = tmp_path / "app.db"
+    _make_db_with_ai_key(src)
+
+    dest = backup_service.backup_db(db_path=src, backup_dir=tmp_path / "backup")
+
+    con = sqlite3.connect(str(dest))
+    api_key = con.execute("select api_key from ai_configs").fetchone()[0]
+    con.close()
+    assert api_key == ""
+
+
+def test_backup_db_redacts_sensitive_ai_extra_headers(tmp_path):
+    src = tmp_path / "app.db"
+    _make_db_with_ai_key(src)
+
+    dest = backup_service.backup_db(db_path=src, backup_dir=tmp_path / "backup")
+
+    con = sqlite3.connect(str(dest))
+    headers = con.execute("select extra_headers from ai_configs").fetchone()[0]
+    con.close()
+    assert headers == '{"X-Trace":"trace-id"}'
+
+
+def test_backup_db_redacts_sensitive_native_web_search_options(tmp_path):
+    src = tmp_path / "app.db"
+    _make_db_with_ai_key(src)
+
+    dest = backup_service.backup_db(db_path=src, backup_dir=tmp_path / "backup")
+
+    con = sqlite3.connect(str(dest))
+    options = con.execute("select native_web_search_options from ai_configs").fetchone()[0]
+    con.close()
+    assert '"token"' not in options
+    assert '"user_location":{"country":"CN"}' in options
+    assert '"web_search_20250305"' in options
 
 
 def test_prune_keeps_only_n_newest(tmp_path):
