@@ -46,6 +46,7 @@ const modelLoading = ref(false)
 const fileInput = ref(null)
 const chatFileInput = ref(null)
 const aiAttachmentInput = ref(null)
+const composerInput = ref(null)
 const uploadingFiles = ref(false)
 const attachingFiles = ref(false)
 const chatAttachments = ref([])
@@ -371,6 +372,15 @@ function openAssistant() {
     shellRef.value?.focus?.()
     scrollMessagesToBottom()
   })
+}
+
+function handleAssistantPrompt(event) {
+  const text = event.detail?.text
+  if (!text) return
+  openAssistant()
+  assistantMode.value = 'chat'
+  input.value = text
+  nextTick(() => composerInput.value?.focus())
 }
 
 function closeAssistant() {
@@ -831,6 +841,7 @@ async function secondConfirm(action) {
 onMounted(() => {
   load()
   window.addEventListener('resize', keepWindowInView)
+  window.addEventListener('assistant:prompt', handleAssistantPrompt)
 })
 
 watch(assistantMode, (mode) => {
@@ -841,6 +852,7 @@ watch(assistantMode, (mode) => {
 onBeforeUnmount(() => {
   chatAbortController.value?.abort()
   window.removeEventListener('resize', keepWindowInView)
+  window.removeEventListener('assistant:prompt', handleAssistantPrompt)
 })
 </script>
 
@@ -1237,6 +1249,7 @@ onBeforeUnmount(() => {
         <div class="composer">
           <div class="composer-input">
             <textarea
+              ref="composerInput"
               v-model="input"
               placeholder="例如：帮我把本周论文阅读拆成三天计划，并给明晚加一个提醒..."
               :disabled="uploadingFiles || attachingFiles"

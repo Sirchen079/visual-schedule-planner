@@ -13,6 +13,7 @@ export default defineConfig({
       '/tasks': backend,
       '/files': backend,
       '/ai': backend,
+      '/schedule': backend,
       '/shutdown': backend,
     },
   },
