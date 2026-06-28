@@ -220,6 +220,60 @@ def test_duplicate_schedule_entry_create_upserts_without_duplicate_planned_item(
     assert _bucket_task_ids(day_response.json(), "planned").count(task["id"]) == 1
 
 
+def test_schedule_entry_update_to_duplicate_date_merges_into_target_entry(client):
+    task = _task(client, "Merge planned task")
+    entry_a_response = client.post(
+        "/schedule/entries",
+        json={
+            "task_id": task["id"],
+            "date": "2026-06-29",
+            "source": "manual",
+            "note": "Original A",
+        },
+    )
+    assert entry_a_response.status_code == 201
+    entry_a = entry_a_response.json()
+
+    entry_b_response = client.post(
+        "/schedule/entries",
+        json={
+            "task_id": task["id"],
+            "date": "2026-06-30",
+            "source": "ai",
+            "note": "Original B",
+        },
+    )
+    assert entry_b_response.status_code == 201
+    entry_b = entry_b_response.json()
+
+    merge_response = client.put(
+        f"/schedule/entries/{entry_b['id']}",
+        json={
+            "date": "2026-06-29",
+            "source": "system",
+            "note": "Merged into A",
+        },
+    )
+
+    assert merge_response.status_code == 200
+    merged_entry = merge_response.json()
+    assert merged_entry["id"] == entry_a["id"]
+    assert merged_entry["id"] != entry_b["id"]
+    assert merged_entry["date"] == "2026-06-29"
+    assert merged_entry["source"] == "system"
+    assert merged_entry["note"] == "Merged into A"
+
+    missing_b_response = client.put(
+        f"/schedule/entries/{entry_b['id']}",
+        json={"note": "Entry B should be gone"},
+    )
+    assert missing_b_response.status_code == 404
+
+    day_response = client.get("/schedule/day?date=2026-06-29")
+    assert day_response.status_code == 200
+    assert _bucket_task_ids(day_response.json(), "planned").count(task["id"]) == 1
+
+
 def test_purge_task_removes_schedule_entry_from_schedules_and_updates(
     client, db_session
 ):
