@@ -367,7 +367,7 @@ def parse_assistant_plan(text: str) -> dict[str, Any]:
             break
     if data is None:
         return {"reply": text, "tools": [], "dangerous_actions": []}
-    return {
+    plan = {
         "reply": str(data.get("reply", "")),
         "tools": data.get("tools", []) if isinstance(data.get("tools", []), list) else [],
         "dangerous_actions": (
@@ -376,6 +376,11 @@ def parse_assistant_plan(text: str) -> dict[str, Any]:
             else []
         ),
     }
+    if isinstance(data.get("plan"), dict):
+        plan["plan"] = data["plan"]
+    if isinstance(data.get("done"), bool):
+        plan["done"] = data["done"]
+    return plan
 
 
 def _extract_json_objects(text: str) -> list[str]:

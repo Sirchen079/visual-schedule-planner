@@ -4,6 +4,7 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import datetime
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File as UploadFileParam, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
@@ -34,6 +35,7 @@ from app.services import (
     ai_attachment_service,
     ai_client,
     ai_config_service,
+    ai_harness_service,
     ai_prompt_service,
     ai_skill_service,
     ai_tool_service,
@@ -42,6 +44,7 @@ from app.services import (
 router = APIRouter(prefix="/ai", tags=["ai"])
 AGENT_MAX_STEPS = 5
 AGENT_OBSERVATION_CHAR_LIMIT = 12000
+AGENT_TOOL_RETRY_LIMIT = 2
 
 
 @dataclass
@@ -49,8 +52,10 @@ class AgentRunResult:
     final_text: str
     final_plan: dict
     tool_results: list[dict]
+    run_summary: dict
     reached_limit: bool = False
     stopped_for_repeat: bool = False
+    stop_message: str = ""
 
 
 def sanitize_provider_error(exc: Exception) -> str:
@@ -154,6 +159,7 @@ def build_agent_observation_message(
         payload = payload[:AGENT_OBSERVATION_CHAR_LIMIT] + "\n...[工具结果过长，已截断]"
     return (
         f"连续工作第 {step} 轮工具执行结果如下。请像 coding agent 一样基于观察继续推进。\n"
+        f"本轮 harness 状态：step={step}, max_steps={AGENT_MAX_STEPS}, tool_retry_limit={AGENT_TOOL_RETRY_LIMIT}。\n"
         "要求：\n"
         "- 已成功完成的工具不要重复执行。\n"
         "- 如果工具失败，请修正参数后重试；无法修正时，在 reply 中说明需要用户补充什么。\n"
@@ -231,12 +237,17 @@ async def run_agent_loop(
     messages: list[dict],
     user_text: str,
 ) -> AgentRunResult:
+    run_id = uuid4().hex
+    started_at = datetime.now()
     working_messages = list(messages)
     tool_results: list[dict] = []
+    steps: list[dict] = []
     final_text = ""
     final_plan = {"reply": "", "tools": [], "dangerous_actions": []}
     reached_limit = False
     stopped_for_repeat = False
+    done_reason = "unknown"
+    stop_message = ""
 
     for step in range(1, AGENT_MAX_STEPS + 1):
         req = build_chat_provider_request(db, config, working_messages)
@@ -253,27 +264,70 @@ async def run_agent_loop(
                     "result": {"ok": False, "error": provider_error},
                 }
             )
+            done_reason = "provider_error"
+            stop_message = provider_error
             break
 
         final_text = ai_client.extract_text(config.provider, raw)
         final_plan = ai_client.parse_assistant_plan(final_text)
         if has_valid_dangerous_actions(final_plan):
+            steps.append(
+                {
+                    "step": step,
+                    "reply": final_plan.get("reply", ""),
+                    "plan": final_plan.get("plan", {}),
+                    "tools": [],
+                    "dangerous_actions": final_plan.get("dangerous_actions", []),
+                    "observations": [],
+                    "done": bool(final_plan.get("done", False)),
+                }
+            )
+            done_reason = "pending_confirmation"
             break
         step_results = execute_plan_tools(
             db, final_plan, successful_tool_signatures(tool_results)
         )
         tool_results.extend(step_results)
+        steps.append(
+            {
+                "step": step,
+                "reply": final_plan.get("reply", ""),
+                "plan": final_plan.get("plan", {}),
+                "tools": final_plan.get("tools", []),
+                "dangerous_actions": final_plan.get("dangerous_actions", []),
+                "observations": ai_harness_service.step_observations(step_results),
+                "done": bool(final_plan.get("done", False)),
+            }
+        )
 
-        if final_plan["dangerous_actions"] or not final_plan["tools"]:
+        if bool(final_plan.get("done", False)):
+            done_reason = "model_done"
+            break
+        if final_plan["dangerous_actions"]:
+            done_reason = "pending_confirmation"
+            break
+        if not final_plan["tools"]:
+            done_reason = "no_tools"
             break
         if step_results and all(
             isinstance(item.get("result"), dict) and item["result"].get("skipped")
             for item in step_results
         ):
             stopped_for_repeat = True
+            done_reason = "no_progress"
+            break
+        retry_message = ai_harness_service.failed_retry_budget_message(
+            ai_harness_service.failed_tool_signatures(tool_results),
+            tool_results,
+            AGENT_TOOL_RETRY_LIMIT,
+        )
+        if retry_message:
+            done_reason = "retry_budget_exhausted"
+            stop_message = retry_message
             break
         if step >= AGENT_MAX_STEPS:
             reached_limit = True
+            done_reason = "max_steps"
             break
 
         working_messages = [
@@ -291,8 +345,21 @@ async def run_agent_loop(
         final_text=final_text,
         final_plan=final_plan,
         tool_results=tool_results,
+        run_summary=ai_harness_service.build_run_summary(
+            run_id=run_id,
+            objective=user_text,
+            started_at=started_at,
+            steps=steps,
+            final_plan=final_plan,
+            tool_results=tool_results,
+            done_reason=done_reason,
+            stop_message=stop_message,
+            max_steps=AGENT_MAX_STEPS,
+            retry_limit=AGENT_TOOL_RETRY_LIMIT,
+        ),
         reached_limit=reached_limit,
         stopped_for_repeat=stopped_for_repeat,
+        stop_message=stop_message,
     )
 
 
@@ -655,6 +722,8 @@ async def chat(payload: AIChatRequest, db: Session = Depends(get_db)):
         reply = f"{reply}\n\n连续工作中断：{agent_failed}"
     if agent_run.reached_limit:
         reply = f"{reply}\n\n已达到连续工作轮次上限（{AGENT_MAX_STEPS} 轮），请继续发消息让我接着处理。"
+    if agent_run.stop_message and agent_run.stop_message not in reply:
+        reply = f"{reply}\n\n{agent_run.stop_message}"
     assistant_msg = AIMessage(
         conversation_id=conversation.id,
         role="assistant",
@@ -663,6 +732,7 @@ async def chat(payload: AIChatRequest, db: Session = Depends(get_db)):
             {
                 "tool_results": tool_results,
                 "pending_action_ids": [action.id for action in pending],
+                "agent_run": agent_run.run_summary,
             },
             ensure_ascii=False,
         ),
