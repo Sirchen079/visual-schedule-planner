@@ -5,9 +5,9 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from app.models import AIPendingAction
-from app.schemas import FileUpdate, TaskUpdate
-from app.services import file_service, task_service
+from app.models import AIPendingAction, TaskScheduleEntry
+from app.schemas import FileUpdate, ScheduleEntryCreate, ScheduleEntryUpdate, TaskUpdate
+from app.services import file_service, schedule_service, task_service
 
 SUPPORTED_ACTION_TYPES = {
     "update_task",
@@ -21,6 +21,10 @@ SUPPORTED_ACTION_TYPES = {
     "bulk_delete_files",
     "empty_trash",
     "import_web_resources",
+    "update_schedule_entry",
+    "delete_schedule_entry",
+    "bulk_assign_tasks_to_days",
+    "auto_plan_tasks",
 }
 
 
@@ -89,6 +93,42 @@ def build_action_preview(db: Session, action_type: str, payload: dict) -> list[s
         if task_id is None:
             lines.append(_missing_preview_line("任务", payload.get("task_id"), None))
         return lines
+    if action_type == "update_schedule_entry":
+        entry_id = _coerce_int(payload.get("entry_id"))
+        entry = _schedule_entry_for_preview(db, entry_id)
+        patch = dict(payload.get("patch", {}))
+        lines = [
+            "操作: 更新日程条目",
+            f"字段: {', '.join(sorted(patch)) or '无'}",
+        ]
+        if entry is None:
+            lines.append(_missing_preview_line("日程条目", payload.get("entry_id"), entry_id))
+            return lines
+        lines.extend(
+            [
+                f"条目: #{entry.id} {entry.task.title}",
+                f"原日期: {entry.date.isoformat()}",
+                f"新日期: {patch.get('date', entry.date.isoformat())}",
+                f"原备注: {entry.note or '无'}",
+                f"新备注: {patch.get('note', entry.note or '无')}",
+            ]
+        )
+        return lines
+    if action_type == "delete_schedule_entry":
+        entry_id = _coerce_int(payload.get("entry_id"))
+        entry = _schedule_entry_for_preview(db, entry_id)
+        lines = ["操作: 删除日程条目"]
+        if entry is None:
+            lines.append(_missing_preview_line("日程条目", payload.get("entry_id"), entry_id))
+            return lines
+        lines.extend(
+            [
+                f"条目: #{entry.id} {entry.task.title}",
+                f"日期: {entry.date.isoformat()}",
+                f"备注: {entry.note or '无'}",
+            ]
+        )
+        return lines
     if action_type == "update_file_notes":
         file_id = _coerce_int(payload.get("file_id"))
         lines = ["操作: 更新资料备注"]
@@ -118,6 +158,17 @@ def build_action_preview(db: Session, action_type: str, payload: dict) -> list[s
         patch = dict(payload.get("patch", {}))
         lines = [f"操作: 批量更新 {len(task_ids)} 个任务", f"字段: {', '.join(sorted(patch)) or '无'}"]
         lines.extend(_task_preview_lines(db, task_ids))
+        return lines
+    if action_type in {"bulk_assign_tasks_to_days", "auto_plan_tasks"}:
+        assignments = _normalize_schedule_assignments(payload)
+        prefix = "操作: 自动排程" if action_type == "auto_plan_tasks" else "操作: 批量安排日程"
+        lines = [f"{prefix} {len(assignments)} 项"]
+        for item in assignments:
+            task = task_service.get_task(db, item["task_id"]) if item["task_id"] is not None else None
+            if task is None:
+                lines.append(_missing_preview_line("任务", item["task_id"], item["task_id"]))
+            else:
+                lines.append(f"任务: #{task.id} {task.title} -> {item['date'].isoformat()}")
         return lines
     if action_type == "bulk_delete_tasks":
         task_ids = _coerce_int_list(payload.get("task_ids", []))
@@ -215,6 +266,17 @@ def _execute_payload(db: Session, action_type: str, payload: dict) -> tuple[bool
             db, file_id, FileUpdate(notes=str(payload.get("notes", "")))
         )
         return updated is not None, "资料备注已更新" if updated else "资料不存在"
+    if action_type == "update_schedule_entry":
+        entry_id = int(payload["entry_id"])
+        patch = payload.get("patch", {})
+        updated = schedule_service.update_schedule_entry(
+            db, entry_id, ScheduleEntryUpdate(**dict(patch))
+        )
+        return updated is not None, "日程条目已更新" if updated else "日程条目不存在"
+    if action_type == "delete_schedule_entry":
+        entry_id = int(payload["entry_id"])
+        deleted = schedule_service.delete_schedule_entry(db, entry_id)
+        return deleted, "日程条目已删除" if deleted else "日程条目不存在"
     if action_type == "attach_file_to_task":
         ok = file_service.attach_to_task(db, int(payload["task_id"]), int(payload["file_id"]))
         return ok, "资料已关联到任务" if ok else "任务或资料不存在"
@@ -252,6 +314,27 @@ def _execute_payload(db: Session, action_type: str, payload: dict) -> tuple[bool
             if file_service.soft_delete_file(db, file_id):
                 deleted += 1
         return deleted == len(file_ids), f"已将 {deleted} 个资料移入回收站"
+    if action_type in {"bulk_assign_tasks_to_days", "auto_plan_tasks"}:
+        assignments = _normalize_schedule_assignments(payload)
+        if not assignments:
+            return False, "没有可安排的日程"
+        missing_task_ids = _missing_task_ids(db, [item["task_id"] for item in assignments])
+        if missing_task_ids:
+            return False, f"任务不存在: {', '.join(str(task_id) for task_id in missing_task_ids)}"
+        created = 0
+        for item in assignments:
+            entry = schedule_service.create_schedule_entry(
+                db,
+                ScheduleEntryCreate(
+                    task_id=item["task_id"],
+                    date=item["date"],
+                    source="ai",
+                    note=item.get("note", ""),
+                ),
+            )
+            if entry is not None:
+                created += 1
+        return created == len(assignments), f"已安排 {created} 个日程"
     if action_type == "empty_trash":
         tasks = list(task_service.list_trash(db))
         files = list(file_service.list_trash(db))
@@ -303,6 +386,43 @@ def _missing_task_ids(db: Session, task_ids: list[int]) -> list[int]:
 
 def _missing_file_ids(db: Session, file_ids: list[int]) -> list[int]:
     return [file_id for file_id in file_ids if file_service.get_file(db, file_id) is None]
+
+
+def _schedule_entry_for_preview(db: Session, entry_id: int | None):
+    if entry_id is None:
+        return None
+    return db.get(TaskScheduleEntry, entry_id)
+
+
+def _normalize_schedule_assignments(payload: dict) -> list[dict]:
+    raw = payload.get("assignments", [])
+    if not isinstance(raw, list):
+        return []
+    assignments = []
+    seen = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        task_id = _coerce_int(item.get("task_id"))
+        date_value = item.get("date")
+        try:
+            schedule_date = datetime.fromisoformat(str(date_value)).date()
+        except (TypeError, ValueError):
+            continue
+        if task_id is None:
+            continue
+        key = (task_id, schedule_date)
+        if key in seen:
+            continue
+        seen.add(key)
+        assignments.append(
+            {
+                "task_id": task_id,
+                "date": schedule_date,
+                "note": str(item.get("note") or "").strip(),
+            }
+        )
+    return assignments
 
 
 def _task_preview_lines(db: Session, task_ids: list[int]) -> list[str]:

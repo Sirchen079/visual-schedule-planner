@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from datetime import date as date_type
 
 from fastapi import UploadFile
 from pydantic import ValidationError
@@ -8,8 +9,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Task
-from app.schemas import SubtaskCreate, TaskCreate
-from app.services import ai_attachment_service, file_service, subtask_service, task_service
+from app.schemas import ScheduleEntryCreate, ScheduleEntryRead, SubtaskCreate, TaskCreate
+from app.services import (
+    ai_attachment_service,
+    file_service,
+    schedule_service,
+    subtask_service,
+    task_service,
+)
 
 SAFE_TOOLS = {
     "list_tasks",
@@ -23,6 +30,9 @@ SAFE_TOOLS = {
     "list_subtasks",
     "create_subtask",
     "create_subtasks",
+    "list_day_schedule",
+    "list_month_schedule",
+    "assign_task_to_day",
 }
 CONFIRMATION_REQUIRED_TOOLS = {
     "update_task",
@@ -84,6 +94,23 @@ def execute_tool(db: Session, name: str, args: dict) -> dict:
             return {"ok": True, "task": _task_dict(task), "subtask": _subtask_dict(subtask)}
         if name == "create_subtasks":
             return _create_subtasks(db, int(args["task_id"]), _pop_subtask_titles(args))
+        if name == "list_day_schedule":
+            target_date = _parse_iso_date(args.get("date"))
+            if target_date is None:
+                return {"ok": False, "error": "list_day_schedule 需要 ISO 格式 date"}
+            schedule = schedule_service.get_day_schedule(db, target_date)
+            return {"ok": True, "schedule": _dump_model(schedule)}
+        if name == "list_month_schedule":
+            year = _coerce_int(args.get("year"))
+            month = _coerce_int(args.get("month"))
+            if year is None or month is None:
+                return {"ok": False, "error": "list_month_schedule 需要 year 和 month"}
+            if year < 1 or year > 9999 or month < 1 or month > 12:
+                return {"ok": False, "error": "year 或 month 超出范围"}
+            schedule = schedule_service.get_month_schedule(db, year, month)
+            return {"ok": True, "schedule": _dump_model(schedule)}
+        if name == "assign_task_to_day":
+            return _assign_task_to_day(db, args)
         if name == "create_note_file":
             title = (args.get("title") or "AI 资料笔记").strip()
             content = args.get("content") or ""
@@ -161,6 +188,35 @@ def _create_subtasks(db: Session, task_id: int, titles: list[str]) -> dict:
     }
 
 
+def _assign_task_to_day(db: Session, args: dict) -> dict:
+    task_id = _coerce_int(args.get("task_id"))
+    target_date = _parse_iso_date(args.get("date"))
+    if task_id is None:
+        return {"ok": False, "error": "assign_task_to_day 需要 task_id"}
+    if target_date is None:
+        return {"ok": False, "error": "assign_task_to_day 需要 ISO 格式 date"}
+    note = str(args.get("note") or "").strip()
+    try:
+        entry = schedule_service.create_schedule_entry(
+            db,
+            ScheduleEntryCreate(
+                task_id=task_id,
+                date=target_date,
+                source="ai",
+                note=note,
+            ),
+        )
+    except schedule_service.ScheduleTaskNotFound:
+        return {"ok": False, "error": "任务不存在或不可安排"}
+    schedule = schedule_service.get_day_schedule(db, target_date)
+    return {
+        "ok": True,
+        "entry": _schedule_entry_dict(entry),
+        "day_summary": _schedule_summary_dict(schedule.summary),
+        "schedule": _dump_model(schedule),
+    }
+
+
 def _pop_file_ids(args: dict) -> list[int]:
     raw = args.pop("file_ids", args.pop("files", []))
     if raw is None or raw == "":
@@ -214,6 +270,36 @@ def _pop_subtask_titles(args: dict) -> list[str]:
 
 def _missing_file_ids(db: Session, file_ids: list[int]) -> list[int]:
     return [file_id for file_id in file_ids if file_service.get_file(db, file_id) is None]
+
+
+def _coerce_int(value) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_iso_date(value) -> date_type | None:
+    try:
+        return date_type.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _schedule_entry_dict(entry) -> dict:
+    return ScheduleEntryRead.model_validate(entry).model_dump(mode="json")
+
+
+def _schedule_summary_dict(summary) -> dict:
+    if hasattr(summary, "model_dump"):
+        return summary.model_dump(mode="json")
+    return dict(summary)
+
+
+def _dump_model(model) -> dict:
+    if hasattr(model, "model_dump"):
+        return model.model_dump(mode="json")
+    return model.dict()
 
 
 def _task_dict(task) -> dict:

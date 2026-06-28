@@ -6,7 +6,13 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import AIConfig, Task
-from app.services import ai_skill_service, file_service, reminder_service, task_service
+from app.services import (
+    ai_skill_service,
+    file_service,
+    reminder_service,
+    schedule_service,
+    task_service,
+)
 
 WEEKDAYS = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
 
@@ -35,6 +41,19 @@ def build_system_prompt(db: Session, config: AIConfig) -> str:
 {persona}"""
     if skill_text:
         base += f"\n\n用户自定义 skill：\n{skill_text}\n"
+    base += """
+
+日程工具：
+- list_day_schedule：按 ISO 日期查看当天日程。
+- list_month_schedule：按 year/month 查看整月日程压力。
+- assign_task_to_day：把单个任务安排到某天，写入 source=ai。
+
+日程危险操作：
+- update_schedule_entry：payload 为 {"entry_id":1,"patch":{"date":"2026-06-30","note":"调整到明天"}}
+- delete_schedule_entry：payload 为 {"entry_id":1}
+- bulk_assign_tasks_to_days：payload 为 {"assignments":[{"task_id":1,"date":"2026-06-29","note":"上午处理"}]}
+- auto_plan_tasks：payload 为 {"assignments":[{"task_id":1,"date":"2026-06-29","note":"自动排程结果"}]}
+"""
     base += """
 
 回复必须只输出一个 JSON 代码块，不要在 JSON 代码块前后输出任何说明文字：
@@ -105,6 +124,8 @@ def build_local_context(db: Session) -> str:
     tasks = task_service.list_tasks(db)
     files = file_service.list_files(db)
     upcoming, overdue = reminder_service.due_reminders(db, hours=24 * 7)
+    today = datetime.now().astimezone().date()
+    today_schedule = schedule_service.get_day_schedule(db, today)
     counts = {
         status: db.execute(
             select(func.count())
@@ -123,10 +144,37 @@ def build_local_context(db: Session) -> str:
     overdue_lines = [_reminder_line(t) for t in overdue[:20]]
     upcoming_lines = [_reminder_line(t) for t in upcoming[:20]]
     file_lines = [_file_line(f) for f in files[:80]]
+    schedule_lines = [
+        f"- 今日日期:{today_schedule.date.isoformat()}",
+        (
+            f"- 日程摘要: 必做:{today_schedule.summary.must_do} | 已安排:{today_schedule.summary.planned} | "
+            f"进行中:{today_schedule.summary.in_progress_today} | 未来压力:{today_schedule.summary.upcoming_pressure} | "
+            f"未排期:{today_schedule.summary.unscheduled} | 合计:{today_schedule.summary.total}"
+        ),
+        "今日已安排：",
+        *(
+            [
+                f"  - #{item.task.id} {item.task.title} -> {item.entry.date.isoformat()}"
+                + (f" | 备注:{item.entry.note}" if item.entry and item.entry.note else "")
+                for item in today_schedule.buckets.planned[:5]
+            ]
+            or ["  - 无"]
+        ),
+        "未来压力：",
+        *(
+            [
+                f"  - #{item.task.id} {item.task.title} | 截止:{_format_dt(item.task.due_date)}"
+                for item in today_schedule.buckets.upcoming_pressure[:5]
+            ]
+            or ["  - 无"]
+        ),
+    ]
     return (
         build_time_context()
         + "\n\n当前任务统计：\n"
         + f"- 待办:{counts['待办']} | 进行中:{counts['进行中']} | 完成:{counts['完成']}"
+        + "\n\n当前日程：\n"
+        + "\n".join(schedule_lines)
         + "\n\n当前提醒状态：\n"
         + "已逾期：\n"
         + "\n".join(overdue_lines or ["无"])
