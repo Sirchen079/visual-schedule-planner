@@ -9,7 +9,7 @@ from sqlalchemy import text
 
 from app.database import engine
 from app.models import Base
-from app.routers import ai, files, reminders, tasks
+from app.routers import ai, files, reminders, schedule, tasks
 from app.services import backup_service
 
 
@@ -70,6 +70,7 @@ app = FastAPI(title="可视化日程安排", lifespan=lifespan)
 app.include_router(tasks.router)
 app.include_router(files.router)
 app.include_router(reminders.router)
+app.include_router(schedule.router)
 app.include_router(ai.router)
 
 

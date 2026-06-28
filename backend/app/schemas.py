@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date as date_type, datetime
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -93,6 +93,75 @@ class TaskResponse(TaskBase):
     subtasks: list[SubtaskResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ScheduleEntryBase(BaseModel):
+    task_id: int
+    date: date_type
+    source: str = "manual"
+    note: str = ""
+
+
+class ScheduleEntryCreate(ScheduleEntryBase):
+    pass
+
+
+class ScheduleEntryUpdate(BaseModel):
+    date: Optional[date_type] = None
+    note: Optional[str] = None
+    source: Optional[str] = None
+
+
+class ScheduleEntryRead(ScheduleEntryBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ScheduleTaskItem(BaseModel):
+    task: TaskResponse
+    entry: Optional[ScheduleEntryRead] = None
+    reason: str
+
+
+class DayScheduleBuckets(BaseModel):
+    must_do: list[ScheduleTaskItem] = Field(default_factory=list)
+    planned: list[ScheduleTaskItem] = Field(default_factory=list)
+    in_progress_today: list[ScheduleTaskItem] = Field(default_factory=list)
+    upcoming_pressure: list[ScheduleTaskItem] = Field(default_factory=list)
+    unscheduled: list[ScheduleTaskItem] = Field(default_factory=list)
+
+
+class DayScheduleSummary(BaseModel):
+    must_do: int
+    planned: int
+    in_progress_today: int
+    upcoming_pressure: int
+    unscheduled: int
+    total: int
+
+
+class DayScheduleResponse(BaseModel):
+    date: date_type
+    summary: DayScheduleSummary
+    buckets: DayScheduleBuckets
+
+
+class MonthScheduleDay(BaseModel):
+    date: date_type
+    due_count: int
+    planned_count: int
+    in_progress_count: int
+    overdue_count: int
+    total_count: int
+
+
+class MonthScheduleResponse(BaseModel):
+    year: int
+    month: int
+    days: list[MonthScheduleDay]
 
 
 AIProvider = Literal["openai_chat", "openai_responses", "claude_messages"]
