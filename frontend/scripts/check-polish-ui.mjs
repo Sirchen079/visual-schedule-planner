@@ -169,6 +169,18 @@ const checks = [
       requiredIconNames.every((name) => files.artIcon.includes(`'${name}'`)),
   },
   {
+    name: 'calendar action center exposes day/month views and assistant handoff buttons',
+    pass:
+      files.calendar.includes('calendar-action-center') &&
+      files.calendar.includes('data-view-mode="day"') &&
+      files.calendar.includes('data-view-mode="month"') &&
+      files.calendar.includes('day-bucket') &&
+      files.calendar.includes('assistant-plan-button') &&
+      files.calendar.includes('selected-day-preview') &&
+      files.calendar.includes('task-pill') &&
+      files.calendar.includes('source'),
+  },
+  {
     name: 'major UI surfaces import and render ArtIcon',
     pass: requiredArtIconFiles.every((key) => files[key].includes('ArtIcon')),
   },

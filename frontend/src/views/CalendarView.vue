@@ -172,10 +172,6 @@ const monthCells = computed(() => {
   return cells
 })
 
-const selectedMonthCell = computed(
-  () => monthCells.value.find((cell) => cell.date === selectedDate.value) || null
-)
-
 const dayBuckets = computed(() => [
   createBucketVm('must_do', true),
   createBucketVm('planned', true),
@@ -184,7 +180,7 @@ const dayBuckets = computed(() => [
   createBucketVm('unscheduled', false),
 ])
 
-const selectedDayPreviewBuckets = computed(() => dayBuckets.value.slice(0, 3))
+const selectedDayPreviewBuckets = computed(() => dayBuckets.value)
 
 const dayRail = computed(() => {
   const summary = daySchedule.value?.summary || {}
@@ -405,6 +401,11 @@ async function quickAssign(taskId) {
   }
 }
 
+function refreshFromTaskChanges() {
+  loadDaySchedule(selectedDate.value)
+  loadMonthSchedule(cursor.value)
+}
+
 async function moveEntryToNextDay(item) {
   if (!item?.entry?.id) return
   const date = parseISODate(selectedDate.value)
@@ -450,6 +451,14 @@ watch(cursor, (value) => {
 watch(mode, (value) => {
   if (value === 'month') loadMonthSchedule(cursor.value)
 })
+
+watch(
+  () => props.tasks,
+  () => {
+    refreshFromTaskChanges()
+  },
+  { deep: true }
+)
 
 onMounted(async () => {
   await refreshVisibleSchedule()
@@ -605,7 +614,10 @@ onMounted(async () => {
                   <span class="task-pill">{{ formatPriority(item.task) }}</span>
                   <span class="task-pill">{{ formatStatus(item.task) }}</span>
                   <span v-if="item.task.due_date" class="task-pill">截止 {{ formatShortDate(item.task.due_date.slice(0, 10)) }}</span>
+                  <span v-if="item.entry?.source" class="task-pill">来源 {{ item.entry.source }}</span>
                   <span v-if="item.entry?.note" class="task-pill note-pill">{{ item.entry.note }}</span>
+                  <span v-if="item.task.subtasks?.length" class="task-pill">子任务 {{ item.task.subtasks.filter((subtask) => subtask.done).length }}/{{ item.task.subtasks.length }}</span>
+                  <span v-if="item.task.files?.length" class="task-pill">资料 {{ item.task.files.length }}</span>
                 </div>
                 <div v-if="taskTags(item.task).length" class="tag-row">
                   <span
