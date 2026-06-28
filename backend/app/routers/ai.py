@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, File as UploadFileParam, HTTPException, Query, UploadFile, status
@@ -39,6 +40,17 @@ from app.services import (
 )
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+AGENT_MAX_STEPS = 5
+AGENT_OBSERVATION_CHAR_LIMIT = 12000
+
+
+@dataclass
+class AgentRunResult:
+    final_text: str
+    final_plan: dict
+    tool_results: list[dict]
+    reached_limit: bool = False
+    stopped_for_repeat: bool = False
 
 
 def sanitize_provider_error(exc: Exception) -> str:
@@ -87,8 +99,25 @@ def execute_plan_tools(
     skip_successful_signatures = skip_successful_signatures or set()
     tool_results = []
     for item in plan["tools"]:
+        if not isinstance(item, dict):
+            tool_results.append(
+                {"tool": "", "args": {}, "result": {"ok": False, "error": "工具调用必须是对象"}}
+            )
+            continue
         name = item.get("name", "")
-        args = dict(item.get("args", {}))
+        raw_args = item.get("args", {})
+        if raw_args is None:
+            raw_args = {}
+        if not isinstance(raw_args, dict):
+            tool_results.append(
+                {
+                    "tool": str(name),
+                    "args": {},
+                    "result": {"ok": False, "error": "工具 args 必须是对象"},
+                }
+            )
+            continue
+        args = dict(raw_args)
         signature = tool_signature(item)
         if signature in skip_successful_signatures:
             result = {"ok": True, "skipped": True, "message": "已跳过重复成功工具"}
@@ -96,14 +125,6 @@ def execute_plan_tools(
             result = ai_tool_service.execute_tool(db, name, args)
         tool_results.append({"tool": name, "args": args, "result": result})
     return tool_results
-
-
-def failed_tool_results(tool_results: list[dict]) -> list[dict]:
-    return [
-        item
-        for item in tool_results
-        if isinstance(item.get("result"), dict) and item["result"].get("ok") is False
-    ]
 
 
 def successful_tool_signatures(tool_results: list[dict]) -> set[str]:
@@ -122,23 +143,156 @@ def successful_tool_signatures(tool_results: list[dict]) -> set[str]:
     return signatures
 
 
-def build_tool_retry_message(
+def build_agent_observation_message(
     user_text: str,
     plan: dict,
-    tool_results: list[dict],
+    step_results: list[dict],
+    step: int,
 ) -> str:
-    failed = failed_tool_results(tool_results)
+    payload = json.dumps(step_results, ensure_ascii=False, default=str)
+    if len(payload) > AGENT_OBSERVATION_CHAR_LIMIT:
+        payload = payload[:AGENT_OBSERVATION_CHAR_LIMIT] + "\n...[工具结果过长，已截断]"
     return (
-        "你刚才给出的工具调用有失败项。请基于下面的失败反馈重新给出一个修正后的 JSON 计划。\n"
+        f"连续工作第 {step} 轮工具执行结果如下。请像 coding agent 一样基于观察继续推进。\n"
         "要求：\n"
-        "- 不要重复执行已经成功的工具。\n"
-        "- 如果失败是因为缺少参数，请补齐参数；无法补齐时先询问用户。\n"
-        "- 如果工具需要待确认操作，请改放入 dangerous_actions。\n"
-        "- 只返回 reply/tools/dangerous_actions 结构。\n\n"
+        "- 已成功完成的工具不要重复执行。\n"
+        "- 如果工具失败，请修正参数后重试；无法修正时，在 reply 中说明需要用户补充什么。\n"
+        "- 如果目标已经完成，返回最终 reply，tools 和 dangerous_actions 置为空数组。\n"
+        "- 如果需要用户确认危险操作，放入 dangerous_actions 后停止继续执行。\n\n"
         f"用户原始请求：{user_text}\n\n"
-        f"第一次计划：{json.dumps(plan, ensure_ascii=False, default=str)}\n\n"
-        f"工具执行结果：{json.dumps(tool_results, ensure_ascii=False, default=str)}\n\n"
-        f"失败项：{json.dumps(failed, ensure_ascii=False, default=str)}"
+        f"上一轮计划：{json.dumps(plan, ensure_ascii=False, default=str)}\n\n"
+        f"工具执行结果：{payload}"
+    )
+
+
+def compact_attachments_for_followup(messages: list[dict]) -> list[dict]:
+    compacted = []
+    for message in messages:
+        attachments = message.get("attachments") or []
+        if not attachments:
+            compacted.append(message)
+            continue
+        lines = [
+            (
+                f"- {item.get('filename')} | 附件 ID:{item.get('id')} | "
+                f"类型:{item.get('mime_type') or '未知'} | 大小:{item.get('size') or 0} bytes"
+            )
+            for item in attachments
+        ]
+        compacted.append(
+            {
+                "role": message.get("role", "user"),
+                "content": (
+                    f"{message.get('content', '')}\n\n"
+                    "[附件已在上一轮完整发送，本轮仅保留引用]\n"
+                    + "\n".join(lines)
+                ).strip(),
+            }
+        )
+    return compacted
+
+
+def has_valid_dangerous_actions(plan: dict) -> bool:
+    return any(isinstance(item, dict) for item in plan.get("dangerous_actions", []))
+
+
+def build_chat_provider_request(
+    db: Session,
+    config: AIConfig,
+    messages: list[dict],
+) -> ai_client.ProviderRequest:
+    system_prompt = (
+        ai_prompt_service.build_system_prompt(db, config)
+        + "\n\n"
+        + ai_prompt_service.build_local_context(db)
+    )
+    return ai_client.build_provider_request(
+        provider=config.provider,
+        model=config.model,
+        api_key=config.api_key,
+        messages=messages,
+        system_prompt=system_prompt,
+        extra_headers=ai_config_service.headers_from_json(config.extra_headers),
+        base_url=config.base_url,
+        full_url=config.full_url,
+        proxy_url=config.proxy_url,
+        native_web_search_enabled=bool(
+            config.native_web_search_enabled or config.search_enhancement_enabled
+        ),
+        native_web_search_options=ai_config_service.options_from_json(
+            config.native_web_search_options
+        ),
+    )
+
+
+async def run_agent_loop(
+    db: Session,
+    config: AIConfig,
+    messages: list[dict],
+    user_text: str,
+) -> AgentRunResult:
+    working_messages = list(messages)
+    tool_results: list[dict] = []
+    final_text = ""
+    final_plan = {"reply": "", "tools": [], "dangerous_actions": []}
+    reached_limit = False
+    stopped_for_repeat = False
+
+    for step in range(1, AGENT_MAX_STEPS + 1):
+        req = build_chat_provider_request(db, config, working_messages)
+        try:
+            raw = await ai_client.call_provider(req)
+        except Exception as exc:
+            if step == 1:
+                raise
+            provider_error = provider_failure_detail(f"连续工作第 {step} 轮模型请求", exc)
+            tool_results.append(
+                {
+                    "tool": "ai_agent",
+                    "args": {"step": step},
+                    "result": {"ok": False, "error": provider_error},
+                }
+            )
+            break
+
+        final_text = ai_client.extract_text(config.provider, raw)
+        final_plan = ai_client.parse_assistant_plan(final_text)
+        if has_valid_dangerous_actions(final_plan):
+            break
+        step_results = execute_plan_tools(
+            db, final_plan, successful_tool_signatures(tool_results)
+        )
+        tool_results.extend(step_results)
+
+        if final_plan["dangerous_actions"] or not final_plan["tools"]:
+            break
+        if step_results and all(
+            isinstance(item.get("result"), dict) and item["result"].get("skipped")
+            for item in step_results
+        ):
+            stopped_for_repeat = True
+            break
+        if step >= AGENT_MAX_STEPS:
+            reached_limit = True
+            break
+
+        working_messages = [
+            *compact_attachments_for_followup(working_messages),
+            {"role": "assistant", "content": final_text},
+            {
+                "role": "user",
+                "content": build_agent_observation_message(
+                    user_text, final_plan, step_results, step
+                ),
+            },
+        ]
+
+    return AgentRunResult(
+        final_text=final_text,
+        final_plan=final_plan,
+        tool_results=tool_results,
+        reached_limit=reached_limit,
+        stopped_for_repeat=stopped_for_repeat,
     )
 
 
@@ -232,7 +386,9 @@ async def test_config(config_id: int, db: Session = Depends(get_db)):
         base_url=config.base_url,
         full_url=config.full_url,
         proxy_url=config.proxy_url,
-        native_web_search_enabled=bool(config.native_web_search_enabled),
+        native_web_search_enabled=bool(
+            config.native_web_search_enabled or config.search_enhancement_enabled
+        ),
         native_web_search_options=ai_config_service.options_from_json(
             config.native_web_search_options
         ),
@@ -452,108 +608,53 @@ async def chat(payload: AIChatRequest, db: Session = Depends(get_db)):
             "content": user_text,
             "attachments": model_attachments,
         }
-    system_prompt = (
-        ai_prompt_service.build_system_prompt(db, config)
-        + "\n\n"
-        + ai_prompt_service.build_local_context(db)
-    )
-    req = ai_client.build_provider_request(
-        provider=config.provider,
-        model=config.model,
-        api_key=config.api_key,
-        messages=messages,
-        system_prompt=system_prompt,
-        extra_headers=ai_config_service.headers_from_json(config.extra_headers),
-        base_url=config.base_url,
-        full_url=config.full_url,
-        proxy_url=config.proxy_url,
-        native_web_search_enabled=bool(config.native_web_search_enabled),
-        native_web_search_options=ai_config_service.options_from_json(
-            config.native_web_search_options
-        ),
-    )
     try:
-        raw = await ai_client.call_provider(req)
+        agent_run = await run_agent_loop(db, config, messages, user_text)
     except Exception as exc:
         raise HTTPException(
             status_code=502, detail=provider_failure_detail("模型请求", exc)
         ) from exc
 
-    text = ai_client.extract_text(config.provider, raw)
-    plan = ai_client.parse_assistant_plan(text)
-    tool_results = execute_plan_tools(db, plan)
-    final_plan = plan
-    final_text = text
-
-    if failed_tool_results(tool_results):
-        retry_messages = [
-            *messages,
-            {"role": "assistant", "content": text},
-            {
-                "role": "user",
-                "content": build_tool_retry_message(user_text, plan, tool_results),
-            },
-        ]
-        retry_req = ai_client.build_provider_request(
-            provider=config.provider,
-            model=config.model,
-            api_key=config.api_key,
-            messages=retry_messages,
-            system_prompt=system_prompt,
-            extra_headers=ai_config_service.headers_from_json(config.extra_headers),
-            base_url=config.base_url,
-            full_url=config.full_url,
-            proxy_url=config.proxy_url,
-            native_web_search_enabled=bool(config.native_web_search_enabled),
-            native_web_search_options=ai_config_service.options_from_json(
-                config.native_web_search_options
-            ),
-        )
-        try:
-            retry_raw = await ai_client.call_provider(retry_req)
-            final_text = ai_client.extract_text(config.provider, retry_raw)
-            final_plan = ai_client.parse_assistant_plan(final_text)
-            retry_results = execute_plan_tools(
-                db, final_plan, successful_tool_signatures(tool_results)
-            )
-            tool_results.extend(retry_results)
-        except Exception as exc:
-            error_message = provider_failure_detail("工具失败后重试", exc)
-            tool_results.append(
-                {
-                    "tool": "ai_retry",
-                    "args": {},
-                    "result": {"ok": False, "error": error_message},
-                }
-            )
+    final_plan = agent_run.final_plan
+    final_text = agent_run.final_text
+    tool_results = agent_run.tool_results
 
     pending = []
     for item in final_plan["dangerous_actions"]:
+        if not isinstance(item, dict):
+            continue
         action_type = item.get("action_type", "")
         if not ai_action_service.is_supported_action_type(action_type):
+            continue
+        payload_data = item.get("payload", {})
+        if payload_data is None:
+            payload_data = {}
+        if not isinstance(payload_data, dict):
             continue
         action = ai_action_service.create_pending_action(
             db,
             conversation.id,
             action_type,
-            dict(item.get("payload", {})),
+            dict(payload_data),
             item.get("summary", "危险操作待确认"),
         )
         pending.append(action)
 
     reply = final_plan["reply"] or final_text
-    retry_failed = next(
+    agent_failed = next(
         (
             item["result"]["error"]
             for item in tool_results
-            if item.get("tool") == "ai_retry"
+            if item.get("tool") == "ai_agent"
             and isinstance(item.get("result"), dict)
             and item["result"].get("error")
         ),
         None,
     )
-    if retry_failed:
-        reply = f"{reply}\n\n部分操作失败，自动重试也未完成：{retry_failed}"
+    if agent_failed:
+        reply = f"{reply}\n\n连续工作中断：{agent_failed}"
+    if agent_run.reached_limit:
+        reply = f"{reply}\n\n已达到连续工作轮次上限（{AGENT_MAX_STEPS} 轮），请继续发消息让我接着处理。"
     assistant_msg = AIMessage(
         conversation_id=conversation.id,
         role="assistant",

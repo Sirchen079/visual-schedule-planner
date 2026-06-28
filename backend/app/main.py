@@ -30,10 +30,15 @@ def _migrate() -> None:
         "extra_headers": "TEXT DEFAULT '{}'",
         "native_web_search_enabled": "BOOLEAN DEFAULT 0",
         "native_web_search_options": "TEXT DEFAULT '{}'",
+        "search_enhancement_enabled": "BOOLEAN DEFAULT 0",
         "enabled": "BOOLEAN DEFAULT 0",
         "active_skill_id": "INTEGER",
         "created_at": "DATETIME DEFAULT CURRENT_TIMESTAMP",
         "updated_at": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+    }
+    file_columns = {
+        "source_url": "VARCHAR(1000)",
+        "resource_type": "VARCHAR(30) DEFAULT 'file'",
     }
     with engine.connect() as conn:
         cols = [row[1] for row in conn.execute(text("PRAGMA table_info(subtasks)"))]
@@ -44,7 +49,13 @@ def _migrate() -> None:
             for name, column_type in ai_config_columns.items():
                 if name not in ai_cols:
                     conn.execute(text(f"ALTER TABLE ai_configs ADD COLUMN {name} {column_type}"))
-            conn.commit()
+        file_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(files)"))]
+        if file_cols:
+            for name, column_type in file_columns.items():
+                if name not in file_cols:
+                    conn.execute(text(f"ALTER TABLE files ADD COLUMN {name} {column_type}"))
+            conn.execute(text("UPDATE files SET resource_type = 'file' WHERE resource_type IS NULL OR resource_type = ''"))
+        conn.commit()
 
 
 @asynccontextmanager

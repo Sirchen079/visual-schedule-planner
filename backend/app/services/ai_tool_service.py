@@ -240,6 +240,8 @@ def _file_dict(file) -> dict:
         "size": file.size,
         "mime_type": file.mime_type,
         "notes": file.notes,
+        "source_url": file.source_url,
+        "resource_type": file.resource_type,
     }
 
 

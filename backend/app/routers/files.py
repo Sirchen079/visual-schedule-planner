@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, File as UploadFileParam, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse as FastAPIFileResponse
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -52,6 +53,10 @@ def file_content(file_id: int, db: Session = Depends(get_db)):
     db_file = file_service.get_file(db, file_id)
     if db_file is None:
         raise HTTPException(status_code=404, detail="文件不存在")
+    if file_service.is_link_resource(db_file):
+        if not db_file.source_url:
+            raise HTTPException(status_code=404, detail="链接资料缺少 URL")
+        return RedirectResponse(db_file.source_url)
     path = file_service.content_path(db_file)
     if not path.exists():
         raise HTTPException(status_code=404, detail="磁盘文件不存在")

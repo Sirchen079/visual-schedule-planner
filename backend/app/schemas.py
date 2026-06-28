@@ -43,6 +43,8 @@ class FileResponse(BaseModel):
     size: int
     mime_type: str
     notes: str
+    source_url: Optional[str] = None
+    resource_type: str = "file"
     uploaded_at: datetime
     deleted_at: Optional[datetime] = None
 
@@ -109,6 +111,7 @@ class AIConfigCreate(BaseModel):
     extra_headers: dict[str, str] = Field(default_factory=dict)
     native_web_search_enabled: bool = False
     native_web_search_options: dict[str, Any] = Field(default_factory=dict)
+    search_enhancement_enabled: bool = False
 
 
 class AIConfigUpdate(BaseModel):
@@ -124,6 +127,7 @@ class AIConfigUpdate(BaseModel):
     extra_headers: Optional[dict[str, str]] = None
     native_web_search_enabled: Optional[bool] = None
     native_web_search_options: Optional[dict[str, Any]] = None
+    search_enhancement_enabled: Optional[bool] = None
     active_skill_id: Optional[int] = None
 
 
@@ -141,6 +145,7 @@ class AIConfigResponse(BaseModel):
     extra_headers: dict[str, str] = Field(default_factory=dict)
     native_web_search_enabled: bool = False
     native_web_search_options: dict[str, Any] = Field(default_factory=dict)
+    search_enhancement_enabled: bool = False
     enabled: bool
     active_skill_id: Optional[int] = None
     created_at: datetime

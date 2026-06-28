@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import time
+import hashlib
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import or_, select
@@ -14,6 +16,7 @@ from app.models import File, Task
 from app.schemas import FileUpdate
 
 _CHUNK = 1024 * 1024  # 流式读写分块大小
+LINK_RESOURCE_TYPES = {"link", "video", "webpage", "article", "paper", "course", "pdf"}
 
 
 def _safe_name(filename: str) -> str:
@@ -97,11 +100,56 @@ def save_local_file(
     return db_file
 
 
+def save_link_resource(
+    db: Session,
+    title: str,
+    url: str,
+    notes: str = "",
+    resource_type: str = "link",
+) -> File:
+    clean_url = validate_source_url(url)
+    clean_title = _safe_name(title or clean_url)
+    clean_type = normalize_resource_type(resource_type)
+    digest = hashlib.sha256(f"{clean_url}|{time.time_ns()}".encode("utf-8")).hexdigest()[:16]
+    db_file = File(
+        original_name=clean_title,
+        storage_path=f"url:{digest}",
+        size=0,
+        mime_type="text/uri-list",
+        notes=notes,
+        source_url=clean_url,
+        resource_type=clean_type,
+    )
+    db.add(db_file)
+    db.commit()
+    db.refresh(db_file)
+    return db_file
+
+
+def validate_source_url(url: str) -> str:
+    clean = str(url or "").strip()
+    parsed = urlparse(clean)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("资料链接必须是 http 或 https URL")
+    return clean
+
+
+def normalize_resource_type(value: str | None) -> str:
+    normalized = str(value or "link").strip().lower()
+    return normalized if normalized in LINK_RESOURCE_TYPES else "link"
+
+
 def list_files(db: Session, q: Optional[str] = None) -> list[File]:
     stmt = select(File).where(File.deleted_at.is_(None)).order_by(File.uploaded_at.desc())
     if q:
         pattern = f"%{q}%"
-        stmt = stmt.where(or_(File.original_name.like(pattern), File.notes.like(pattern)))
+        stmt = stmt.where(
+            or_(
+                File.original_name.like(pattern),
+                File.notes.like(pattern),
+                File.source_url.like(pattern),
+            )
+        )
     return list(db.execute(stmt).scalars().all())
 
 
@@ -132,6 +180,10 @@ def soft_delete_file(db: Session, file_id: int) -> bool:
 
 def content_path(db_file: File) -> Path:
     return settings.database_dir.parent / db_file.storage_path
+
+
+def is_link_resource(db_file: File) -> bool:
+    return bool(db_file.source_url) or db_file.resource_type != "file"
 
 
 def attach_to_task(db: Session, task_id: int, file_id: int) -> bool:
@@ -223,5 +275,7 @@ def purge_expired(db: Session, retain_days: Optional[int] = None) -> int:
 
 def _remove_disk_file(db_file: File) -> None:
     """删除磁盘上的原始文件，记录还在但内容已清。"""
+    if is_link_resource(db_file):
+        return
     path = content_path(db_file)
     path.unlink(missing_ok=True)

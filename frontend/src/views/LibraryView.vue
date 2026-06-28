@@ -10,13 +10,36 @@ const preview = ref(null)
 const input = ref(null)
 const dragOver = ref(false)
 
+const isLink = (file) => Boolean(file.source_url)
 const isImage = (file) => file.mime_type?.startsWith('image/')
 const isPdf = (file) => file.mime_type === 'application/pdf'
 const iconFor = (file) => {
+  if (file.resource_type === 'video') return '▶️'
+  if (isLink(file)) return '🔗'
   if (isImage(file)) return '🖼️'
   if (isPdf(file)) return '📄'
   if (file.mime_type?.includes('zip') || file.original_name.endsWith('.zip')) return '🗜️'
   return '📎'
+}
+const resourceTypeText = (file) => {
+  const map = {
+    file: '文件',
+    link: '链接',
+    video: '视频',
+    webpage: '网页',
+    article: '文章',
+    paper: '论文',
+    course: '课程',
+    pdf: 'PDF',
+  }
+  return map[file.resource_type] || file.resource_type || '资料'
+}
+const hostText = (url) => {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return url
+  }
 }
 const sizeText = (size) => {
   if (size < 1024) return `${size} B`
@@ -58,6 +81,10 @@ async function remove(file) {
 }
 
 function open(file) {
+  if (isLink(file)) {
+    window.open(file.source_url, '_blank', 'noopener,noreferrer')
+    return
+  }
   if (isImage(file) || isPdf(file)) preview.value = file
   else window.open(getContentUrl(file.id), '_blank')
 }
@@ -94,7 +121,7 @@ onMounted(load)
     >
       <div class="drop-icon float">{{ dragOver ? '🌊' : '☁️' }}</div>
       <div class="drop-title">拖拽文件到这里，或点击选择</div>
-      <div class="muted">任何类型都可以；文件存到本机 data/files，不进数据库</div>
+      <div class="muted">文件存到本机 data/files；联网资料可作为链接保存到资料库</div>
     </div>
 
     <div class="toolbar">
@@ -116,13 +143,20 @@ onMounted(load)
     <div class="grid" v-else>
       <div class="file-card card" v-for="file in files" :key="file.id">
         <div class="preview" @click="open(file)">
-          <img v-if="isImage(file)" :src="getContentUrl(file.id)" alt="" />
-          <iframe v-else-if="isPdf(file)" :src="getContentUrl(file.id)"></iframe>
+          <img v-if="!isLink(file) && isImage(file)" :src="getContentUrl(file.id)" alt="" />
+          <iframe v-else-if="!isLink(file) && isPdf(file)" :src="getContentUrl(file.id)"></iframe>
           <div v-else class="file-icon">{{ iconFor(file) }}</div>
         </div>
         <div class="file-info">
           <div class="name" :title="file.original_name">{{ file.original_name }}</div>
-          <div class="meta muted">{{ sizeText(file.size) }} · {{ file.mime_type }}</div>
+          <div class="meta muted">
+            <template v-if="isLink(file)">
+              {{ resourceTypeText(file) }} · {{ hostText(file.source_url) }}
+            </template>
+            <template v-else>
+              {{ sizeText(file.size) }} · {{ file.mime_type }}
+            </template>
+          </div>
         </div>
         <div class="actions">
           <button class="ghost" @click="open(file)">打开</button>

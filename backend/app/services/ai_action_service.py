@@ -20,6 +20,7 @@ SUPPORTED_ACTION_TYPES = {
     "bulk_delete_tasks",
     "bulk_delete_files",
     "empty_trash",
+    "import_web_resources",
 }
 
 
@@ -132,6 +133,17 @@ def build_action_preview(db: Session, action_type: str, payload: dict) -> list[s
             f"任务: {len(tasks)} 个",
             f"资料: {len(files)} 个",
         ]
+    if action_type == "import_web_resources":
+        resources = _web_resources_for_preview(payload)
+        lines = [f"操作: 导入 {len(resources)} 条联网资料到资料库"]
+        for resource in resources:
+            lines.append(
+                f"资料: {resource['title']} | {resource['resource_type']} | {resource['url']}"
+            )
+            task_id = resource.get("task_id")
+            if task_id is not None:
+                lines.extend(_task_preview_lines(db, [task_id]))
+        return lines
     return [f"操作: 不支持的危险操作 {action_type}"]
 
 
@@ -248,7 +260,41 @@ def _execute_payload(db: Session, action_type: str, payload: dict) -> tuple[bool
         for file in files:
             file_service.purge_file(db, file.id)
         return True, f"已清空回收站：{len(tasks)} 个任务，{len(files)} 个资料"
+    if action_type == "import_web_resources":
+        return _execute_import_web_resources(db, payload)
     return False, f"不支持的危险操作: {action_type}"
+
+
+def _execute_import_web_resources(db: Session, payload: dict) -> tuple[bool, str]:
+    resources = _normalize_web_resources(payload)
+    if not resources:
+        return False, "没有可导入的联网资料"
+    missing_tasks = _missing_task_ids(
+        db,
+        sorted(
+            {
+                int(resource["task_id"])
+                for resource in resources
+                if resource.get("task_id") is not None
+            }
+        ),
+    )
+    if missing_tasks:
+        return False, f"任务不存在: {', '.join(str(task_id) for task_id in missing_tasks)}"
+    created = []
+    for resource in resources:
+        db_file = file_service.save_link_resource(
+            db,
+            title=resource["title"],
+            url=resource["url"],
+            notes=resource.get("notes", ""),
+            resource_type=resource.get("resource_type", "link"),
+        )
+        task_id = resource.get("task_id")
+        if task_id is not None:
+            file_service.attach_to_task(db, int(task_id), db_file.id)
+        created.append(db_file)
+    return True, f"已导入 {len(created)} 条联网资料"
 
 
 def _missing_task_ids(db: Session, task_ids: list[int]) -> list[int]:
@@ -286,6 +332,51 @@ def _coerce_int_list(values) -> list[int]:
     if not isinstance(values, list):
         return []
     return [item for item in (_coerce_int(value) for value in values) if item is not None]
+
+
+def _web_resources_for_preview(payload: dict) -> list[dict]:
+    try:
+        return _normalize_web_resources(payload, validate_url=False)
+    except (TypeError, ValueError):
+        return []
+
+
+def _normalize_web_resources(payload: dict, validate_url: bool = True) -> list[dict]:
+    raw_resources = payload.get("resources", [])
+    if isinstance(raw_resources, dict):
+        raw_resources = [raw_resources]
+    if not isinstance(raw_resources, list):
+        raise ValueError("resources 必须是数组")
+    default_task_id = _coerce_int(payload.get("task_id"))
+    resources = []
+    seen = set()
+    for item in raw_resources:
+        if not isinstance(item, dict):
+            raise ValueError("resources 每一项必须是对象")
+        url = str(item.get("url", "")).strip()
+        clean_url = file_service.validate_source_url(url) if validate_url else url
+        if not clean_url:
+            raise ValueError("联网资料缺少 URL")
+        title = str(item.get("title") or item.get("name") or clean_url).strip()
+        notes = str(item.get("notes") or item.get("summary") or "").strip()
+        resource_type = file_service.normalize_resource_type(item.get("resource_type") or item.get("type"))
+        task_id = _coerce_int(item.get("task_id"))
+        if task_id is None:
+            task_id = default_task_id
+        key = clean_url.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        resources.append(
+            {
+                "title": title[:255] or clean_url,
+                "url": clean_url,
+                "notes": notes,
+                "resource_type": resource_type,
+                "task_id": task_id,
+            }
+        )
+    return resources
 
 
 def _missing_preview_line(label: str, raw_id, parsed_id: int | None) -> str:

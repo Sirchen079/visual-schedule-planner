@@ -16,6 +16,31 @@ const fileError = ref(null)
 const attachedIds = computed(() => new Set((props.task?.files || []).map((f) => f.id)))
 const attachableFiles = computed(() => allFiles.value.filter((f) => !attachedIds.value.has(f.id)))
 
+function isLink(file) {
+  return Boolean(file?.source_url)
+}
+
+function fileHref(file) {
+  return isLink(file) ? file.source_url : getContentUrl(file.id)
+}
+
+function fileIcon(file) {
+  if (file?.resource_type === 'video') return '▶️'
+  if (isLink(file)) return '🔗'
+  return '📎'
+}
+
+function fileSubtitle(file) {
+  if (isLink(file)) {
+    try {
+      return `${file.resource_type || 'link'} · ${new URL(file.source_url).hostname}`
+    } catch {
+      return `${file.resource_type || 'link'} · ${file.source_url}`
+    }
+  }
+  return file.mime_type || '文件'
+}
+
 onMounted(async () => {
   if (!props.task) return
   try {
@@ -87,9 +112,12 @@ async function removeSub(s) {
         <p v-if="fileError" class="muted error-text">⚠️ {{ fileError }}</p>
         <div v-if="!task.files?.length" class="muted empty-text">还没有关联资料。</div>
         <div class="file-row" v-for="file in task.files" :key="file.id">
-          <a :href="getContentUrl(file.id)" target="_blank" :title="file.original_name">
-            <span class="file-icon">📎</span>
-            <span class="file-name">{{ file.original_name }}</span>
+          <a :href="fileHref(file)" target="_blank" rel="noopener noreferrer" :title="file.original_name">
+            <span class="file-icon">{{ fileIcon(file) }}</span>
+            <span class="file-copy">
+              <span class="file-name">{{ file.original_name }}</span>
+              <span class="file-subtitle">{{ fileSubtitle(file) }}</span>
+            </span>
           </a>
           <button class="ghost" @click="doDetach(file)">移除</button>
         </div>
@@ -293,6 +321,20 @@ async function removeSub(s) {
 }
 
 .file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.file-subtitle {
+  color: var(--text-soft);
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

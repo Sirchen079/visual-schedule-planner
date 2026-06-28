@@ -122,6 +122,7 @@ def to_response(config: AIConfig) -> AIConfigResponse:
         native_web_search_options=mask_options(
             options_from_json(config.native_web_search_options)
         ),
+        search_enhancement_enabled=bool(config.search_enhancement_enabled),
         enabled=config.enabled,
         active_skill_id=config.active_skill_id,
         created_at=config.created_at,

@@ -144,6 +144,7 @@ function defaultConfig() {
     extra_headers_text: '{}',
     native_web_search_enabled: false,
     native_web_search_options_text: '{}',
+    search_enhancement_enabled: false,
   }
 }
 
@@ -165,6 +166,7 @@ function configToForm(config) {
     extra_headers_text: JSON.stringify(config.extra_headers || {}, null, 2),
     native_web_search_enabled: Boolean(config.native_web_search_enabled),
     native_web_search_options_text: JSON.stringify(config.native_web_search_options || {}, null, 2),
+    search_enhancement_enabled: Boolean(config.search_enhancement_enabled),
   }
 }
 
@@ -201,6 +203,7 @@ function configPayload({ includeConfigId = false } = {}) {
     extra_headers: parseHeaders(),
     native_web_search_enabled: configForm.value.native_web_search_enabled,
     native_web_search_options: parseNativeWebSearchOptions(),
+    search_enhancement_enabled: configForm.value.search_enhancement_enabled,
     active_skill_id: activeSkillId.value || null,
   }
   if (configForm.value.api_key.trim()) payload.api_key = configForm.value.api_key.trim()
@@ -997,7 +1000,17 @@ onBeforeUnmount(() => {
                 <small>由模型接口自身执行搜索；适合 Kimi Code、Claude 或 OpenAI 的内置联网能力。</small>
               </span>
             </label>
-            <label v-if="configForm.native_web_search_enabled" class="wide-field">
+            <label class="check-field">
+              <input v-model="configForm.search_enhancement_enabled" type="checkbox" />
+              <span class="check-copy">
+                <strong>搜索增强</strong>
+                <small>要求助手先用原生联网搜索查找参考资料，再结合本地任务和资料进行规划。</small>
+              </span>
+            </label>
+            <label
+              v-if="configForm.native_web_search_enabled || configForm.search_enhancement_enabled"
+              class="wide-field"
+            >
               <span>原生联网参数 JSON</span>
               <textarea
                 v-model="configForm.native_web_search_options_text"

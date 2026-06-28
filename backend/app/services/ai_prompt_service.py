@@ -45,6 +45,8 @@ def build_system_prompt(db: Session, config: AIConfig) -> str:
 必须使用“当前时间状态”和“当前业务状态”作为判断依据；不要凭模型训练知识猜今天日期。
 用户说今天、明天、本周、下周、下周六、月底等相对日期时，必须基于当前本地日期换算成明确日期。
 创建任务、日程或提醒时，start_date/end_date/due_date 必须使用明确 ISO 时间；用户没有给具体时刻时，应先询问，或在 reply 中明确说明你采用的保守假设。
+你具备受控 Agent 工作模式：复杂任务可以先用工具查看当前状态，再根据工具结果继续规划和执行，最后给出总结。每一轮都要基于上一轮工具观察推进，不要重复已经成功的同一工具调用。目标完成后必须停止工具调用，返回最终 reply。达到用户确认边界时，把危险操作放入 dangerous_actions 并停止继续执行。
+像可靠的 coding agent 一样工作：先理解目标和约束，再列最小必要步骤；执行后检查工具结果；失败时根据错误修正参数；无法安全完成时说明阻塞点和需要用户确认或补充的信息。
 提醒在当前系统中用任务的 due_date 表达；“提醒我做某事”优先使用 create_reminder，并写入 title/due_date/notes/tags。
 当用户要求拆分任务、制定步骤、分阶段执行时，应创建真实子任务，不要只写进 notes。创建新任务时可在 create_task/create_reminder 参数中带 subtask_titles 数组；已有任务可用 create_subtasks，参数为 {"task_id":1,"titles":["步骤一","步骤二"]}。
 用户上传到资料库后会提供资料 ID。你需要判断资料应归属到哪些任务：已有任务可用 attach_file_to_task 关联；需要新建任务或提醒时，可在 create_task/create_reminder 参数里带 file_ids 数组，后端会自动关联这些资料。
@@ -52,6 +54,7 @@ def build_system_prompt(db: Session, config: AIConfig) -> str:
 如果对话附件需要长期保存到资料库，可用 save_attachment_to_library，参数为 {"attachment_id":"...","notes":"...","task_id":1}，task_id 可选。创建新任务或提醒时，也可以在 create_task/create_reminder 参数里带 attachment_ids 数组，后端会自动保存附件并关联到新任务。
 如果无法判断资料应该关联到哪个任务，先用 list_tasks 查看现有任务，再给出少量候选或创建一个新的整理任务；不要臆测未提供的文件正文。
 如果系统反馈工具执行失败，你需要基于错误信息修正参数或改用正确工具，不要继续声称已经完成失败的操作。
+当你通过原生联网搜索找到值得长期保存的网页、论文页面、课程、视频教程或其他外部资料时，不要直接声称已经入库，必须把它们放入 dangerous_actions 的 import_web_resources，等待用户确认后系统才会导入资料库。视频教程等不适合下载的资料应保存为 video 链接资料，用户点击后会跳转到原视频页面。
 低风险工具只包括 list_tasks/create_task/list_reminders/create_reminder/list_files/create_note_file/attach_file_to_task/save_attachment_to_library/list_subtasks/create_subtask/create_subtasks。
 危险 action_type 只允许：
 - update_task：payload 为 {"task_id":1,"patch":{"title":"新标题","priority":"高","status":"进行中","progress":40,"start_date":"2026-06-27T09:00:00","end_date":"2026-06-27T11:00:00","due_date":"2026-06-28T18:00:00","tags":["论文"]}}
@@ -61,12 +64,20 @@ def build_system_prompt(db: Session, config: AIConfig) -> str:
 - bulk_update_tasks：payload 为 {"task_ids":[1,2],"patch":{"priority":"高"}}
 - bulk_delete_tasks / bulk_delete_files：payload 为 {"task_ids":[1,2]} 或 {"file_ids":[1,2]}
 - empty_trash：payload 为 {}
+- import_web_resources：payload 为 {"resources":[{"title":"资料标题","url":"https://...","resource_type":"video|webpage|article|paper|course|link","notes":"为什么有用","task_id":1}]}，task_id 可选。用于把联网搜索到的外部资料作为链接资料导入资料库，必须等待用户确认。
 修改既有任务、修改资料备注、取消资料关联、删除、清空和批量操作必须放入 dangerous_actions，不能放入 tools。"""
-    if getattr(config, "native_web_search_enabled", False):
+    search_enhanced = getattr(config, "search_enhancement_enabled", False)
+    if getattr(config, "native_web_search_enabled", False) or search_enhanced:
         base += """
 
 联网搜索规则：
 当前模型配置允许使用模型原生联网搜索。涉及最新事实、当前网页信息、论文/资料补充检索、近期政策或库版本时，应优先使用模型原生联网能力；如果使用了联网搜索，请在 reply 中保留关键来源名称或链接，并区分搜索得到的信息与当前本地任务/资料状态。"""
+    if search_enhanced:
+        base += """
+
+搜索增强：
+本轮配置已开启“搜索增强”。当用户的问题涉及资料列举、论文/网页/工具/政策/近期事实、资料补充、方案规划或需要外部参考时，你必须先使用模型原生联网搜索获取相关资料作为参考，再结合当前本地任务和资料状态给出安排。
+除非用户明确要求只使用本地资料，或请求完全不需要外部事实，否则不要直接凭训练知识回答。搜索后在 reply 中至少列出 2 条可核对来源；若实际搜索结果不足 2 条，必须说明原因。"""
     return base
 
 
@@ -109,10 +120,7 @@ def build_local_context(db: Session) -> str:
     ]
     overdue_lines = [_reminder_line(t) for t in overdue[:20]]
     upcoming_lines = [_reminder_line(t) for t in upcoming[:20]]
-    file_lines = [
-        f"- #{f.id} {f.original_name} | 类型:{f.mime_type} | 备注:{f.notes}"
-        for f in files[:80]
-    ]
+    file_lines = [_file_line(f) for f in files[:80]]
     return (
         build_time_context()
         + "\n\n当前任务统计：\n"
@@ -138,6 +146,18 @@ def _reminder_line(task: Task) -> str:
         f"- #{task.id} {task.title} | 截止/提醒:{_format_dt(task.due_date)} | "
         f"状态:{task.status} | 优先级:{task.priority}"
     )
+
+
+def _file_line(db_file) -> str:
+    parts = [
+        f"- #{db_file.id} {db_file.original_name}",
+        f"类型:{db_file.mime_type}",
+        f"资料类型:{db_file.resource_type or 'file'}",
+        f"备注:{db_file.notes}",
+    ]
+    if db_file.source_url:
+        parts.append(f"链接:{db_file.source_url}")
+    return " | ".join(parts)
 
 
 def _subtask_summary(task: Task) -> str:

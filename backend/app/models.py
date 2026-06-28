@@ -70,6 +70,8 @@ class File(Base):
     size: Mapped[int] = mapped_column(Integer, nullable=False)
     mime_type: Mapped[str] = mapped_column(String(100), default="application/octet-stream")
     notes: Mapped[str] = mapped_column(Text, default="")
+    source_url: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+    resource_type: Mapped[str] = mapped_column(String(30), default="file")
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
@@ -123,6 +125,7 @@ class AIConfig(Base):
     extra_headers: Mapped[str] = mapped_column(Text, default="{}")
     native_web_search_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     native_web_search_options: Mapped[str] = mapped_column(Text, default="{}")
+    search_enhancement_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     active_skill_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("ai_skills.id"), nullable=True
