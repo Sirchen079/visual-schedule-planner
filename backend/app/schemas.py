@@ -95,10 +95,13 @@ class TaskResponse(TaskBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+ScheduleSource = Literal["manual", "ai", "system"]
+
+
 class ScheduleEntryBase(BaseModel):
     task_id: int
     date: date_type
-    source: str = "manual"
+    source: ScheduleSource = "manual"
     note: str = ""
 
 
@@ -109,7 +112,7 @@ class ScheduleEntryCreate(ScheduleEntryBase):
 class ScheduleEntryUpdate(BaseModel):
     date: Optional[date_type] = None
     note: Optional[str] = None
-    source: Optional[str] = None
+    source: Optional[ScheduleSource] = None
 
 
 class ScheduleEntryRead(ScheduleEntryBase):

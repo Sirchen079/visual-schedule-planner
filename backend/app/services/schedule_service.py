@@ -58,7 +58,9 @@ def create_schedule_entry(
 def update_schedule_entry(
     db: Session, entry_id: int, data: ScheduleEntryUpdate
 ) -> TaskScheduleEntry | None:
-    entry = db.get(TaskScheduleEntry, entry_id)
+    entry = db.execute(
+        _active_entry_stmt().where(TaskScheduleEntry.id == entry_id)
+    ).scalar_one_or_none()
     if entry is None:
         return None
 

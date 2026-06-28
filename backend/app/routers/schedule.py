@@ -26,6 +26,8 @@ def get_day_schedule(
 
 @router.get("/month", response_model=MonthScheduleResponse)
 def get_month_schedule(year: int, month: int, db: Session = Depends(get_db)):
+    if year < 1 or year > 9999:
+        raise HTTPException(status_code=400, detail="Year must be between 1 and 9999")
     if month < 1 or month > 12:
         raise HTTPException(status_code=400, detail="Month must be between 1 and 12")
     return schedule_service.get_month_schedule(db, year, month)

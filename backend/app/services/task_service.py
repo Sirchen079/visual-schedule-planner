@@ -1,11 +1,11 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import settings
-from app.models import Tag, Task
+from app.models import Tag, Task, TaskScheduleEntry
 from app.schemas import TaskCreate, TaskUpdate
 
 # 标签柔和调色板，新建标签时循环分配
@@ -105,6 +105,7 @@ def purge_task(db: Session, task_id: int) -> bool:
     db_task = db.get(Task, task_id)
     if db_task is None or db_task.deleted_at is None:
         return False
+    db.execute(delete(TaskScheduleEntry).where(TaskScheduleEntry.task_id == task_id))
     db.delete(db_task)
     db.commit()
     return True
@@ -119,6 +120,11 @@ def purge_expired(db: Session, retain_days: Optional[int] = None) -> int:
             select(Task).where(Task.deleted_at.is_not(None), Task.deleted_at < cutoff)
         ).scalars().all()
     )
+    task_ids = [task.id for task in rows]
+    if task_ids:
+        db.execute(
+            delete(TaskScheduleEntry).where(TaskScheduleEntry.task_id.in_(task_ids))
+        )
     for t in rows:
         db.delete(t)
     db.commit()
