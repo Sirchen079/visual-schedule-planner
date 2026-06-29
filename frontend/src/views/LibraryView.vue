@@ -102,16 +102,26 @@ function markPreviewFailed(file) {
 }
 
 const emptyText = computed(() => (q.value ? '没有匹配的资料' : '还没有资料，拖文件进来试试'))
+const typeStats = computed(() => {
+  const stats = [
+    { key: 'pdf', label: 'PDF', icon: 'file', tone: 'coral', count: files.value.filter(isPdf).length },
+    { key: 'image', label: '图片', icon: 'image', tone: 'mint', count: files.value.filter(isImage).length },
+    { key: 'link', label: '链接', icon: 'link', tone: 'aqua', count: files.value.filter(isLink).length },
+    { key: 'file', label: '其他', icon: 'archive', tone: 'sand', count: 0 },
+  ]
+  stats[3].count = Math.max(files.value.length - stats[0].count - stats[1].count - stats[2].count, 0)
+  return stats
+})
 
 onMounted(load)
 </script>
 
 <template>
-  <div class="library">
+  <div class="library workspace-page">
     <div class="library-head">
       <div>
         <h2 class="page-title">
-        <ArtIcon name="library" tone="aqua" :size="36" tile label="资料库" />
+        <ArtIcon name="library" tone="aqua" :size="44" tile label="资料库" />
         <span>资料库</span>
       </h2>
         <p class="muted">集中管理论文、课件、截图、链接和任务资料。</p>
@@ -133,6 +143,16 @@ onMounted(load)
     >
       <div class="drop-title">{{ dragOver ? '松开以上传文件' : '拖拽文件到这里，或点击选择' }}</div>
       <div class="muted">文件将保存到本机资料库，便于后续关联任务。</div>
+    </div>
+
+    <div class="library-metrics">
+      <article v-for="item in typeStats" :key="item.key" class="metric-tile">
+        <ArtIcon :name="item.icon" :tone="item.tone" :size="34" tile :label="item.label" />
+        <div>
+          <strong>{{ item.count }}</strong>
+          <span>{{ item.label }}</span>
+        </div>
+      </article>
     </div>
 
     <div class="toolbar">
@@ -209,7 +229,7 @@ onMounted(load)
   display: flex;
   flex-direction: column;
   gap: 18px;
-  max-width: 1200px;
+  max-width: none;
   margin: 0 auto;
 }
 
@@ -255,8 +275,14 @@ p {
   text-align: center;
   border: 2px dashed var(--border);
   cursor: pointer;
-  padding: 38px 28px;
+  padding: 22px 28px;
   transition: transform 0.25s ease, border-color 0.25s ease, background 0.25s ease;
+}
+
+.library-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .drop:hover,
@@ -308,7 +334,7 @@ p {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 18px;
 }
 
@@ -453,6 +479,9 @@ p {
   }
   .toolbar input {
     max-width: none;
+  }
+  .library-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>

@@ -94,90 +94,148 @@ const stats = computed(() => [
 </script>
 
 <template>
-  <div class="overview">
+  <div class="overview workspace-page">
     <div class="overview-head">
       <h2 class="page-title">
-        <ArtIcon name="overview" tone="mint" :size="36" tile label="日程总览" />
+        <ArtIcon name="overview" tone="mint" :size="44" tile label="日程总览" />
         <span>日程总览</span>
       </h2>
       <p class="muted">从全局看清轻重缓急，让节奏保持平稳。</p>
     </div>
 
-    <div class="stats-grid">
-      <div
-        class="stat card"
-        v-for="(s, i) in stats"
-        :key="s.label"
-        :class="[s.tone, 'animate-in']"
-        :style="{ animationDelay: `${i * 0.08}s` }"
-      >
-        <ArtIcon
-          class="stat-icon"
-          :name="s.icon"
-          :tone="s.iconTone"
-          :size="50"
-          tile
-          :label="s.label"
-        />
-        <div class="stat-main">
-          <div class="num">{{ s.value }}</div>
-          <div class="label">{{ s.label }}</div>
+    <div class="overview-grid workspace-shell">
+      <aside class="overview-rail workspace-rail section-panel">
+        <ArtIcon name="overview" tone="mint" :size="62" tile label="完成节奏" />
+        <div class="completion">
+          <strong>{{ doneRate }}%</strong>
+          <span>完成率</span>
         </div>
-      </div>
-    </div>
-
-    <div class="sections">
-      <div class="section card" v-if="overdue.length">
-        <h3>逾期未完成</h3>
-        <div class="task-list">
-          <div class="li" v-for="t in overdue" :key="t.id" @click="emit('open', t)">
-            <span class="li-title">{{ t.title }}</span>
-            <span class="muted">{{ new Date(t.due_date).toLocaleDateString() }}</span>
-          </div>
+        <div class="progress-track rail-track">
+          <div class="progress-bar done" :style="{ width: `${doneRate}%` }"></div>
         </div>
-      </div>
-
-      <div class="section card" v-if="todayDue.length">
-        <h3>今日到期</h3>
-        <div class="task-list">
-          <div class="li" v-for="t in todayDue" :key="t.id" @click="emit('open', t)">
-            <span class="li-title">{{ t.title }}</span>
-            <span class="tag today">今天</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="section card" v-if="weekDue.length">
-        <h3>本周截止</h3>
-        <div class="task-list">
-          <div class="li" v-for="t in weekDue" :key="t.id" @click="emit('open', t)">
-            <span class="li-title">{{ t.title }}</span>
-            <span class="muted">{{ new Date(t.due_date).toLocaleDateString() }}</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="section card status-section">
-        <h3>状态分布</h3>
-        <div class="status-grid">
-          <div class="status-item" v-for="(count, status) in statusCount" :key="status">
+        <div class="rail-stats">
+          <div class="rail-stat" v-for="(count, status) in statusCount" :key="status">
             <span class="status-dot" :class="status"></span>
-            <span class="status-name">{{ status }}</span>
-            <span class="status-num">{{ count }}</span>
+            <span>{{ status }}</span>
+            <strong>{{ count }}</strong>
           </div>
         </div>
-        <div class="progress-track">
+      </aside>
+
+      <main class="overview-main workspace-main">
+        <div class="stats-grid">
           <div
-            class="progress-bar done"
-            :style="{ width: `${(statusCount['完成'] / Math.max(props.tasks.length, 1)) * 100}%` }"
-          ></div>
-          <div
-            class="progress-bar doing"
-            :style="{ width: `${(statusCount['进行中'] / Math.max(props.tasks.length, 1)) * 100}%` }"
-          ></div>
+            class="stat metric-tile"
+            v-for="(s, i) in stats"
+            :key="s.label"
+            :class="[s.tone, 'animate-in']"
+            :style="{ animationDelay: `${i * 0.08}s` }"
+          >
+            <ArtIcon
+              class="stat-icon"
+              :name="s.icon"
+              :tone="s.iconTone"
+              :size="34"
+              tile
+              :label="s.label"
+            />
+            <div class="stat-main">
+              <div class="num">{{ s.value }}</div>
+              <div class="label">{{ s.label }}</div>
+            </div>
+          </div>
         </div>
-        <p class="muted total">共 {{ tasks.length }} 项任务 · 完成率 {{ doneRate }}%</p>
-      </div>
+
+        <div class="sections">
+          <div class="section section-panel" v-if="overdue.length">
+            <h3>
+              <ArtIcon name="priority" tone="coral" :size="30" tile label="逾期" />
+              <span>逾期未完成</span>
+            </h3>
+            <div class="task-list">
+              <button class="li" v-for="t in overdue" :key="t.id" @click="emit('open', t)">
+                <span class="li-title">{{ t.title }}</span>
+                <span class="muted">{{ new Date(t.due_date).toLocaleDateString() }}</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="section section-panel" v-if="todayDue.length">
+            <h3>
+              <ArtIcon name="calendar" tone="aqua" :size="30" tile label="今日" />
+              <span>今日到期</span>
+            </h3>
+            <div class="task-list">
+              <button class="li" v-for="t in todayDue" :key="t.id" @click="emit('open', t)">
+                <span class="li-title">{{ t.title }}</span>
+                <span class="tag today">今天</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="section section-panel" v-if="weekDue.length">
+            <h3>
+              <ArtIcon name="timeline" tone="sand" :size="30" tile label="本周" />
+              <span>本周截止</span>
+            </h3>
+            <div class="task-list">
+              <button class="li" v-for="t in weekDue" :key="t.id" @click="emit('open', t)">
+                <span class="li-title">{{ t.title }}</span>
+                <span class="muted">{{ new Date(t.due_date).toLocaleDateString() }}</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="section section-panel status-section">
+            <h3>
+              <ArtIcon name="board" tone="mint" :size="30" tile label="状态" />
+              <span>状态分布</span>
+            </h3>
+            <div class="status-grid">
+              <div class="status-item" v-for="(count, status) in statusCount" :key="status">
+                <span class="status-dot" :class="status"></span>
+                <span class="status-name">{{ status }}</span>
+                <span class="status-num">{{ count }}</span>
+              </div>
+            </div>
+            <div class="progress-track">
+              <div
+                class="progress-bar done"
+                :style="{ width: `${(statusCount['完成'] / Math.max(props.tasks.length, 1)) * 100}%` }"
+              ></div>
+              <div
+                class="progress-bar doing"
+                :style="{ width: `${(statusCount['进行中'] / Math.max(props.tasks.length, 1)) * 100}%` }"
+              ></div>
+            </div>
+            <p class="muted total">共 {{ tasks.length }} 项任务 · 完成率 {{ doneRate }}%</p>
+          </div>
+        </div>
+      </main>
+
+      <aside class="overview-aside workspace-aside section-panel">
+        <div class="aside-head">
+          <ArtIcon name="assistant" tone="aqua" :size="44" tile label="今日建议" />
+          <div>
+            <h3>今日建议</h3>
+            <p class="muted">把压力、进度和空闲一起看。</p>
+          </div>
+        </div>
+        <div class="advice-list">
+          <div class="advice-item" :class="{ urgent: overdue.length }">
+            <strong>{{ overdue.length ? '先处理逾期' : '没有逾期压力' }}</strong>
+            <span>{{ overdue.length ? `还有 ${overdue.length} 项需要先收住` : '可以按当前节奏推进' }}</span>
+          </div>
+          <div class="advice-item">
+            <strong>今日焦点</strong>
+            <span>{{ todayDue.length ? `${todayDue.length} 项今天到期` : '今天没有硬截止项' }}</span>
+          </div>
+          <div class="advice-item">
+            <strong>一周节奏</strong>
+            <span>{{ weekDue.length ? `${weekDue.length} 项在本周收束` : '本周收束压力较轻' }}</span>
+          </div>
+        </div>
+      </aside>
     </div>
   </div>
 </template>
@@ -187,7 +245,7 @@ const stats = computed(() => [
   display: flex;
   flex-direction: column;
   gap: 22px;
-  max-width: 860px;
+  max-width: none;
   margin: 0 auto;
 }
 
@@ -387,6 +445,111 @@ const stats = computed(() => [
     grid-template-columns: repeat(2, 1fr);
   }
   .status-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.overview-grid {
+  align-items: stretch;
+}
+
+.overview-rail,
+.overview-aside {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  padding: 18px;
+}
+
+.overview-main {
+  display: grid;
+  gap: 16px;
+}
+
+.completion {
+  display: grid;
+  gap: 4px;
+}
+
+.completion strong {
+  color: var(--accent-strong);
+  font-size: 42px;
+  line-height: 1;
+}
+
+.completion span,
+.rail-stat span,
+.advice-item span {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rail-track {
+  margin: 0;
+}
+
+.rail-stats,
+.advice-list {
+  display: grid;
+  gap: 10px;
+}
+
+.rail-stat,
+.advice-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.rail-stat strong {
+  margin-left: auto;
+  color: var(--text);
+}
+
+.aside-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.aside-head h3 {
+  margin: 0 0 4px;
+  font-size: 17px;
+}
+
+.advice-item {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.advice-item strong {
+  color: var(--text);
+}
+
+.advice-item.urgent {
+  border-color: rgba(217, 93, 106, 0.3);
+  background: var(--danger-soft);
+}
+
+.section {
+  padding: 16px;
+}
+
+.li {
+  width: 100%;
+  color: var(--text);
+  text-align: left;
+  box-shadow: none;
+}
+
+@media (max-width: 1180px) {
+  .overview-grid {
     grid-template-columns: 1fr;
   }
 }

@@ -32,6 +32,9 @@ const files = {
 
 const allSource = Object.values(files).join('\n')
 
+const workspaceViewKeys = ['board', 'overview', 'calendar', 'timeline', 'library', 'trash']
+const narrowWorkspacePatterns = [/max-width:\s*860px/, /max-width:\s*1200px/]
+
 const requiredArtIconFiles = [
   'app',
   'board',
@@ -185,6 +188,16 @@ const checks = [
     pass: requiredArtIconFiles.every((key) => files[key].includes('ArtIcon')),
   },
   {
+    name: 'primary pages use the global workspace page shell',
+    pass: workspaceViewKeys.every((key) => files[key].includes('workspace-page')),
+  },
+  {
+    name: 'primary pages no longer use narrow desktop root widths',
+    pass: ['overview', 'timeline', 'library', 'trash'].every((key) =>
+      narrowWorkspacePatterns.every((pattern) => !pattern.test(files[key]))
+    ),
+  },
+  {
     name: 'text-only icon badge markup is removed from major UI',
     pass: bannedTextIconMarkup.every((pattern) => !pattern.test(allSource)),
   },
@@ -208,8 +221,9 @@ const checks = [
         [files.timeline, 'timeline'],
         [files.library, 'library'],
         [files.trash, 'trash'],
-        [files.assistant, 'assistant'],
-      ].every(([source, icon]) => new RegExp(`<ArtIcon name="${icon}"[\\s\\S]{0,120}:size="36"`).test(source)) &&
+      ].every(([source, icon]) => new RegExp(`<ArtIcon name="${icon}"[\\s\\S]{0,120}:size="44"`).test(source)) &&
+      /<ArtIcon name="assistant"[\s\S]{0,120}:size="36"/.test(files.assistant) &&
+      workspaceViewKeys.every((key) => /:size="34"[\s\S]{0,80}tile/.test(files[key])) &&
       /class="create-btn"[\s\S]{0,180}<ArtIcon name="plus"[\s\S]{0,80}:size="20"/.test(files.board) &&
       /class="create-btn"[\s\S]{0,180}<ArtIcon name="plus"[\s\S]{0,80}:size="20"/.test(files.calendar) &&
       /class="create-btn"[\s\S]{0,180}<ArtIcon name="plus"[\s\S]{0,80}:size="20"/.test(files.timeline) &&

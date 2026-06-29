@@ -362,7 +362,7 @@ async function undoDelete() {
 
 .content {
   flex: 1;
-  padding: 22px 28px 32px;
+  padding: 22px clamp(16px, 2vw, 32px) 32px;
   overflow: auto;
   min-height: 0;
 }

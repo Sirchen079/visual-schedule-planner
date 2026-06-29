@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { listTrash, purgeTask, restoreTask } from '../api/tasks'
 import { listTrashFiles, purgeFile, restoreFile } from '../api/files'
 import ArtIcon from '../components/ArtIcon.vue'
@@ -10,6 +10,7 @@ const tasks = ref([])
 const files = ref([])
 const loading = ref(false)
 const error = ref(null)
+const deletedTotal = computed(() => tasks.value.length + files.value.length)
 
 async function load() {
   loading.value = true
@@ -60,10 +61,10 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="trash">
+  <div class="trash workspace-page">
     <div class="trash-head animate-in">
       <h2 class="page-title">
-        <ArtIcon name="trash" tone="coral" :size="36" tile label="回收站" />
+        <ArtIcon name="trash" tone="coral" :size="44" tile label="回收站" />
         <span>回收站</span>
       </h2>
       <p class="muted">误删的东西在这里暂存 30 天，可随时恢复或彻底清除。</p>
@@ -73,6 +74,30 @@ onMounted(load)
     <div v-if="loading" class="center muted">
       <span class="spinner"></span>
       <p>加载中…</p>
+    </div>
+
+    <div v-if="!loading" class="trash-metrics">
+      <article class="metric-tile">
+        <ArtIcon name="trash" tone="coral" :size="34" tile label="删除项" />
+        <div>
+          <strong>{{ deletedTotal }}</strong>
+          <span>删除项</span>
+        </div>
+      </article>
+      <article class="metric-tile">
+        <ArtIcon name="task" tone="aqua" :size="34" tile label="任务" />
+        <div>
+          <strong>{{ tasks.length }}</strong>
+          <span>任务</span>
+        </div>
+      </article>
+      <article class="metric-tile">
+        <ArtIcon name="file" tone="sand" :size="34" tile label="文件" />
+        <div>
+          <strong>{{ files.length }}</strong>
+          <span>文件</span>
+        </div>
+      </article>
     </div>
 
     <section
@@ -145,7 +170,7 @@ onMounted(load)
   display: flex;
   flex-direction: column;
   gap: 18px;
-  max-width: 860px;
+  max-width: none;
   margin: 0 auto;
 }
 
@@ -166,6 +191,12 @@ onMounted(load)
 .trash-head p {
   margin: 6px 0 0;
   font-size: 14px;
+}
+
+.trash-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .group {
@@ -322,6 +353,9 @@ onMounted(load)
 }
 
 @media (max-width: 600px) {
+  .trash-metrics {
+    grid-template-columns: 1fr;
+  }
   .row {
     flex-wrap: wrap;
   }

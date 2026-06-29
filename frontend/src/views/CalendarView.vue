@@ -466,11 +466,11 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="calendar-action-center">
+  <section class="calendar-action-center workspace-page">
     <header class="action-header glass">
       <div class="header-copy">
         <div class="page-title">
-          <ArtIcon name="calendar" tone="aqua" :size="36" tile label="日程行动中心" />
+          <ArtIcon name="calendar" tone="aqua" :size="44" tile label="日程行动中心" />
           <div>
             <h2>日程行动中心</h2>
             <p>{{ selectedDateLabel }}</p>
@@ -524,7 +524,7 @@ onMounted(async () => {
 
       <div class="signal-grid">
         <article v-for="signal in actionSignals" :key="signal.key" class="signal-card">
-          <ArtIcon :name="signal.icon" :tone="signal.tone" :size="30" tile :label="signal.label" />
+          <ArtIcon :name="signal.icon" :tone="signal.tone" :size="34" tile :label="signal.label" />
           <div>
             <strong>{{ signal.count }}</strong>
             <span>{{ signal.label }}</span>
@@ -557,7 +557,7 @@ onMounted(async () => {
 
         <section class="assistant-panel glass">
           <div class="assistant-panel-head">
-            <ArtIcon name="assistant" tone="aqua" :size="48" tile label="助手排程" />
+            <ArtIcon name="assistant" tone="aqua" :size="44" tile label="助手排程" />
             <div>
               <h3>交给助手整理</h3>
               <p>把今天、压力窗口或未排期事项直接移交给助手继续拆分。</p>
@@ -590,7 +590,7 @@ onMounted(async () => {
         >
           <header class="bucket-head">
             <div class="bucket-title">
-              <ArtIcon :name="bucket.icon" :tone="bucket.tone" :size="30" tile :label="bucket.title" />
+              <ArtIcon :name="bucket.icon" :tone="bucket.tone" :size="34" tile :label="bucket.title" />
               <div>
                 <h3>{{ bucket.title }}</h3>
                 <p>{{ bucket.rail }}</p>
@@ -715,7 +715,7 @@ onMounted(async () => {
 
       <aside class="selected-day-preview glass">
         <div class="preview-head">
-          <ArtIcon name="calendar" tone="aqua" :size="40" tile />
+          <ArtIcon name="calendar" tone="aqua" :size="44" tile />
           <div>
             <h3>{{ selectedDateLabel }}</h3>
             <p>选中日期的行动摘要会同步显示在这里。</p>
@@ -774,7 +774,7 @@ onMounted(async () => {
   position: relative;
   display: grid;
   gap: 16px;
-  max-width: 1320px;
+  max-width: none;
   margin: 0 auto;
   padding-bottom: 8px;
 }
@@ -809,6 +809,21 @@ onMounted(async () => {
   display: grid;
   gap: 14px;
   padding: 18px;
+}
+
+@media (min-width: 900px) {
+  .action-header {
+    grid-template-columns: minmax(280px, 0.9fr) minmax(520px, 1.1fr);
+    align-items: start;
+  }
+
+  .header-controls {
+    justify-items: end;
+  }
+
+  .signal-grid {
+    grid-column: 1 / -1;
+  }
 }
 
 .header-copy,
@@ -967,7 +982,7 @@ onMounted(async () => {
 
 .day-layout {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-columns: 340px minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }
@@ -1259,7 +1274,7 @@ onMounted(async () => {
 }
 
 .month-layout {
-  grid-template-columns: minmax(0, 1.6fr) 340px;
+  grid-template-columns: minmax(0, 1.7fr) 360px;
   align-items: start;
 }
 

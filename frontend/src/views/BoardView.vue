@@ -116,14 +116,23 @@ const columnMeta = {
     accent: 'var(--success)',
   },
 }
+
+const boardMetrics = computed(() => [
+  { label: '全部任务', value: props.tasks.length, icon: 'board', tone: 'aqua' },
+  { label: COLUMNS[0], value: lists.value[COLUMNS[0]]?.length || 0, icon: 'task', tone: 'coral' },
+  { label: COLUMNS[1], value: lists.value[COLUMNS[1]]?.length || 0, icon: 'timeline', tone: 'sand' },
+  { label: COLUMNS[2], value: lists.value[COLUMNS[2]]?.length || 0, icon: 'overview', tone: 'mint' },
+])
+
+const visibleTags = computed(() => allTags.value.slice(0, 7))
 </script>
 
 <template>
-  <div class="board">
+  <div class="board workspace-page">
     <div class="board-head">
       <div class="board-title">
         <h2 class="page-title">
-          <ArtIcon name="board" tone="aqua" :size="36" tile label="任务看板" />
+          <ArtIcon name="board" tone="aqua" :size="44" tile label="任务看板" />
           <span>任务看板</span>
         </h2>
         <p class="muted">像潮汐一样把任务归位，保持推进节奏清晰。</p>
@@ -166,46 +175,86 @@ const columnMeta = {
       </div>
     </div>
 
-    <div class="columns">
-      <div
-        class="column"
-        v-for="(col, index) in COLUMNS"
-        :key="col"
-        :class="[columnMeta[col].tone, 'animate-in']"
-        :style="{ animationDelay: `${index * 0.06}s` }"
-      >
-        <div class="col-head">
-          <div class="col-title">
-            <span class="col-status" :style="{ background: columnMeta[col].accent }"></span>
-            <span class="col-name">{{ col }}</span>
-          </div>
-          <span class="count">{{ lists[col].length }}</span>
+    <div class="board-metrics">
+      <article v-for="metric in boardMetrics" :key="metric.label" class="metric-tile">
+        <ArtIcon :name="metric.icon" :tone="metric.tone" :size="34" tile :label="metric.label" />
+        <div>
+          <strong>{{ metric.value }}</strong>
+          <span>{{ metric.label }}</span>
         </div>
+      </article>
+    </div>
 
-        <draggable
-          :list="lists[col]"
-          group="tasks"
-          item-key="id"
-          :animation="220"
-          ghost-class="ghost"
-          chosen-class="chosen"
-          drag-class="dragging"
-          class="col-body"
-          :class="{ empty: !lists[col].length }"
-          @end="(e) => onEnd(e, col)"
+    <div class="board-workspace">
+      <div class="columns">
+        <div
+          class="column"
+          v-for="(col, index) in COLUMNS"
+          :key="col"
+          :class="[columnMeta[col].tone, 'animate-in']"
+          :style="{ animationDelay: `${index * 0.06}s` }"
         >
-          <template #item="{ element }">
-            <TaskCard :task="element" @click="emit('open', element)" />
-          </template>
-          <template #footer>
-            <div v-if="!lists[col].length" class="empty-hint muted">
-              <span>{{ columnMeta[col].hint }}</span>
+          <div class="col-head">
+            <div class="col-title">
+              <span class="col-status" :style="{ background: columnMeta[col].accent }"></span>
+              <span class="col-name">{{ col }}</span>
             </div>
-          </template>
-        </draggable>
+            <span class="count">{{ lists[col].length }}</span>
+          </div>
 
-        <div class="col-foot" :style="{ background: columnMeta[col].accent }"></div>
+          <draggable
+            :list="lists[col]"
+            group="tasks"
+            item-key="id"
+            :animation="220"
+            ghost-class="ghost"
+            chosen-class="chosen"
+            drag-class="dragging"
+            class="col-body"
+            :class="{ empty: !lists[col].length }"
+            @end="(e) => onEnd(e, col)"
+          >
+            <template #item="{ element }">
+              <TaskCard :task="element" @click="emit('open', element)" />
+            </template>
+            <template #footer>
+              <div v-if="!lists[col].length" class="empty-hint muted">
+                <span>{{ columnMeta[col].hint }}</span>
+              </div>
+            </template>
+          </draggable>
+
+          <div class="col-foot" :style="{ background: columnMeta[col].accent }"></div>
+        </div>
       </div>
+
+      <aside class="board-insight section-panel">
+        <div class="insight-head">
+          <ArtIcon name="sort" tone="aqua" :size="38" tile label="看板节奏" />
+          <div>
+            <h3>看板节奏</h3>
+            <p class="muted">把筛选、标签和推进状态放在同一侧观察。</p>
+          </div>
+        </div>
+        <div class="insight-block">
+          <strong>当前排序</strong>
+          <span>{{ sortBy }}</span>
+        </div>
+        <div class="tag-cloud" v-if="visibleTags.length">
+          <span
+            v-for="tag in visibleTags"
+            :key="tag.name"
+            class="tag-chip"
+            :style="{ '--tag-color': tag.color || 'var(--accent)' }"
+          >
+            {{ tag.name }}
+          </span>
+        </div>
+        <div v-else class="workspace-empty compact-empty">
+          <ArtIcon name="tag" tone="mint" :size="46" tile label="标签" />
+          <span>还没有标签，任务增加后这里会成为快速导航区。</span>
+        </div>
+      </aside>
     </div>
   </div>
 </template>
@@ -216,7 +265,7 @@ const columnMeta = {
   flex-direction: column;
   height: 100%;
   gap: 16px;
-  max-width: 1440px;
+  max-width: none;
   margin: 0 auto;
 }
 
@@ -302,6 +351,21 @@ const columnMeta = {
   font-size: 14px;
 }
 
+.board-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.board-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
+
 .create-btn {
   display: inline-flex;
   align-items: center;
@@ -326,6 +390,72 @@ const columnMeta = {
   gap: 14px;
   flex: 1;
   min-height: 0;
+}
+
+.board-insight {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  padding: 16px;
+}
+
+.insight-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.insight-head h3 {
+  margin: 0 0 4px;
+  font-size: 17px;
+}
+
+.insight-block {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.insight-block strong {
+  color: var(--text);
+}
+
+.insight-block span {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--tag-color) 28%, var(--border));
+  background: color-mix(in srgb, var(--tag-color) 12%, white);
+  color: color-mix(in srgb, var(--tag-color) 74%, #14303f);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.compact-empty {
+  min-height: 180px;
+  gap: 10px;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .column {
@@ -448,6 +578,14 @@ const columnMeta = {
 }
 
 @media (max-width: 960px) {
+  .board-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .board-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .columns {
     grid-template-columns: 1fr;
     grid-auto-rows: minmax(200px, 1fr);
@@ -466,6 +604,9 @@ const columnMeta = {
   }
   .board-head {
     align-items: center;
+  }
+  .board-metrics {
+    grid-template-columns: 1fr;
   }
   .board-title p {
     display: none;

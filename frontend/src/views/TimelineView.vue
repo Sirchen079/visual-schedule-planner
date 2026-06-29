@@ -101,11 +101,11 @@ function fmt(d) {
 </script>
 
 <template>
-  <div class="timeline">
+  <div class="timeline workspace-page">
     <div class="tl-head">
       <div class="tl-title">
         <h2 class="page-title">
-          <ArtIcon name="timeline" tone="sand" :size="36" tile label="时间轴" />
+          <ArtIcon name="timeline" tone="sand" :size="44" tile label="时间轴" />
           <span>时间轴</span>
         </h2>
         <p class="muted">查看任务跨度、并行关系和完成进度。</p>
@@ -114,6 +114,30 @@ function fmt(d) {
         <ArtIcon name="plus" tone="on-accent" :size="20" />
         <span>新建任务</span>
       </button>
+    </div>
+
+    <div class="timeline-metrics">
+      <article class="metric-tile">
+        <ArtIcon name="timeline" tone="sand" :size="34" tile label="跨度任务" />
+        <div>
+          <strong>{{ ranged.length }}</strong>
+          <span>跨度任务</span>
+        </div>
+      </article>
+      <article class="metric-tile">
+        <ArtIcon name="task" tone="aqua" :size="34" tile label="未排期" />
+        <div>
+          <strong>{{ unscheduled.length }}</strong>
+          <span>未排期</span>
+        </div>
+      </article>
+      <article class="metric-tile">
+        <ArtIcon name="calendar" tone="mint" :size="34" tile label="时间跨度" />
+        <div>
+          <strong>{{ totalDays }}</strong>
+          <span>覆盖天数</span>
+        </div>
+      </article>
     </div>
 
     <div class="legend card">
@@ -211,7 +235,7 @@ function fmt(d) {
   flex-direction: column;
   gap: 18px;
   height: 100%;
-  max-width: 1200px;
+  max-width: none;
   margin: 0 auto;
 }
 
@@ -236,6 +260,13 @@ function fmt(d) {
   font-size: 14px;
 }
 
+.timeline-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  flex-shrink: 0;
+}
+
 .create-btn {
   display: inline-flex;
   align-items: center;
@@ -254,11 +285,11 @@ function fmt(d) {
 }
 
 .legend {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
-  align-self: flex-start;
+  align-self: stretch;
   flex-wrap: wrap;
 }
 
@@ -504,6 +535,9 @@ function fmt(d) {
   }
   .legend {
     gap: 10px 14px;
+  }
+  .timeline-metrics {
+    grid-template-columns: 1fr;
   }
   .legend-sep {
     display: none;
