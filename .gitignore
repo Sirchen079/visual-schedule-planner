@@ -28,3 +28,18 @@ frontend/test-results/
 # Git worktrees for isolated feature work
 .worktrees/
 
+# 桌面打包产物（不入库）
+desktop/node_modules/
+desktop/release/
+desktop/build/backend-dist/
+desktop/build/*.png
+desktop/build/*.ico
+desktop/release-inno/
+desktop/tools/
+backend/dist/
+backend/build/
+
+# 测试与工具临时产物
+.pytest-tmp/
+.superpowers/
+

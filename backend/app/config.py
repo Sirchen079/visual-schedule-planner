@@ -1,6 +1,25 @@
+import os
+import sys
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _default_data_root() -> Path:
+    """数据目录根。
+
+    开发模式：相对当前工作目录的 data/（保持原行为）。
+    打包模式（PyInstaller frozen）：写入 %APPDATA%/知时/data，
+    避免安装目录（Program Files）不可写导致的数据丢失。
+    """
+    if getattr(sys, "frozen", False):
+        appdata = os.environ.get("APPDATA") or str(Path.home())
+        return Path(appdata) / "知时" / "data"
+    return Path("data")
+
+
+# 模块级求值一次；APP_DATABASE_DIR / APP_FILES_DIR 等环境变量仍可覆盖单个字段
+_DATA_ROOT = _default_data_root()
 
 
 class Settings(BaseSettings):
@@ -10,10 +29,10 @@ class Settings(BaseSettings):
         env_prefix="APP_", env_file=".env", extra="ignore"
     )
 
-    database_dir: Path = Path("data")
-    files_dir: Path = Path("data/files")
-    ai_attachments_dir: Path = Path("data/ai_attachments")
-    backup_dir: Path = Path("data/backup")
+    database_dir: Path = _DATA_ROOT
+    files_dir: Path = _DATA_ROOT / "files"
+    ai_attachments_dir: Path = _DATA_ROOT / "ai_attachments"
+    backup_dir: Path = _DATA_ROOT / "backup"
     host: str = "127.0.0.1"
     port: int = 18731
     # 数据安全感：自动备份保留份数、回收站保留天数、单文件上传上限

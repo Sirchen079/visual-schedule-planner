@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 import os
+import sys
 import threading
 
 from fastapi import FastAPI
@@ -79,24 +80,40 @@ def health():
     return {"status": "ok"}
 
 
+def graceful_exit():
+    """备份最新数据库、关闭连接确保 journal 落盘后退出进程。
+
+    供 /shutdown 路由与桌面应用（Electron）退出流程复用。
+    """
+    # 退出前再备一份最新数据库，并正常关闭连接确保 journal 落盘
+    try:
+        backup_service.backup_db()
+    except Exception:
+        # 备份失败不阻止退出
+        pass
+    engine.dispose()
+    os._exit(0)
+
+
 @app.post("/shutdown")
 def shutdown():
     """从网页端关闭本地服务。仅用于本地单机应用。"""
-    def _graceful_exit():
-        # 退出前再备一份最新数据库，并正常关闭连接确保 journal 落盘
-        try:
-            backup_service.backup_db()
-        except Exception:
-            # 备份失败不阻止退出
-            pass
-        engine.dispose()
-        os._exit(0)
-
-    threading.Timer(0.5, _graceful_exit).start()
+    threading.Timer(0.5, graceful_exit).start()
     return {"status": "shutting_down"}
 
 
+def _frontend_dir() -> Path:
+    """前端静态资源目录。
+
+    打包模式：PyInstaller 把 frontend/dist 解包到 sys._MEIPASS/frontend/dist。
+    开发模式：仓库根的 frontend/dist。
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS) / "frontend" / "dist"
+    return Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+
+
 # 生产托管前端：若已构建（frontend/dist），由后端单端口同时提供界面与 API
-FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+FRONTEND_DIR = _frontend_dir()
 if FRONTEND_DIR.exists():
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
