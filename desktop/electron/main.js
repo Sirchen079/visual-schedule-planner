@@ -1,7 +1,7 @@
 // 知时 桌面应用主进程
 // 职责：创建窗口、系统托盘、单实例锁、探测端口、以子进程守护后端。
-const { app, BrowserWindow, Tray, Menu, dialog } = require('electron')
-const { spawn } = require('child_process')
+const { app, BrowserWindow, Tray, Menu, dialog, ipcMain, screen, shell } = require('electron')
+const { spawn, execFile } = require('child_process')
 const path = require('path')
 const net = require('net')
 const http = require('http')
@@ -10,17 +10,26 @@ const APP_NAME = '知时'
 const PREFERRED_PORT = 18731
 
 let mainWindow = null
+let reminderWindow = null
 let tray = null
 let backend = null
 let isQuitting = false
 let activePort = PREFERRED_PORT
+
+// 开机自启：注册表启动命令带 --autostart，据此区分启动来源
+const isAutoStart = process.argv.includes('--autostart')
 
 // 单实例：第二个实例直接聚焦原窗口
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_e, commandLine) => {
+    // 第二实例若是开机自启触发（开机时已手动开着知时）：保持静默，弹小窗
+    if (commandLine.includes('--autostart')) {
+      if (!reminderWindow) createReminderWindow()
+      return
+    }
     if (mainWindow) {
       mainWindow.show()
       mainWindow.focus()
@@ -98,13 +107,19 @@ function createWindow() {
     title: APP_NAME,
     icon: path.join(__dirname, '..', 'build', 'icon.ico'),
     autoHideMenuBar: true,
+    // 开机自启：主窗口静默到托盘，仅留独立提醒小窗
+    show: !isAutoStart,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
   })
-  mainWindow.loadURL(`http://127.0.0.1:${activePort}/`)
+  const winParams = new URLSearchParams()
+  if (isAutoStart) winParams.set('autostart', '1')
+  if (app.isPackaged) winParams.set('packaged', '1')
+  const qs = winParams.toString()
+  mainWindow.loadURL(`http://127.0.0.1:${activePort}/${qs ? '?' + qs : ''}`)
   // 关闭按钮 → 最小化到托盘（真正退出走托盘菜单）
   mainWindow.on('close', (e) => {
     if (!isQuitting) {
@@ -127,6 +142,67 @@ function createTray() {
   tray.on('click', () => mainWindow.show())
 }
 
+// 独立提醒小窗：开机自启时承载 DDL 提醒（主窗口此时隐藏在托盘）
+function createReminderWindow() {
+  const { workArea } = screen.getPrimaryDisplay()
+  const w = 420
+  const h = 580
+  reminderWindow = new BrowserWindow({
+    width: w,
+    height: h,
+    x: workArea.x + workArea.width - w - 16,
+    y: workArea.y + workArea.height - h - 16,
+    frame: false,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    show: false,
+    icon: path.join(__dirname, '..', 'build', 'icon.ico'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+  const reminderParams = new URLSearchParams({ view: 'reminder' })
+  if (app.isPackaged) reminderParams.set('packaged', '1')
+  reminderWindow.loadURL(`http://127.0.0.1:${activePort}/?${reminderParams}`)
+  reminderWindow.on('closed', () => {
+    reminderWindow = null
+  })
+}
+
+// 小窗 → 主进程：显示自身 / 关闭自身 / 唤出主窗口
+ipcMain.on('reminder:show', () => {
+  if (reminderWindow) reminderWindow.showInactive()
+})
+ipcMain.on('reminder:close', () => {
+  if (reminderWindow) reminderWindow.close()
+})
+ipcMain.on('reminder:show-main', () => {
+  if (mainWindow) {
+    mainWindow.show()
+    mainWindow.focus()
+  }
+  if (reminderWindow) reminderWindow.close()
+})
+ipcMain.on('reminder:show-main-task', (_e, taskId) => {
+  if (mainWindow) {
+    mainWindow.show()
+    mainWindow.focus()
+    // 通知主窗口渲染进程打开对应任务（App.vue 的 onFocusTask 监听）
+    mainWindow.webContents.send('focus-task', taskId)
+  }
+  if (reminderWindow) reminderWindow.close()
+})
+
+// 外链：用系统默认浏览器打开，避免在 Electron 内开新窗口
+ipcMain.on('open-external', (_e, url) => {
+  shell.openExternal(url)
+})
+
 async function shutdownAndQuit() {
   if (isQuitting) return
   isQuitting = true
@@ -143,6 +219,56 @@ async function shutdownAndQuit() {
   }, 2000)
 }
 
+// 开机自启：自管 HKCU\Run 下的固定条目，键名用 ASCII 规避 getLoginItemSettings 在中文 exe
+// 路径下的读取误报。读写都直接操作注册表，注册表即唯一真相——即便应用外被禁用（如任务管理器
+// 关闭启动项），下次读取也能如实反映为关。开发模式拒绝：开发版 electron 路径会污染注册表，
+// 且开机启动到错误进程。
+const RUN_KEY = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
+const RUN_NAME = 'ZhiShi_AutoStart'
+
+function runPowerShell(script, env = {}) {
+  return new Promise((resolve) => {
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', script],
+      { windowsHide: true, maxBuffer: 1 << 20, env: { ...process.env, ...env } },
+      (_err, stdout) => resolve((stdout || '').trim())
+    )
+  })
+}
+
+// 仅判断固定键是否存在（不比较 exe 路径），稳定可靠
+async function readAutostart() {
+  const out = await runPowerShell(
+    `$p = Get-ItemProperty -Path '${RUN_KEY}' -Name '${RUN_NAME}' -ErrorAction SilentlyContinue; if ($null -ne $p -and $p.${RUN_NAME}) { 'on' } else { 'off' }`
+  )
+  return out === 'on'
+}
+
+// exe 路径经环境变量传入，避开命令行引号转义；值形如 "C:\...\知时.exe" --autostart
+async function writeAutostart(on) {
+  if (!on) {
+    await runPowerShell(
+      `Remove-ItemProperty -Path '${RUN_KEY}' -Name '${RUN_NAME}' -ErrorAction SilentlyContinue`
+    )
+    return
+  }
+  await runPowerShell(
+    `$v = '"' + $env:ZHISHI_EXE + '" --autostart'; New-ItemProperty -Path '${RUN_KEY}' -Name '${RUN_NAME}' -Value $v -PropertyType String -Force | Out-Null`,
+    { ZHISHI_EXE: app.getPath('exe') }
+  )
+}
+
+ipcMain.handle('login-item:get', async () => {
+  if (!app.isPackaged) return false
+  return await readAutostart()
+})
+ipcMain.handle('login-item:set', async (_e, openAtLogin) => {
+  if (!app.isPackaged) return false
+  await writeAutostart(openAtLogin)
+  return await readAutostart()
+})
+
 app.whenReady().then(async () => {
   activePort = await findFreePort(PREFERRED_PORT)
   startBackend(activePort)
@@ -155,6 +281,8 @@ app.whenReady().then(async () => {
   }
   createWindow()
   createTray()
+  // 开机自启：主窗口已静默到托盘，弹出独立提醒小窗
+  if (isAutoStart) createReminderWindow()
 })
 
 // 系统关机/登出前尽量走干净退出（备份 + 落盘）

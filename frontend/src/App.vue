@@ -13,12 +13,29 @@ import TrashView from './views/TrashView.vue'
 import TaskModal from './components/TaskModal.vue'
 import RemindersPanel from './components/RemindersPanel.vue'
 import ArtIcon from './components/ArtIcon.vue'
+import SettingsPanel from './components/SettingsPanel.vue'
+import StartupReminder from './components/StartupReminder.vue'
 
 const { tasks, loading, error, load, add, update, remove } = useTasks()
 const { upcoming, overdue, count, panelOpen, start: startReminders, refresh: refreshReminders } = useReminders()
+
+// 独立提醒小窗：?view=reminder 时只渲染提醒组件（frameless 小窗专用）
+// 开机自启主窗口：?autostart=1 时不挂载启动弹窗（提醒由独立小窗承载）
+const urlParams = new URLSearchParams(location.search)
+const isReminderWindow = urlParams.get('view') === 'reminder'
+const isAutoStartHost = urlParams.get('autostart') === '1'
+
 onMounted(() => {
+  // 小窗专用窗口：不加载主界面数据、不启动轮询/通知
+  if (isReminderWindow) return
   load()
-  // 请求通知权限并启动运行时轮询提醒（仅程序运行时生效）
+  // 主窗口：接收小窗「去处理」传来的 taskId，打开对应任务编辑
+  window.electronAPI?.onFocusTask?.((taskId) => {
+    const t = tasks.value.find((x) => x.id === taskId)
+    if (t) openEdit(t)
+  })
+  // 开机自启的主窗口：提醒已由独立小窗承载，跳过通知轮询避免重复弹窗
+  if (isAutoStartHost) return
   if (window.Notification && Notification.permission === 'default') {
     Notification.requestPermission().catch(() => {})
   }
@@ -37,6 +54,7 @@ const tabs = [
 
 const theme = ref(localStorage.getItem('theme') || 'light')
 const shuttingDown = ref(false)
+const settingsOpen = ref(false)
 function applyTheme() {
   document.documentElement.setAttribute('data-theme', theme.value)
   localStorage.setItem('theme', theme.value)
@@ -84,7 +102,11 @@ async function onStatusChange(task, status) {
 }
 
 async function shutdownService() {
-  if (!confirm('确定关闭本地服务吗？关闭后网页会停止响应；下次双击 start.bat 可重新启动。')) return
+  // 桌面应用关闭即退出程序；web 模式才是停服务、靠 start.bat 重启
+  const msg = window.electronAPI?.isDesktop
+    ? '确定关闭知时吗？将退出程序并保存当前数据；下次可从开始菜单或桌面快捷方式重新打开。'
+    : '确定关闭本地服务吗？关闭后网页会停止响应；下次双击 start.bat 可重新启动。'
+  if (!confirm(msg)) return
   shuttingDown.value = true
   try {
     await fetch('/shutdown', { method: 'POST' })
@@ -116,11 +138,12 @@ async function undoDelete() {
 </script>
 
 <template>
-  <div class="app">
+  <StartupReminder v-if="isReminderWindow" host-window />
+  <div v-else class="app">
     <header class="topbar">
       <div class="brand">
-        <ArtIcon name="brand" tone="aqua" :size="38" tile label="可视化日程" />
-        <span class="brand-text">可视化日程</span>
+        <ArtIcon name="brand" tone="aqua" :size="38" tile label="知时" />
+        <span class="brand-text">知时</span>
       </div>
 
       <nav class="tabs">
@@ -158,6 +181,9 @@ async function undoDelete() {
             :size="20"
             :label="theme === 'light' ? '切换深色' : '切换浅色'"
           />
+        </button>
+        <button class="ghost settings" @click="settingsOpen = true" title="设置">
+          <span>设置</span>
         </button>
         <button class="ghost shutdown" :disabled="shuttingDown" @click="shutdownService">
           <span>{{ shuttingDown ? '正在关闭…' : '关闭服务' }}</span>
@@ -208,6 +234,10 @@ async function undoDelete() {
       @open="(t) => { panelOpen = false; openEdit(t) }"
       @close="panelOpen = false"
     />
+
+    <SettingsPanel v-if="settingsOpen" @close="settingsOpen = false" />
+
+    <StartupReminder v-if="!isAutoStartHost" @open="openEdit" />
 
     <Transition name="toast">
       <div v-if="toast" class="toast">
@@ -355,6 +385,12 @@ async function undoDelete() {
   box-shadow: 0 2px 6px rgba(242, 107, 122, 0.5);
 }
 .shutdown {
+  color: var(--text-soft);
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.settings {
   color: var(--text-soft);
   white-space: nowrap;
   font-weight: 500;

@@ -67,7 +67,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="可视化日程安排", lifespan=lifespan)
+app = FastAPI(title="知时", lifespan=lifespan)
 app.include_router(tasks.router)
 app.include_router(files.router)
 app.include_router(reminders.router)

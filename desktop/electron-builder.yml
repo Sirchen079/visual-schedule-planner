@@ -1,6 +1,6 @@
 appId: com.zhishi.desktop
 productName: 知时
-copyright: Copyright © 2026
+copyright: Copyright © 2026 Sirchen079
 directories:
   output: release
 # 进入 app.asar 的文件（Electron 主进程代码）
