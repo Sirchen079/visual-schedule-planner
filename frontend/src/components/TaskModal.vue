@@ -114,27 +114,29 @@ async function removeSub(s) {
         </h3>
         <p v-if="fileError" class="muted error-text">{{ fileError }}</p>
         <div v-if="!task.files?.length" class="muted empty-text">还没有关联资料。</div>
-        <div class="file-row" v-for="file in task.files" :key="file.id">
-          <a :href="fileHref(file)" target="_blank" rel="noopener noreferrer" :title="file.original_name">
-            <ArtIcon
-              class="file-art compact"
-              :name="fileIcon(file).name"
-              :tone="fileIcon(file).tone"
-              :label-text="fileIcon(file).labelText"
-              :label="fileIcon(file).labelText + ' 资料'"
-              :size="40"
-              tile
-            />
-            <span class="file-copy">
-              <span class="file-name">{{ file.original_name }}</span>
-              <span class="file-subtitle">{{ fileSubtitle(file) }}</span>
-            </span>
-          </a>
-          <button class="ghost icon-text-btn" @click="doDetach(file)">
-            <ArtIcon name="close" tone="pearl" :size="16" />
-            <span>移除</span>
-          </button>
-        </div>
+        <TransitionGroup name="list" tag="div">
+          <div class="file-row" v-for="file in task.files" :key="file.id">
+            <a :href="fileHref(file)" target="_blank" rel="noopener noreferrer" :title="file.original_name">
+              <ArtIcon
+                class="file-art compact"
+                :name="fileIcon(file).name"
+                :tone="fileIcon(file).tone"
+                :label-text="fileIcon(file).labelText"
+                :label="fileIcon(file).labelText + ' 资料'"
+                :size="40"
+                tile
+              />
+              <span class="file-copy">
+                <span class="file-name">{{ file.original_name }}</span>
+                <span class="file-subtitle">{{ fileSubtitle(file) }}</span>
+              </span>
+            </a>
+            <button class="ghost icon-text-btn" @click="doDetach(file)">
+              <ArtIcon name="close" tone="pearl" :size="16" />
+              <span>移除</span>
+            </button>
+          </div>
+        </TransitionGroup>
         <div class="attach-row" v-if="attachableFiles.length">
           <select v-model="selectedFileId">
             <option value="">选择资料库文件…</option>
@@ -163,15 +165,17 @@ async function removeSub(s) {
           </span>
         </div>
         <div v-if="!subtasks.length" class="muted empty-text">还没有子任务，拆成小步更容易推进。</div>
-        <div class="subtask-row" :class="{ done: s.done }" v-for="s in subtasks" :key="s.id">
-          <label class="sub-check">
-            <input type="checkbox" :checked="s.done" @change="toggleSub(s)" />
-            <span :class="{ done: s.done }">{{ s.title }}</span>
-          </label>
-          <button class="ghost sub-del" @click="removeSub(s)">
-            <ArtIcon name="close" tone="pearl" :size="16" label="删除子任务" />
-          </button>
-        </div>
+        <TransitionGroup name="list" tag="div">
+          <div class="subtask-row" :class="{ done: s.done }" v-for="s in subtasks" :key="s.id">
+            <label class="sub-check">
+              <input type="checkbox" :checked="s.done" @change="toggleSub(s)" />
+              <span :class="{ done: s.done }">{{ s.title }}</span>
+            </label>
+            <button class="ghost sub-del" @click="removeSub(s)">
+              <ArtIcon name="close" tone="pearl" :size="16" label="删除子任务" />
+            </button>
+          </div>
+        </TransitionGroup>
         <div class="sub-add">
           <input v-model="newSub" placeholder="添加子任务，回车确认" @keydown.enter.prevent="addSub" />
           <button type="button" @click="addSub">
@@ -217,20 +221,8 @@ async function removeSub(s) {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  animation: modal-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
   position: relative;
   padding: 22px;
-}
-
-@keyframes modal-in {
-  from {
-    opacity: 0;
-    transform: translateY(24px) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
 }
 
 .modal-head {

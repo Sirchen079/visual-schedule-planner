@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, provide, ref } from 'vue'
 import { useTasks } from './composables/useTasks'
 import { useReminders } from './composables/useReminders'
 import { restoreTask } from './api/tasks'
@@ -13,6 +13,7 @@ import TrashView from './views/TrashView.vue'
 import TaskModal from './components/TaskModal.vue'
 import RemindersPanel from './components/RemindersPanel.vue'
 import ArtIcon from './components/ArtIcon.vue'
+import ConfirmDialog from './components/ConfirmDialog.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import StartupReminder from './components/StartupReminder.vue'
 
@@ -55,6 +56,41 @@ const tabs = [
 const theme = ref(localStorage.getItem('theme') || 'light')
 const shuttingDown = ref(false)
 const settingsOpen = ref(false)
+
+// 应用内确认对话框（替代原生 confirm）：由 App 顶层 provide，任意后代 inject 调用，
+// 返回 Promise<boolean>。支持 danger 样式与 Enter/Esc 键盘操作。
+const confirmState = ref({
+  open: false,
+  title: '请确认',
+  message: '',
+  confirmText: '确定',
+  cancelText: '取消',
+  danger: false,
+})
+let confirmResolver = null
+function confirmDialog(options) {
+  return new Promise((resolve) => {
+    confirmResolver = resolve
+    confirmState.value = {
+      open: true,
+      title: '请确认',
+      message: '',
+      confirmText: '确定',
+      cancelText: '取消',
+      danger: false,
+      ...options,
+    }
+  })
+}
+function resolveConfirmDialog(value) {
+  confirmState.value.open = false
+  if (confirmResolver) {
+    confirmResolver(value)
+    confirmResolver = null
+  }
+}
+provide('confirm-dialog', confirmDialog)
+
 function applyTheme() {
   document.documentElement.setAttribute('data-theme', theme.value)
   localStorage.setItem('theme', theme.value)
@@ -89,7 +125,12 @@ async function onSave(payload) {
   closeModal()
 }
 async function onDelete(t) {
-  if (!confirm(`将「${t.title}」移入回收站？（可在回收站恢复）`)) return
+  const ok = await confirmDialog({
+    title: '移入回收站',
+    message: `「${t.title}」将移入回收站，可在回收站恢复。`,
+    confirmText: '移入回收站',
+  })
+  if (!ok) return
   await remove(t.id)
   closeModal()
   showToast(`已将「${t.title}」移入回收站`, async () => {
@@ -102,11 +143,16 @@ async function onStatusChange(task, status) {
 }
 
 async function shutdownService() {
-  // 桌面应用关闭即退出程序；web 模式才是停服务、靠 start.bat 重启
-  const msg = window.electronAPI?.isDesktop
-    ? '确定关闭知时吗？将退出程序并保存当前数据；下次可从开始菜单或桌面快捷方式重新打开。'
-    : '确定关闭本地服务吗？关闭后网页会停止响应；下次双击 start.bat 可重新启动。'
-  if (!confirm(msg)) return
+  const isDesktop = !!window.electronAPI?.isDesktop
+  const ok = await confirmDialog({
+    title: isDesktop ? '关闭知时' : '关闭本地服务',
+    message: isDesktop
+      ? '将退出程序并保存当前数据；下次可从开始菜单或桌面快捷方式重新打开。'
+      : '关闭后网页会停止响应；下次双击 start.bat 可重新启动。',
+    confirmText: '关闭',
+    danger: true,
+  })
+  if (!ok) return
   shuttingDown.value = true
   try {
     await fetch('/shutdown', { method: 'POST' })
@@ -218,24 +264,41 @@ async function undoDelete() {
 
     <AssistantView @changed="load" />
 
-    <TaskModal
-      v-if="modalOpen"
-      :task="editing"
-      @save="onSave"
-      @delete="onDelete"
-      @changed="load"
-      @close="closeModal"
-    />
+    <Transition name="pop">
+      <TaskModal
+        v-if="modalOpen"
+        :task="editing"
+        @save="onSave"
+        @delete="onDelete"
+        @changed="load"
+        @close="closeModal"
+      />
+    </Transition>
 
-    <RemindersPanel
-      v-if="panelOpen"
-      :upcoming="upcoming"
-      :overdue="overdue"
-      @open="(t) => { panelOpen = false; openEdit(t) }"
-      @close="panelOpen = false"
-    />
+    <Transition name="pop">
+      <RemindersPanel
+        v-if="panelOpen"
+        :upcoming="upcoming"
+        :overdue="overdue"
+        @open="(t) => { panelOpen = false; openEdit(t) }"
+        @close="panelOpen = false"
+      />
+    </Transition>
 
-    <SettingsPanel v-if="settingsOpen" @close="settingsOpen = false" />
+    <Transition name="pop">
+      <SettingsPanel v-if="settingsOpen" @close="settingsOpen = false" />
+    </Transition>
+
+    <ConfirmDialog
+      :open="confirmState.open"
+      :title="confirmState.title"
+      :message="confirmState.message"
+      :confirm-text="confirmState.confirmText"
+      :cancel-text="confirmState.cancelText"
+      :danger="confirmState.danger"
+      @confirm="resolveConfirmDialog(true)"
+      @cancel="resolveConfirmDialog(false)"
+    />
 
     <StartupReminder v-if="!isAutoStartHost" @open="openEdit" />
 

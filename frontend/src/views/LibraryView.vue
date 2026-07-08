@@ -1,7 +1,10 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, inject, onMounted, ref } from 'vue'
 import { deleteFile, getContentUrl, listFiles, uploadFile } from '../api/files'
 import ArtIcon from '../components/ArtIcon.vue'
+
+// 应用内确认对话框（App.vue provide）；提供降级以防组件树外调用
+const confirmDialog = inject('confirm-dialog', (o) => Promise.resolve(window.confirm(o.message || '')))
 
 const files = ref([])
 const q = ref('')
@@ -79,7 +82,12 @@ async function uploadMany(fileList) {
 }
 
 async function remove(file) {
-  if (!confirm(`将「${file.original_name}」移入回收站？（可在回收站恢复）`)) return
+  const ok = await confirmDialog({
+    title: '移入回收站',
+    message: `「${file.original_name}」将移入回收站，可在回收站恢复。`,
+    confirmText: '移入回收站',
+  })
+  if (!ok) return
   await deleteFile(file.id)
   await load()
 }
@@ -211,16 +219,18 @@ onMounted(load)
       </div>
     </div>
 
-    <div v-if="preview" class="overlay" @click.self="preview = null">
-      <div class="preview-modal card">
-        <div class="modal-head">
-          <span class="preview-name" :title="preview.original_name">{{ preview.original_name }}</span>
-          <button class="ghost" @click="preview = null">关闭</button>
+    <Transition name="pop">
+      <div v-if="preview" class="overlay" @click.self="preview = null">
+        <div class="preview-modal card">
+          <div class="modal-head">
+            <span class="preview-name" :title="preview.original_name">{{ preview.original_name }}</span>
+            <button class="ghost" @click="preview = null">关闭</button>
+          </div>
+          <img v-if="isImage(preview)" :src="getContentUrl(preview.id)" />
+          <iframe v-else :src="getContentUrl(preview.id)"></iframe>
         </div>
-        <img v-if="isImage(preview)" :src="getContentUrl(preview.id)" />
-        <iframe v-else :src="getContentUrl(preview.id)"></iframe>
       </div>
-    </div>
+    </Transition>
   </div>
 </template>
 

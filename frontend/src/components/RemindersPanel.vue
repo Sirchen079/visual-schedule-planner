@@ -89,12 +89,6 @@ function fmt(d) {
   align-items: flex-start;
   justify-content: flex-end;
   padding: 82px 24px 24px;
-  animation: overlay-in 0.25s ease;
-}
-
-@keyframes overlay-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 .panel {
@@ -109,19 +103,7 @@ function fmt(d) {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   padding: 22px;
-  animation: panel-in 0.22s ease-out;
   position: relative;
-}
-
-@keyframes panel-in {
-  from {
-    opacity: 0;
-    transform: translateX(30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
 }
 
 .head {

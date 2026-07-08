@@ -140,11 +140,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   align-items: center;
   justify-content: center;
   padding: 24px;
-  animation: overlay-in 0.25s ease;
-}
-@keyframes overlay-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 .panel {
@@ -157,11 +152,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   padding: 22px;
-  animation: panel-in 0.22s ease-out;
-}
-@keyframes panel-in {
-  from { opacity: 0; transform: translateY(12px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .head {

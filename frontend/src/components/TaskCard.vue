@@ -102,6 +102,10 @@ const subPct = computed(() => {
   box-shadow: var(--shadow-sm), var(--shadow-inset);
 }
 
+.task-card:active {
+  transform: scale(0.99);
+}
+
 .card-glow {
   position: absolute;
   top: 0;

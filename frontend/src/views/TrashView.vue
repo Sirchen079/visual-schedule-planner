@@ -1,10 +1,12 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, inject, onMounted, ref } from 'vue'
 import { listTrash, purgeTask, restoreTask } from '../api/tasks'
 import { listTrashFiles, purgeFile, restoreFile } from '../api/files'
 import ArtIcon from '../components/ArtIcon.vue'
 
 const emit = defineEmits(['changed'])
+// 应用内确认对话框（App.vue provide）；提供降级以防组件树外调用
+const confirmDialog = inject('confirm-dialog', (o) => Promise.resolve(window.confirm(o.message || '')))
 
 const tasks = ref([])
 const files = ref([])
@@ -42,7 +44,13 @@ async function restoreTaskItem(t) {
   emit('changed')
 }
 async function purgeTaskItem(t) {
-  if (!confirm(`彻底删除「${t.title}」？此操作不可恢复。`)) return
+  const ok = await confirmDialog({
+    title: '彻底删除任务',
+    message: `「${t.title}」将被永久删除，此操作不可恢复。`,
+    confirmText: '彻底删除',
+    danger: true,
+  })
+  if (!ok) return
   await purgeTask(t.id)
   tasks.value = tasks.value.filter((x) => x.id !== t.id)
 }
@@ -52,7 +60,13 @@ async function restoreFileItem(f) {
   emit('changed')
 }
 async function purgeFileItem(f) {
-  if (!confirm(`彻底删除「${f.original_name}」？磁盘文件也会被删除，不可恢复。`)) return
+  const ok = await confirmDialog({
+    title: '彻底删除文件',
+    message: `「${f.original_name}」及其磁盘文件将被永久删除，不可恢复。`,
+    confirmText: '彻底删除',
+    danger: true,
+  })
+  if (!ok) return
   await purgeFile(f.id)
   files.value = files.value.filter((x) => x.id !== f.id)
 }
