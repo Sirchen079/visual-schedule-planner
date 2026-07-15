@@ -7,6 +7,7 @@ import BoardView from './views/BoardView.vue'
 import OverviewView from './views/OverviewView.vue'
 import LibraryView from './views/LibraryView.vue'
 import AssistantView from './views/AssistantView.vue'
+import ReportView from './views/ReportView.vue'
 import AssistantFloat from './views/AssistantFloat.vue'
 import CalendarView from './views/CalendarView.vue'
 import TimelineView from './views/TimelineView.vue'
@@ -81,6 +82,7 @@ const tabs = [
   { key: 'calendar', label: '日历', icon: 'calendar' },
   { key: 'timeline', label: '时间轴', icon: 'timeline' },
   { key: 'library', label: '资料库', icon: 'library' },
+  { key: 'report', label: '日报周报', icon: 'archive' },
   { key: 'trash', label: '回收站', icon: 'trash' },
 ]
 
@@ -289,6 +291,7 @@ async function undoDelete() {
         <OverviewView v-else-if="view === 'overview'" :tasks="tasks" @open="openEdit" />
         <CalendarView v-else-if="view === 'calendar'" :tasks="tasks" @open="openEdit" @create="openCreate" />
         <TimelineView v-else-if="view === 'timeline'" :tasks="tasks" @open="openEdit" @create="openCreate" />
+        <ReportView v-else-if="view === 'report'" @changed="load" />
         <TrashView v-else-if="view === 'trash'" @changed="load" />
         <LibraryView v-else />
       </Transition>

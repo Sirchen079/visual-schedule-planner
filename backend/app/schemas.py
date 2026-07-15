@@ -352,3 +352,25 @@ class AppSettingsBatch(BaseModel):
     """批量更新应用设置：{"settings": {"assistant_float_enabled": "true"}}"""
 
     settings: dict[str, str] = Field(default_factory=dict)
+
+
+# ---- AI 日报/周报 ----
+ReportType = Literal["daily", "weekly"]
+
+
+class AIReportGenerateRequest(BaseModel):
+    report_type: ReportType
+    target_date: Optional[date_type] = None  # 默认今天；weekly 取所在周
+
+
+class AIReportResponse(BaseModel):
+    id: int
+    report_type: ReportType
+    period_start: date_type
+    period_end: date_type
+    title: str
+    content: str
+    model_name: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

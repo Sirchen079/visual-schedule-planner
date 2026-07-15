@@ -25,6 +25,8 @@ from app.schemas import (
     AIModelsRequest,
     AIModelsResponse,
     AIPendingActionResponse,
+    AIReportGenerateRequest,
+    AIReportResponse,
     AISkillCreate,
     AISkillImport,
     AISkillResponse,
@@ -37,6 +39,7 @@ from app.services import (
     ai_config_service,
     ai_harness_service,
     ai_prompt_service,
+    ai_report_service,
     ai_skill_service,
     ai_tool_service,
 )
@@ -750,3 +753,42 @@ async def chat(payload: AIChatRequest, db: Session = Depends(get_db)):
             pending_action_response(db, action) for action in pending
         ],
     )
+
+
+# ---- AI 日报/周报 ----
+@router.post("/reports/generate", response_model=AIReportResponse)
+async def generate_report(
+    payload: AIReportGenerateRequest, db: Session = Depends(get_db)
+):
+    config = ai_config_service.get_enabled_config(db)
+    if config is None:
+        raise HTTPException(status_code=400, detail="未启用 AI 配置")
+    try:
+        return await ai_report_service.generate_report(
+            db, config, payload.report_type, payload.target_date
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail=provider_failure_detail("生成报告", exc)
+        ) from exc
+
+
+@router.get("/reports", response_model=list[AIReportResponse])
+def list_reports(
+    report_type: str | None = Query(default=None), db: Session = Depends(get_db)
+):
+    return ai_report_service.list_reports(db, report_type)
+
+
+@router.get("/reports/{report_id}", response_model=AIReportResponse)
+def get_report(report_id: int, db: Session = Depends(get_db)):
+    report = ai_report_service.get_report(db, report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="报告不存在")
+    return report
+
+
+@router.delete("/reports/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_report(report_id: int, db: Session = Depends(get_db)):
+    if not ai_report_service.delete_report(db, report_id):
+        raise HTTPException(status_code=404, detail="报告不存在")

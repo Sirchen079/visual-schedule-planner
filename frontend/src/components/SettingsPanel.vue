@@ -19,6 +19,10 @@ const desktopSupported = isDesktop
 const openAtLogin = ref(false)
 const floatEnabled = ref(false)
 const closeBehavior = ref('minimize') // minimize | quit | ask
+// AI 日报周报个性化设置（后端应用设置，带默认值兜底）
+const reportTaskLimit = ref(50)
+const reportTimeout = ref(180)
+const reportHistoryFilter = ref(true)
 const loading = ref(true)
 const saved = ref(false)
 let savedTimer = null
@@ -45,6 +49,9 @@ onMounted(async () => {
       .then((s) => {
         floatEnabled.value = s.assistant_float_enabled === 'true'
         closeBehavior.value = s.close_button_behavior || 'minimize'
+        reportTaskLimit.value = Number(s.report_task_limit ?? 50) || 50
+        reportTimeout.value = Number(s.report_timeout_seconds ?? 180) || 180
+        reportHistoryFilter.value = s.report_history_filter !== 'false'
       })
       .catch(() => {})
   )
@@ -96,6 +103,34 @@ async function selectCloseBehavior(value) {
     flashSaved()
   } catch {
     closeBehavior.value = prev
+  }
+}
+
+// AI 报告设置：数值项失焦时提交并夹紧到合法区间，开关即时提交
+async function saveReportNumber(key, refObj, min) {
+  const v = Math.max(min, Number(refObj.value) || min)
+  refObj.value = v
+  try {
+    await updateSettings({ [key]: String(v) })
+    flashSaved()
+  } catch {
+    /* 保存失败静默，下次打开重新读取 */
+  }
+}
+function changeReportTaskLimit() {
+  return saveReportNumber('report_task_limit', reportTaskLimit, 1)
+}
+function changeReportTimeout() {
+  return saveReportNumber('report_timeout_seconds', reportTimeout, 10)
+}
+async function toggleReportHistoryFilter() {
+  const next = !reportHistoryFilter.value
+  reportHistoryFilter.value = next
+  try {
+    await updateSettings({ report_history_filter: next ? 'true' : 'false' })
+    flashSaved()
+  } catch {
+    reportHistoryFilter.value = !next
   }
 }
 
@@ -204,6 +239,51 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         </div>
       </section>
 
+      <section class="row col-row report-group">
+        <div class="group-title">AI 日报周报</div>
+        <div class="sub-row">
+          <div class="row-main">
+            <div class="row-title">每类任务上限</div>
+            <div class="row-desc">报告里每一类（已完成/进行中/逾期等）最多展示的任务条数，超出部分会折叠，避免内容过长</div>
+          </div>
+          <input
+            class="num-input"
+            type="number"
+            min="1"
+            v-model.number="reportTaskLimit"
+            @change="changeReportTaskLimit"
+          />
+        </div>
+        <div class="sub-row">
+          <div class="row-main">
+            <div class="row-title">生成超时（秒）</div>
+            <div class="row-desc">调用模型生成报告的最长等待时间，超时会提示重试</div>
+          </div>
+          <input
+            class="num-input"
+            type="number"
+            min="10"
+            v-model.number="reportTimeout"
+            @change="changeReportTimeout"
+          />
+        </div>
+        <div class="sub-row">
+          <div class="row-main">
+            <div class="row-title">历史按类型过滤</div>
+            <div class="row-desc">开启后，日报/周报的历史列表只显示当前选中类型的报告</div>
+          </div>
+          <button
+            class="switch"
+            role="switch"
+            :aria-checked="reportHistoryFilter ? 'true' : 'false'"
+            :class="{ on: reportHistoryFilter }"
+            @click="toggleReportHistoryFilter"
+          >
+            <span class="knob"></span>
+          </button>
+        </div>
+      </section>
+
       <section
         class="row project-row"
         role="link"
@@ -241,6 +321,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .panel {
   width: 420px;
   max-width: 92vw;
+  max-height: 90vh;
+  overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -300,6 +382,37 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   flex-direction: column;
   align-items: stretch;
   gap: 12px;
+}
+.report-group {
+  gap: 10px;
+}
+.group-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--accent-strong);
+  letter-spacing: 0.5px;
+}
+.sub-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.num-input {
+  width: 72px;
+  padding: 7px 8px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 650;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  box-shadow: var(--shadow-inset);
+}
+.num-input:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 .row-main {
   min-width: 0;

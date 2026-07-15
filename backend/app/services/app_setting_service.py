@@ -9,6 +9,10 @@ from app.models import AppSetting
 DEFAULTS: dict[str, str] = {
     "assistant_float_enabled": "false",
     "close_button_behavior": "minimize",
+    # AI 日报/周报：每桶任务上限、生成超时（秒）、历史是否按类型过滤
+    "report_task_limit": "50",
+    "report_timeout_seconds": "180",
+    "report_history_filter": "true",
 }
 
 

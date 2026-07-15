@@ -192,3 +192,27 @@ export function executeAiAction(id, confirmToken) {
     body: JSON.stringify({ confirm_token: confirmToken }),
   })
 }
+
+// ---- AI 日报/周报 ----
+const DEFAULT_REPORT_TIMEOUT_MS = 180000
+
+export function generateReport(payload, timeoutMs = DEFAULT_REPORT_TIMEOUT_MS) {
+  return request(`${BASE}/reports/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }, timeoutMs)
+}
+
+export function listReports(reportType) {
+  const qs = reportType ? `?report_type=${encodeURIComponent(reportType)}` : ''
+  return request(`${BASE}/reports${qs}`)
+}
+
+export function getReport(id) {
+  return request(`${BASE}/reports/${id}`)
+}
+
+export function deleteReport(id) {
+  return request(`${BASE}/reports/${id}`, { method: 'DELETE' })
+}
