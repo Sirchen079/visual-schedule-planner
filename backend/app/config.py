@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import sys
 from pathlib import Path
@@ -5,21 +7,47 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-def _default_data_root() -> Path:
-    """数据目录根。
+def _find_portable_root() -> Path | None:
+    """定位便携安装根目录（含 知时.exe 的目录）。
 
-    开发模式：相对当前工作目录的 data/（保持原行为）。
-    打包模式（PyInstaller frozen）：写入 %APPDATA%/知时/data，
-    避免安装目录（Program Files）不可写导致的数据丢失。
+    打包后后端 exe 位于 <安装根>/resources/zhishi-backend/，从 exe 向上查找
+    包含 知时.exe 的目录，即可靠地定位安装根，不依赖固定的目录层级。
+    仅在打包模式下生效；开发模式返回 None。
     """
+    if not getattr(sys, "frozen", False):
+        return None
+    exe_dir = Path(sys.executable).resolve().parent
+    for candidate in [exe_dir, *exe_dir.parents]:
+        if (candidate / "知时.exe").exists():
+            return candidate
+    return None
+
+
+def _resolve_data_root() -> Path:
+    """数据目录根，优先级从高到低：
+
+    1. 环境变量 ZHISHI_DATA_DIR（Electron 主进程拉起后端时显式传入，最可靠）；
+    2. 打包便携模式：<安装根>/data（数据跟随软件，避开 C 盘 AppData 被塞爆）；
+    3. 打包回退：%APPDATA%/知时/data（旧版兼容 / 后端被独立拉起时）；
+    4. 开发模式：相对当前工作目录的 data/。
+    """
+    env_root = os.environ.get("ZHISHI_DATA_DIR")
+    if env_root:
+        return Path(env_root)
     if getattr(sys, "frozen", False):
+        portable = _find_portable_root()
+        # 仅当便携位置已有数据库时才采用：避免后端被独立运行（无 ZHISHI_DATA_DIR）
+        # 时在安装目录新建空库，进而阻止 Electron 迁移、孤立用户历史数据。
+        # 同时也消解 _find_portable_root 命中祖先残留 知时.exe 的风险——错误根下不会有 app.db。
+        if portable is not None and (portable / "data" / "app.db").exists():
+            return portable / "data"
         appdata = os.environ.get("APPDATA") or str(Path.home())
         return Path(appdata) / "知时" / "data"
     return Path("data")
 
 
 # 模块级求值一次；APP_DATABASE_DIR / APP_FILES_DIR 等环境变量仍可覆盖单个字段
-_DATA_ROOT = _default_data_root()
+_DATA_ROOT = _resolve_data_root()
 
 
 class Settings(BaseSettings):

@@ -1,39 +1,60 @@
 <script setup>
-// 设置面板：当前仅含「开机自启」开关。桌面环境经 IPC 读写注册表；
-// 浏览器访问时开关禁用并提示仅在桌面应用内可用。
+// 设置面板：开机自启（注册表）、知时助手悬浮窗、关闭按钮行为（后端应用设置）。
+// 桌面环境经 IPC 读写；浏览器访问时桌面相关项禁用并提示仅在桌面应用内可用。
 import { onMounted, onBeforeUnmount, ref } from 'vue'
 import ArtIcon from './ArtIcon.vue'
+import { getSettings, updateSettings } from '../api/settings'
 
 const emit = defineEmits(['close'])
 
 const api = window.electronAPI
 const isDesktop = !!api?.isDesktop
-// isPackaged 由主进程经 URL ?packaged=1 传入（sandbox 下 preload 无法读取 app.isPackaged）
 const isPackaged = new URLSearchParams(location.search).get('packaged') === '1'
 const isWin = api?.platform === 'win32'
 // 仅安装版 Windows 支持真实开机自启；开发模式会污染注册表，浏览器/其他平台不可用
-const supported = isDesktop && isPackaged && isWin
+const autostartSupported = isDesktop && isPackaged && isWin
+// 悬浮窗与关闭行为在桌面应用内有效（含开发模式 npm start）；浏览器访问时禁用
+const desktopSupported = isDesktop
+
 const openAtLogin = ref(false)
+const floatEnabled = ref(false)
+const closeBehavior = ref('minimize') // minimize | quit | ask
 const loading = ref(true)
 const saved = ref(false)
 let savedTimer = null
 
+const CLOSE_OPTIONS = [
+  { value: 'minimize', label: '最小化到托盘' },
+  { value: 'quit', label: '退出知时' },
+  { value: 'ask', label: '每次询问' },
+]
+
 onMounted(async () => {
-  if (!supported) {
-    loading.value = false
-    return
+  // 并行读取：开机自启（注册表）+ 应用设置（后端）
+  const jobs = []
+  if (autostartSupported) {
+    jobs.push(
+      window.electronAPI
+        .getLoginItemSettings()
+        .then((v) => { openAtLogin.value = v })
+        .catch(() => {})
+    )
   }
-  try {
-    openAtLogin.value = await window.electronAPI.getLoginItemSettings()
-  } catch {
-    // 读取失败按关闭处理，不阻断面板使用
-  }
+  jobs.push(
+    getSettings()
+      .then((s) => {
+        floatEnabled.value = s.assistant_float_enabled === 'true'
+        closeBehavior.value = s.close_button_behavior || 'minimize'
+      })
+      .catch(() => {})
+  )
+  await Promise.all(jobs)
   loading.value = false
 })
 onBeforeUnmount(() => clearTimeout(savedTimer))
 
-async function toggle() {
-  if (loading.value || !supported) return
+async function toggleAutostart() {
+  if (loading.value || !autostartSupported) return
   loading.value = true
   const next = !openAtLogin.value
   openAtLogin.value = next // 乐观更新
@@ -46,6 +67,35 @@ async function toggle() {
     openAtLogin.value = !next // 写失败回滚
   } finally {
     loading.value = false
+  }
+}
+
+async function toggleFloat() {
+  if (loading.value || !desktopSupported) return
+  const next = !floatEnabled.value
+  floatEnabled.value = next
+  const payload = { assistant_float_enabled: next ? 'true' : 'false' }
+  try {
+    await updateSettings(payload)
+    // 通知主进程更新内存缓存并即时生效（preload 尚未提供时安全跳过）
+    window.electronAPI?.notifySettingsChanged?.(payload)
+    flashSaved()
+  } catch {
+    floatEnabled.value = !next
+  }
+}
+
+async function selectCloseBehavior(value) {
+  if (loading.value || !desktopSupported || value === closeBehavior.value) return
+  const prev = closeBehavior.value
+  closeBehavior.value = value
+  const payload = { close_button_behavior: value }
+  try {
+    await updateSettings(payload)
+    window.electronAPI?.notifySettingsChanged?.(payload)
+    flashSaved()
+  } catch {
+    closeBehavior.value = prev
   }
 }
 
@@ -77,13 +127,18 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           <ArtIcon name="assistant" tone="aqua" :size="28" tile label="设置" />
           <span>设置</span>
         </div>
-        <button class="ghost close-btn" @click="emit('close')">
-          <ArtIcon name="close" tone="pearl" :size="18" />
-          <span>关闭</span>
-        </button>
+        <div class="head-right">
+          <Transition name="fade">
+            <span v-if="saved" class="saved-hint">已保存</span>
+          </Transition>
+          <button class="ghost close-btn" @click="emit('close')">
+            <ArtIcon name="close" tone="pearl" :size="18" />
+            <span>关闭</span>
+          </button>
+        </div>
       </div>
 
-      <section class="row" :class="{ disabled: !supported }">
+      <section class="row" :class="{ disabled: !autostartSupported }">
         <div class="row-main">
           <div class="row-title">开机自启动</div>
           <div class="row-desc">
@@ -92,20 +147,61 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             <template v-else-if="!isWin">仅 Windows 支持开机自启</template>
             <template v-else>开机时自动启动知时并弹出今日提醒</template>
           </div>
-          <Transition name="fade">
-            <span v-if="saved" class="saved-hint">已保存</span>
-          </Transition>
         </div>
         <button
           class="switch"
           role="switch"
           :aria-checked="openAtLogin ? 'true' : 'false'"
-          :disabled="!supported || loading"
+          :disabled="!autostartSupported || loading"
           :class="{ on: openAtLogin }"
-          @click="toggle"
+          @click="toggleAutostart"
         >
           <span class="knob"></span>
         </button>
+      </section>
+
+      <section class="row" :class="{ disabled: !desktopSupported }">
+        <div class="row-main">
+          <div class="row-title">知时助手悬浮窗</div>
+          <div class="row-desc">
+            <template v-if="!isDesktop">仅在桌面应用内可用（当前为浏览器访问）</template>
+            <template v-else>主窗口最小化到托盘后，在桌面显示悬浮按钮，点击即可向助手交代任务</template>
+          </div>
+        </div>
+        <button
+          class="switch"
+          role="switch"
+          :aria-checked="floatEnabled ? 'true' : 'false'"
+          :disabled="!desktopSupported || loading"
+          :class="{ on: floatEnabled }"
+          @click="toggleFloat"
+        >
+          <span class="knob"></span>
+        </button>
+      </section>
+
+      <section class="row col-row" :class="{ disabled: !desktopSupported }">
+        <div class="row-main">
+          <div class="row-title">关闭按钮行为</div>
+          <div class="row-desc">
+            <template v-if="!isDesktop">仅在桌面应用内可用（当前为浏览器访问）</template>
+            <template v-else>点击主窗口关闭按钮时的行为</template>
+          </div>
+        </div>
+        <div class="segmented" role="radiogroup" aria-label="关闭按钮行为">
+          <button
+            v-for="opt in CLOSE_OPTIONS"
+            :key="opt.value"
+            class="seg-btn"
+            role="radio"
+            :aria-checked="closeBehavior === opt.value ? 'true' : 'false'"
+            :disabled="!desktopSupported || loading"
+            :class="{ active: closeBehavior === opt.value }"
+            @click="selectCloseBehavior(opt.value)"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
       </section>
 
       <section
@@ -168,6 +264,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   font-weight: 800;
   color: var(--text);
 }
+.head-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .close-btn {
   min-height: 34px;
   padding: 7px 12px;
@@ -187,9 +288,18 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   border-radius: var(--radius);
   background: var(--surface-2);
   border: 1px solid transparent;
+  margin-bottom: 12px;
+}
+.row:last-child {
+  margin-bottom: 0;
 }
 .row.disabled {
   opacity: 0.66;
+}
+.row.col-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
 }
 .row-main {
   min-width: 0;
@@ -205,11 +315,42 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   color: var(--text-soft);
 }
 .saved-hint {
-  display: inline-block;
-  margin-top: 6px;
   font-size: 12px;
   font-weight: 700;
   color: var(--success);
+  white-space: nowrap;
+}
+
+.segmented {
+  display: flex;
+  gap: 6px;
+}
+.seg-btn {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 6px;
+  font-size: 12.5px;
+  font-weight: 650;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-soft);
+  box-shadow: var(--shadow-inset);
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.seg-btn:hover:not(:disabled):not(.active) {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.seg-btn.active {
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), #62b8d2);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  box-shadow: 0 4px 14px var(--accent-glow);
+}
+.seg-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 .switch {

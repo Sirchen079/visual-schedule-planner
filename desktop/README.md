@@ -9,7 +9,7 @@
   参数区分启动来源）与独立的 DDL 提醒小窗（加载 `?view=reminder`）。
 - **后端**：PyInstaller 打包（onedir），内含 `frontend/dist` 静态资源，
   FastAPI 单端口同时提供 API 与界面。
-- **数据**：用户数据写入 `%APPDATA%\知时\data\`，卸载不删除。
+- **数据**：用户数据写入安装目录下的 `data\`（便携式，经 `ZHISHI_DATA_DIR` 环境变量传给后端），卸载不删除。旧版（v1.2.1 前）的 `%APPDATA%\知时\data\` 数据会在新版首次启动时自动迁移。
 
 ## 前置
 
@@ -78,4 +78,4 @@ npm start
 安装器在复制文件前（`PrepareToInstall`）与卸载开始时（`InitializeUninstall`）会先
 `POST /shutdown` 优雅关闭正在运行的知时（触发后端备份 + 落盘），再用 `taskkill` 兜底强杀，
 并配合 `CloseApplications=force` 作为第二道防线，避免文件占用导致安装/卸载失败。
-用户数据位于 `%APPDATA%\知时\`，升级覆盖与卸载均不删除。
+用户数据位于安装目录下的 `data\`，升级覆盖与卸载均不删除。旧版（v1.2.1 前）位于 `%APPDATA%\知时\data\` 的数据，会在新版首次启动时自动迁移到安装目录并清理旧位置。

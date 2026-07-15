@@ -338,3 +338,17 @@ class AIConversationSummaryResponse(BaseModel):
 
 class AIConversationDetailResponse(AIConversationSummaryResponse):
     messages: list[AIConversationMessageResponse] = Field(default_factory=list)
+
+
+class AppSettingRead(BaseModel):
+    key: str
+    value: str
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AppSettingsBatch(BaseModel):
+    """批量更新应用设置：{"settings": {"assistant_float_enabled": "true"}}"""
+
+    settings: dict[str, str] = Field(default_factory=dict)

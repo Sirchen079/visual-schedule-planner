@@ -20,4 +20,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onFocusTask: (cb) => ipcRenderer.on('focus-task', (_e, taskId) => cb(taskId)),
   // 用系统默认浏览器打开外链（如 GitHub 项目主页）
   openExternal: (url) => ipcRenderer.send('open-external', url),
+  // 应用设置：前端保存后通知主进程更新内存缓存
+  notifySettingsChanged: (patch) => ipcRenderer.send('settings:changed', patch),
+  onSettingsChanged: (cb) => ipcRenderer.on('settings:changed', (_e, patch) => cb(patch)),
+  // 关闭询问：主进程请求前端弹框选择，前端回传 minimize / quit
+  onAskClose: (cb) => ipcRenderer.on('ask-close', () => cb()),
+  answerClose: (choice) => ipcRenderer.send('close:answer', choice),
+  // 悬浮窗尺寸切换（按钮态 <-> 面板态）与被收起通知
+  floatSetSize: (w, h) => ipcRenderer.send('float:set-size', w, h),
+  onFloatCollapse: (cb) => ipcRenderer.on('float:collapse', () => cb()),
+  // 悬浮窗拖动（按钮态前端区分点击/拖动后触发，主进程按光标位置移动窗口）
+  floatDragStart: () => ipcRenderer.send('float:drag-start'),
+  floatDragMove: () => ipcRenderer.send('float:drag-move'),
 })

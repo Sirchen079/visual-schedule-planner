@@ -22,7 +22,10 @@ import {
 import { uploadFile } from '../api/files'
 import ArtIcon from '../components/ArtIcon.vue'
 
-const emit = defineEmits(['changed'])
+const props = defineProps({
+  floatMode: { type: Boolean, default: false },
+})
+const emit = defineEmits(['changed', 'collapse'])
 
 const configs = ref([])
 const skills = ref([])
@@ -52,11 +55,16 @@ const attachingFiles = ref(false)
 const chatAttachments = ref([])
 const shellRef = ref(null)
 const messagesRef = ref(null)
-const open = ref(false)
+const open = ref(props.floatMode)
 const assistantMode = ref('chat')
 const fullscreen = ref(false)
 const windowPosition = ref(loadWindowPosition())
 const dragState = ref(null)
+// fab 入口按钮可拖动（与悬浮窗球形按钮一致）：pointer 区分点击/拖动，位置持久化
+const fabPosition = ref(loadFabPosition())
+let fabDownAt = null
+let fabDragging = false
+const FAB_DRAG_THRESHOLD = 4
 const previousFocus = ref(null)
 const chatAbortController = ref(null)
 
@@ -79,6 +87,7 @@ const visibleMessages = computed(() =>
   })
 )
 const shellStyle = computed(() => {
+  if (props.floatMode) return {} // 悬浮窗独立窗口：填满，不用窗口内定位
   if (fullscreen.value || !windowPosition.value) return {}
   return {
     left: `${windowPosition.value.x}px`,
@@ -295,7 +304,62 @@ function clampWindowPosition(x, y, width, height) {
   }
 }
 
+function loadFabPosition() {
+  try {
+    const raw = localStorage.getItem('assistant-fab-position')
+    if (!raw) return null
+    const p = JSON.parse(raw)
+    if (Number.isFinite(p?.x) && Number.isFinite(p?.y)) return p
+  } catch { /* 忽略损坏的存储 */ }
+  return null
+}
+function saveFabPosition(p) {
+  localStorage.setItem('assistant-fab-position', JSON.stringify(p))
+}
+function clampFabPosition(x, y, w, h) {
+  const margin = 8
+  return {
+    x: Math.min(Math.max(margin, x), Math.max(margin, window.innerWidth - w - margin)),
+    y: Math.min(Math.max(margin, y), Math.max(margin, window.innerHeight - h - margin)),
+  }
+}
+const fabStyle = computed(() => {
+  if (!fabPosition.value) return {}
+  return { left: `${fabPosition.value.x}px`, top: `${fabPosition.value.y}px`, right: 'auto', bottom: 'auto' }
+})
+function onFabPointerDown(e) {
+  if (e.button !== 0) return
+  const rect = e.currentTarget.getBoundingClientRect()
+  fabDownAt = {
+    x: e.clientX, y: e.clientY,
+    ox: fabPosition.value?.x ?? rect.left,
+    oy: fabPosition.value?.y ?? rect.top,
+    w: rect.width, h: rect.height,
+  }
+  fabDragging = false
+  e.currentTarget.setPointerCapture?.(e.pointerId)
+}
+function onFabPointerMove(e) {
+  if (!fabDownAt) return
+  const dx = e.clientX - fabDownAt.x
+  const dy = e.clientY - fabDownAt.y
+  if (!fabDragging && Math.hypot(dx, dy) > FAB_DRAG_THRESHOLD) fabDragging = true
+  if (fabDragging) {
+    e.preventDefault()
+    fabPosition.value = clampFabPosition(fabDownAt.ox + dx, fabDownAt.oy + dy, fabDownAt.w, fabDownAt.h)
+  }
+}
+function onFabPointerUp(e) {
+  if (!fabDownAt) return
+  e.currentTarget?.releasePointerCapture?.(e.pointerId)
+  if (!fabDragging) openAssistant()
+  else saveFabPosition(fabPosition.value)
+  fabDownAt = null
+  fabDragging = false
+}
+
 function startDrag(event) {
+  if (props.floatMode) return // 悬浮窗用原生 -webkit-app-region: drag 拖动窗口
   if (fullscreen.value || event.button !== 0) return
   if (event.target.closest('button, input, textarea, select, a, summary')) return
   const shell = shellRef.value
@@ -384,6 +448,11 @@ function handleAssistantPrompt(event) {
 }
 
 function closeAssistant() {
+  if (props.floatMode) {
+    // 悬浮窗：收起为按钮态（由父组件 AssistantFloat 处理窗口 resize）
+    emit('collapse')
+    return
+  }
   chatAbortController.value?.abort()
   open.value = false
   dragState.value = null
@@ -842,6 +911,10 @@ onMounted(() => {
   load()
   window.addEventListener('resize', keepWindowInView)
   window.addEventListener('assistant:prompt', handleAssistantPrompt)
+  // 悬浮窗：主窗口打开时主进程发 float:collapse，收起为按钮态
+  if (props.floatMode) {
+    window.electronAPI?.onFloatCollapse?.(() => emit('collapse'))
+  }
 })
 
 watch(assistantMode, (mode) => {
@@ -857,7 +930,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <button v-if="!open" class="assistant-fab" :aria-label="assistantName" @click="openAssistant">
+  <button v-if="!open" class="assistant-fab" :class="{ dragging: fabDragging }" :style="fabStyle" :aria-label="assistantName" @pointerdown="onFabPointerDown" @pointermove="onFabPointerMove" @pointerup="onFabPointerUp" @pointercancel="onFabPointerUp">
     <ArtIcon name="assistant" tone="aqua" :size="38" tile />
     <strong>{{ assistantName }}</strong>
   </button>
@@ -874,7 +947,7 @@ onBeforeUnmount(() => {
       :aria-modal="fullscreen ? 'true' : null"
       :aria-label="assistantName"
       tabindex="-1"
-      :class="{ fullscreen, dragging: dragState }"
+      :class="{ fullscreen, dragging: dragState, 'float-mode': floatMode }"
       :style="shellStyle"
       @keydown.esc.stop.prevent="closeAssistant"
       @keydown.tab="trapFocus"
@@ -1313,12 +1386,22 @@ onBeforeUnmount(() => {
   background: linear-gradient(135deg, var(--accent), var(--sea-400));
   box-shadow: var(--shadow-xl), 0 0 24px var(--accent-glow);
   transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+  cursor: grab;
+  touch-action: none;
 }
 
 .assistant-fab:hover {
   transform: translateY(-2px);
   filter: saturate(1.04);
   box-shadow: var(--shadow-xl), 0 0 30px var(--accent-glow);
+}
+.assistant-fab.dragging {
+  cursor: grabbing;
+  transition: none;
+  user-select: none;
+}
+.assistant-fab.dragging:hover {
+  transform: none;
 }
 
 .assistant-fab strong {
@@ -2183,5 +2266,51 @@ pre {
   .assistant-shell.fullscreen {
     inset: 8px;
   }
+}
+
+/* 悬浮窗独立窗口模式：填满窗口，header 原生拖动，精简布局适配窄窗 */
+.assistant-shell.float-mode {
+  position: absolute;
+  inset: 0;
+  right: auto;
+  bottom: auto;
+  width: 100%;
+  height: 100%;
+  padding: 10px;
+  /* 透明窗口下 backdrop-filter 失效，改用不透明底色，避免透出桌面 */
+  background: var(--surface-solid);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.assistant-shell.float-mode .assistant {
+  gap: 8px;
+}
+.assistant-shell.float-mode .assistant-head {
+  -webkit-app-region: drag;
+  padding: 2px 2px 8px;
+  gap: 8px;
+}
+.assistant-shell.float-mode .assistant-head .page-title .art-icon {
+  display: none;
+}
+.assistant-shell.float-mode .assistant-head h2 {
+  font-size: 15px;
+}
+.assistant-shell.float-mode .head-actions {
+  -webkit-app-region: no-drag;
+  gap: 4px;
+}
+.assistant-shell.float-mode .mode-switch {
+  grid-template-columns: repeat(3, minmax(40px, 1fr));
+  padding: 3px;
+  gap: 3px;
+}
+.assistant-shell.float-mode .mode-switch button {
+  min-height: 26px;
+  font-size: 12px;
+  padding: 0 6px;
+}
+.assistant-shell.float-mode .fullscreen-action {
+  display: none;
 }
 </style>

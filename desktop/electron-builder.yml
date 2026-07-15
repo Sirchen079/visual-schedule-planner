@@ -3,10 +3,12 @@ productName: 知时
 copyright: Copyright © 2026 Sirchen079
 directories:
   output: release
-# 进入 app.asar 的文件（Electron 主进程代码）
+# 进入 app.asar 的文件（Electron 主进程代码 + 图标资源）
 files:
   - electron/**/*
   - package.json
+  - build/icon.ico
+  - build/icon-256.png
 # 不进 asar、放到 resources/ 下：后端 exe 及其 _internal 资源
 extraResources:
   - from: build/backend-dist/zhishi-backend

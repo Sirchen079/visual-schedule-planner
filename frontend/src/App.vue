@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, provide, ref } from 'vue'
+import { onMounted, onBeforeUnmount, provide, ref } from 'vue'
 import { useTasks } from './composables/useTasks'
 import { useReminders } from './composables/useReminders'
 import { restoreTask } from './api/tasks'
@@ -7,6 +7,7 @@ import BoardView from './views/BoardView.vue'
 import OverviewView from './views/OverviewView.vue'
 import LibraryView from './views/LibraryView.vue'
 import AssistantView from './views/AssistantView.vue'
+import AssistantFloat from './views/AssistantFloat.vue'
 import CalendarView from './views/CalendarView.vue'
 import TimelineView from './views/TimelineView.vue'
 import TrashView from './views/TrashView.vue'
@@ -21,26 +22,56 @@ const { tasks, loading, error, load, add, update, remove } = useTasks()
 const { upcoming, overdue, count, panelOpen, start: startReminders, refresh: refreshReminders } = useReminders()
 
 // 独立提醒小窗：?view=reminder 时只渲染提醒组件（frameless 小窗专用）
+// 悬浮窗：?view=assistant 时只渲染助手悬浮组件
 // 开机自启主窗口：?autostart=1 时不挂载启动弹窗（提醒由独立小窗承载）
 const urlParams = new URLSearchParams(location.search)
 const isReminderWindow = urlParams.get('view') === 'reminder'
+const isAssistantFloatWindow = urlParams.get('view') === 'assistant'
 const isAutoStartHost = urlParams.get('autostart') === '1'
 
 onMounted(() => {
-  // 小窗专用窗口：不加载主界面数据、不启动轮询/通知
-  if (isReminderWindow) return
+  // 小窗/悬浮窗专用窗口：不加载主界面数据、不启动轮询/通知
+  if (isReminderWindow || isAssistantFloatWindow) {
+    // 悬浮窗是透明窗口，清除 body/html 背景渐变，避免方形底色从圆角/圆形外露出
+    if (isAssistantFloatWindow) {
+      document.documentElement.style.background = 'transparent'
+      document.body.style.background = 'transparent'
+    }
+    return
+  }
   load()
   // 主窗口：接收小窗「去处理」传来的 taskId，打开对应任务编辑
   window.electronAPI?.onFocusTask?.((taskId) => {
     const t = tasks.value.find((x) => x.id === taskId)
     if (t) openEdit(t)
   })
+  // 关闭询问：主窗口 close 行为为「每次询问」时，主进程发 ask-close，弹框让用户选
+  window.electronAPI?.onAskClose?.(() => {
+    confirmDialog({
+      title: '关闭知时',
+      message: '退出知时会结束后台运行；最小化到托盘则保持后台运行。如需固定此行为，可在设置中调整。',
+      confirmText: '退出知时',
+      cancelText: '最小化到托盘',
+      danger: true,
+    }).then((ok) => {
+      window.electronAPI?.answerClose?.(ok ? 'quit' : 'minimize')
+    })
+  })
+  // 主窗口重新获得焦点时静默刷新任务，确保悬浮窗里 AI 建的任务同步到看板
+  window.addEventListener('focus', onFocusReload)
   // 开机自启的主窗口：提醒已由独立小窗承载，跳过通知轮询避免重复弹窗
   if (isAutoStartHost) return
   if (window.Notification && Notification.permission === 'default') {
     Notification.requestPermission().catch(() => {})
   }
   startReminders()
+})
+
+function onFocusReload() {
+  load(true)
+}
+onBeforeUnmount(() => {
+  window.removeEventListener('focus', onFocusReload)
 })
 
 const view = ref('board')
@@ -185,6 +216,7 @@ async function undoDelete() {
 
 <template>
   <StartupReminder v-if="isReminderWindow" host-window />
+  <AssistantFloat v-else-if="isAssistantFloatWindow" />
   <div v-else class="app">
     <header class="topbar">
       <div class="brand">

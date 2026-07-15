@@ -226,3 +226,15 @@ class AIPendingAction(Base):
     @staticmethod
     def new_token() -> str:
         return secrets.token_urlsafe(32)
+
+
+class AppSetting(Base):
+    """应用级偏好（key-value）：悬浮窗开关、关闭按钮行为等，随 app.db 备份迁移。"""
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )

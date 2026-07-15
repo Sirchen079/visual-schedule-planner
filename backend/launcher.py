@@ -1,7 +1,8 @@
 """PyInstaller 打包入口：解析 --host/--port 并启动 uvicorn 服务。
 
 打包后由 Electron 主进程以子进程方式拉起。延迟 import app.main，
-让 config/database 在 frozen 检测后初始化（打包模式自动走 %APPDATA%/知时/data）。
+让 config/database 在 frozen 检测后初始化（数据目录由 ZHISHI_DATA_DIR 环境变量决定，
+默认跟随安装目录，回退到 %APPDATA%/知时/data）。
 """
 import argparse
 

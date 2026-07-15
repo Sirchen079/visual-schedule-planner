@@ -11,15 +11,15 @@ export function useTasks() {
   const loading = ref(false)
   const error = ref(null)
 
-  async function load() {
-    loading.value = true
+  async function load(silent = false) {
+    if (!silent) loading.value = true
     error.value = null
     try {
       tasks.value = await listTasks()
     } catch (e) {
       error.value = e.message
     } finally {
-      loading.value = false
+      if (!silent) loading.value = false
     }
   }
 
