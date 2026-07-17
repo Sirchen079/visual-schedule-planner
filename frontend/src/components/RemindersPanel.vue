@@ -82,7 +82,7 @@ function fmt(d) {
   position: fixed;
   inset: 0;
   z-index: 120;
-  background: rgba(23, 74, 102, 0.28);
+  background: var(--overlay-bg);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   display: flex;
@@ -198,12 +198,12 @@ function fmt(d) {
 }
 
 .tag.urgent {
-  background: rgba(242, 107, 122, 0.12);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--pri-high);
 }
 
 .tag.soon {
-  background: rgba(69, 184, 235, 0.1);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
   color: var(--accent-hover);
 }
 

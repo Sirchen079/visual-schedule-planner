@@ -202,7 +202,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   position: fixed;
   inset: 0;
   z-index: 140;
-  background: rgba(23, 74, 102, 0.34);
+  background: var(--overlay-bg);
   backdrop-filter: blur(7px);
   -webkit-backdrop-filter: blur(7px);
   display: flex;
@@ -246,7 +246,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   color: var(--text);
 }
 .date {
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--text-soft);
 }
 .close-btn {
@@ -266,7 +266,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   border-radius: var(--radius-sm);
   background: var(--accent-soft);
   color: var(--accent-strong);
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 700;
 }
 
@@ -278,7 +278,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   align-items: center;
   gap: 8px;
   margin: 0 0 9px;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--text-soft);
 }
@@ -326,27 +326,27 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 700;
   padding: 4px 10px;
   border-radius: var(--radius-pill);
   white-space: nowrap;
 }
 .badge.tone-coral {
-  background: rgba(217, 93, 106, 0.13);
+  background: color-mix(in srgb, var(--danger) 13%, transparent);
   color: var(--danger);
 }
 .badge.tone-sand {
-  background: rgba(197, 138, 66, 0.14);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
   color: var(--warning);
 }
 .badge.tone-aqua {
-  background: rgba(59, 152, 198, 0.12);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent-hover);
 }
 .line {
   min-width: 0;
-  font-size: 13.5px;
+  font-size: 13px;
   color: var(--text);
   line-height: 1.45;
 }

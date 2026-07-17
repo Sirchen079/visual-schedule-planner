@@ -1,11 +1,21 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const source = readFileSync(resolve(__dirname, '../src/views/AssistantView.vue'), 'utf8')
-const aiApiSource = readFileSync(resolve(__dirname, '../src/api/ai.js'), 'utf8')
-const themeSource = readFileSync(resolve(__dirname, '../src/styles/theme.css'), 'utf8')
+
+// 助手 UI 已拆分为壳(AssistantView.vue)+ assistant/ 子组件,
+// 断言按字面量实际所在文件分别检查。
+function read(rel) {
+  const p = resolve(__dirname, rel)
+  return existsSync(p) ? readFileSync(p, 'utf8') : ''
+}
+
+const source = read('../src/views/AssistantView.vue')
+const messageSource = read('../src/views/assistant/AssistantMessage.vue')
+const chatSource = read('../src/views/assistant/AssistantChat.vue')
+const aiApiSource = read('../src/api/ai.js')
+const themeSource = read('../src/styles/theme.css')
 
 const checks = [
   {
@@ -40,10 +50,11 @@ const checks = [
     pass:
       source.includes('parseMessageBlocks') &&
       source.includes('createMessage') &&
-      source.includes("block.type === 'list'") &&
-      source.includes("block.type === 'paragraph'") &&
-      source.includes('message.blocks') &&
-      !source.includes('v-html='),
+      messageSource.includes("block.type === 'list'") &&
+      messageSource.includes("block.type === 'paragraph'") &&
+      messageSource.includes('message.blocks') &&
+      !source.includes('v-html=') &&
+      !messageSource.includes('v-html='),
   },
   {
     name: 'floating assistant is non-modal and traps focus only in fullscreen',
@@ -68,9 +79,9 @@ const checks = [
   {
     name: 'dangerous action cards render server-generated previews',
     pass:
-      source.includes('action.preview?.length') &&
-      source.includes('pending-preview') &&
-      source.includes('v-for="(line, previewIndex) in action.preview"'),
+      messageSource.includes('action.preview?.length') &&
+      (source.includes('pending-preview') || messageSource.includes('pending-preview')) &&
+      messageSource.includes('v-for="(line, previewIndex) in action.preview"'),
   },
   {
     name: 'AI API client sanitizes errors and applies timeouts',

@@ -21,6 +21,9 @@ import {
 } from '../api/ai'
 import { uploadFile } from '../api/files'
 import ArtIcon from '../components/ArtIcon.vue'
+import AssistantChat from './assistant/AssistantChat.vue'
+import AssistantHistory from './assistant/AssistantHistory.vue'
+import AssistantSettings from './assistant/AssistantSettings.vue'
 
 const props = defineProps({
   floatMode: { type: Boolean, default: false },
@@ -49,12 +52,12 @@ const modelLoading = ref(false)
 const fileInput = ref(null)
 const chatFileInput = ref(null)
 const aiAttachmentInput = ref(null)
-const composerInput = ref(null)
+const chatRef = ref(null)
 const uploadingFiles = ref(false)
 const attachingFiles = ref(false)
 const chatAttachments = ref([])
+const failedChatText = ref('')
 const shellRef = ref(null)
-const messagesRef = ref(null)
 const open = ref(props.floatMode)
 const assistantMode = ref('chat')
 const fullscreen = ref(false)
@@ -78,14 +81,6 @@ const canSaveConfig = computed(() => {
   return f.name.trim() && f.assistant_name.trim() && f.provider && f.model.trim() && (f.api_key.trim() || activeConfig.value)
 })
 const canSaveSkill = computed(() => skillForm.value.name.trim() && skillForm.value.content.trim())
-const visibleMessages = computed(() =>
-  messages.value.filter((message) => {
-    const hasText = Boolean(message.content?.trim())
-    const hasTools = Boolean(message.tool_results?.length)
-    const hasActions = Boolean(message.pending_actions?.length)
-    return hasText || hasTools || hasActions
-  })
-)
 const shellStyle = computed(() => {
   if (props.floatMode) return {} // 悬浮窗独立窗口：填满，不用窗口内定位
   if (fullscreen.value || !windowPosition.value) return {}
@@ -265,14 +260,6 @@ function uploadedFilesPrompt(files, instruction = '') {
   ].join('\n')
 }
 
-function pendingStatusText(action) {
-  if (action.status === 'pending') return '等待确认'
-  if (action.status === 'confirmed') return '已一次确认'
-  if (action.status === 'executed') return '已执行'
-  if (action.status === 'expired') return '已过期'
-  return action.status || '待处理'
-}
-
 function loadWindowPosition() {
   try {
     const raw = localStorage.getItem('assistant-window-position')
@@ -444,7 +431,7 @@ function handleAssistantPrompt(event) {
   openAssistant()
   assistantMode.value = 'chat'
   input.value = text
-  nextTick(() => composerInput.value?.focus())
+  nextTick(() => chatRef.value?.focusComposer())
 }
 
 function closeAssistant() {
@@ -467,8 +454,7 @@ function toggleFullscreen() {
 
 async function scrollMessagesToBottom() {
   await nextTick()
-  const el = messagesRef.value
-  if (el) el.scrollTop = el.scrollHeight
+  chatRef.value?.scrollToBottom()
 }
 
 function focusableElements() {
@@ -545,6 +531,7 @@ function startNewChat() {
   input.value = ''
   chatAttachments.value = []
   pendingTokens.value = {}
+  failedChatText.value = ''
   assistantMode.value = 'chat'
   notice.value = '已开始新聊天'
   nextTick(scrollMessagesToBottom)
@@ -560,6 +547,7 @@ async function openConversation(row) {
     messages.value = (data.messages || []).map(createMessage)
     chatAttachments.value = []
     pendingTokens.value = {}
+    failedChatText.value = ''
     assistantMode.value = 'chat'
     await scrollMessagesToBottom()
   } catch (err) {
@@ -567,18 +555,6 @@ async function openConversation(row) {
   } finally {
     historyLoading.value = false
   }
-}
-
-function formatHistoryTime(value) {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 }
 
 function refreshActiveView() {
@@ -773,6 +749,7 @@ async function sendChatText(text, { restoreToInput = false, attachments = [] } =
       { signal: controller.signal }
     )
     conversationId.value = res.conversation_id
+    failedChatText.value = ''
     messages.value.push(createMessage({
       role: 'assistant',
       content: res.reply || '已处理',
@@ -785,7 +762,11 @@ async function sendChatText(text, { restoreToInput = false, attachments = [] } =
   } catch (err) {
     messages.value.splice(messageIndex, 1)
     if (restoreToInput && !input.value.trim()) input.value = text || ''
-    if (!controller.signal.aborted) error.value = apiMessage(err)
+    if (!controller.signal.aborted) {
+      error.value = apiMessage(err)
+      // 手动发送失败的原文记录下来，对话区显示「重试」条，可一键重发同一条
+      if (restoreToInput) failedChatText.value = text || ''
+    }
     return false
   } finally {
     if (chatAbortController.value === controller) chatAbortController.value = null
@@ -801,6 +782,15 @@ async function send() {
   chatAttachments.value = []
   const ok = await sendChatText(text, { restoreToInput: true, attachments })
   if (!ok && !chatAttachments.value.length) chatAttachments.value = attachments
+}
+
+// 重发上一条发送失败的消息；若输入框仍是当时恢复的原文则清掉，避免重复发送
+async function retryFailed() {
+  const text = failedChatText.value
+  if (!text || busy.value) return
+  failedChatText.value = ''
+  if (input.value.trim() === text.trim()) input.value = ''
+  await sendChatText(text, { restoreToInput: true })
 }
 
 async function onAiAttachmentFiles(event) {
@@ -922,8 +912,24 @@ watch(assistantMode, (mode) => {
   if (mode === 'history') loadConversations()
 })
 
+// notice/error 自动消失：成功/通知类 4 秒、错误类 8 秒，均保留手动关闭
+let noticeTimer = null
+let errorTimer = null
+watch(notice, (value) => {
+  window.clearTimeout(noticeTimer)
+  noticeTimer = null
+  if (value) noticeTimer = window.setTimeout(() => { notice.value = '' }, 4000)
+})
+watch(error, (value) => {
+  window.clearTimeout(errorTimer)
+  errorTimer = null
+  if (value) errorTimer = window.setTimeout(() => { error.value = '' }, 8000)
+})
+
 onBeforeUnmount(() => {
   chatAbortController.value?.abort()
+  window.clearTimeout(noticeTimer)
+  window.clearTimeout(errorTimer)
   window.removeEventListener('resize', keepWindowInView)
   window.removeEventListener('assistant:prompt', handleAssistantPrompt)
 })
@@ -1013,358 +1019,86 @@ onBeforeUnmount(() => {
       </div>
     </header>
 
-    <div v-if="error" class="card alert-line" role="alert">{{ error }}</div>
-    <div v-if="notice" class="card notice-line" role="status">{{ notice }}</div>
+    <div v-if="error" class="card alert-line" role="alert">
+      <span class="alert-text">{{ error }}</span>
+      <button type="button" class="ghost compact line-close" aria-label="关闭错误提示" @click="error = ''">
+        <ArtIcon name="close" tone="coral" :size="14" />
+      </button>
+    </div>
+    <div v-if="notice" class="card notice-line" role="status">
+      <span class="alert-text">{{ notice }}</span>
+      <button type="button" class="ghost compact line-close" aria-label="关闭提示" @click="notice = ''">
+        <ArtIcon name="close" tone="aqua" :size="14" />
+      </button>
+    </div>
 
     <main class="assistant-body">
-      <div v-if="assistantMode === 'settings'" class="assistant-settings">
-        <section class="card config-panel">
-          <div class="panel-title">
-            <div>
-              <h3>模型配置</h3>
-              <p class="muted">API key 只保存在本地后端数据库。</p>
-            </div>
-            <button class="ghost compact" @click="newConfig">新建</button>
-          </div>
+      <AssistantSettings
+        v-if="assistantMode === 'settings'"
+        :configs="configs"
+        :active-config="activeConfig"
+        :config-form="configForm"
+        :can-save-config="canSaveConfig"
+        :has-config="hasConfig"
+        :busy="busy"
+        :model-options="modelOptions"
+        :model-loading="modelLoading"
+        :skills="skills"
+        :selected-skill-id="selectedSkillId"
+        :active-skill-id="activeSkillId"
+        :skill-form="skillForm"
+        :can-save-skill="canSaveSkill"
+        @new-config="newConfig"
+        @select-config="selectConfig"
+        @save-config="saveConfig"
+        @test-config="testConfig"
+        @enable-config="enableConfig"
+        @fetch-models="fetchModels"
+        @new-skill="newSkill"
+        @select-skill="selectSkill"
+        @save-skill="saveSkill"
+        @enable-skill="enableSkill"
+        @import-skill="fileInput?.click()"
+      />
 
-          <div v-if="configs.length" class="pill-list">
-            <button
-              v-for="config in configs"
-              :key="config.id"
-              class="ghost pill"
-              :class="{ active: activeConfig?.id === config.id, enabled: config.enabled }"
-              @click="selectConfig(config)"
-            >
-              {{ config.name }}
-            </button>
-          </div>
+      <AssistantHistory
+        v-else-if="assistantMode === 'history'"
+        :conversations="conversations"
+        :history-loading="historyLoading"
+        :active-id="conversationId"
+        :interaction-busy="busy || uploadingFiles || attachingFiles"
+        @open="openConversation"
+        @new-chat="startNewChat"
+      />
 
-          <div class="form-grid">
-            <label>
-              <span>配置名称</span>
-              <input v-model="configForm.name" placeholder="默认配置" />
-            </label>
-            <label>
-              <span>Provider</span>
-              <select v-model="configForm.provider">
-                <option value="openai_chat">OpenAI Chat Completions</option>
-                <option value="openai_responses">OpenAI Responses</option>
-                <option value="claude_messages">Claude Messages</option>
-              </select>
-            </label>
-            <label>
-              <span>模型</span>
-              <div class="model-picker">
-                <input v-model="configForm.model" placeholder="点击获取模型，或手动填写模型 ID" />
-                <button class="ghost compact" :disabled="modelLoading || busy" @click="fetchModels">
-                  {{ modelLoading ? '获取中' : '获取模型' }}
-                </button>
-              </div>
-              <select
-                v-if="modelOptions.length"
-                v-model="configForm.model"
-                class="model-select"
-              >
-                <option value="">选择模型</option>
-                <option v-for="model in modelOptions" :key="model" :value="model">
-                  {{ model }}
-                </option>
-              </select>
-            </label>
-            <label>
-              <span>API Key</span>
-              <input v-model="configForm.api_key" type="password" placeholder="留空表示不修改" />
-            </label>
-            <label>
-              <span>Base URL</span>
-              <input v-model="configForm.base_url" placeholder="可选" />
-            </label>
-            <label>
-              <span>完整 URL</span>
-              <input v-model="configForm.full_url" placeholder="可选，优先于 Base URL" />
-            </label>
-            <label>
-              <span>HTTP Proxy</span>
-              <input v-model="configForm.proxy_url" placeholder="可选，例如 http://127.0.0.1:7890" />
-            </label>
-            <label class="check-field">
-              <input v-model="configForm.native_web_search_enabled" type="checkbox" />
-              <span class="check-copy">
-                <strong>启用模型原生联网搜索</strong>
-                <small>由模型接口自身执行搜索；适合 Kimi Code、Claude 或 OpenAI 的内置联网能力。</small>
-              </span>
-            </label>
-            <label class="check-field">
-              <input v-model="configForm.search_enhancement_enabled" type="checkbox" />
-              <span class="check-copy">
-                <strong>搜索增强</strong>
-                <small>要求助手先用原生联网搜索查找参考资料，再结合本地任务和资料进行规划。</small>
-              </span>
-            </label>
-            <label
-              v-if="configForm.native_web_search_enabled || configForm.search_enhancement_enabled"
-              class="wide-field"
-            >
-              <span>原生联网参数 JSON</span>
-              <textarea
-                v-model="configForm.native_web_search_options_text"
-                class="headers-input native-options-input"
-                spellcheck="false"
-                placeholder='可选。例如 OpenAI Chat: {"web_search_options":{"search_context_size":"low"}}'
-              ></textarea>
-            </label>
-            <label>
-              <span>额外 Headers</span>
-              <textarea v-model="configForm.extra_headers_text" class="headers-input" spellcheck="false"></textarea>
-            </label>
-          </div>
-
-          <div class="panel-actions">
-            <button :disabled="!canSaveConfig || busy" @click="saveConfig">保存并启用</button>
-            <button class="ghost" :disabled="!hasConfig || busy" @click="testConfig">测试连接</button>
-            <button v-if="activeConfig && !activeConfig.enabled" class="ghost" :disabled="busy" @click="enableConfig(activeConfig)">
-              仅启用
-            </button>
-          </div>
-        </section>
-
-        <section class="card persona-panel">
-          <div class="panel-title">
-            <div>
-              <h3>助手人设</h3>
-              <p class="muted">为空时使用内置幕僚式默认人设，和 skill 工作规则分开。</p>
-            </div>
-          </div>
-
-          <div class="form-grid">
-            <label>
-              <span>助手名称</span>
-              <input v-model="configForm.assistant_name" placeholder="知时助手" />
-            </label>
-            <label>
-              <span>自定义人设</span>
-              <textarea
-                v-model="configForm.persona"
-                class="persona-input"
-                placeholder="可选；留空使用内置默认人设"
-              ></textarea>
-            </label>
-          </div>
-
-          <div class="panel-actions">
-            <button :disabled="!canSaveConfig || busy" @click="saveConfig">保存人设与配置</button>
-          </div>
-        </section>
-
-        <section class="card skill-panel">
-          <div class="panel-title">
-            <div>
-              <h3>Skill 规则</h3>
-              <p class="muted">skill 只保存工作规则，和助手人设分开。</p>
-            </div>
-            <button class="ghost compact" @click="fileInput?.click()">导入</button>
-            <input ref="fileInput" type="file" accept=".md,.txt" hidden @change="onSkillFile" />
-          </div>
-
-          <div v-if="skills.length" class="pill-list">
-            <button
-              v-for="skill in skills"
-              :key="skill.id"
-              class="ghost pill"
-              :class="{ active: selectedSkillId === skill.id, enabled: activeSkillId === skill.id || skill.enabled }"
-              @click="selectSkill(skill)"
-            >
-              {{ skill.name }}
-            </button>
-          </div>
-
-          <div class="skill-tools">
-            <button class="ghost compact" @click="newSkill">新建 skill</button>
-            <button
-              v-if="selectedSkillId"
-              class="ghost compact"
-              :disabled="busy || activeSkillId === selectedSkillId"
-              @click="enableSkill(skills.find((s) => s.id === selectedSkillId))"
-            >
-              启用当前
-            </button>
-          </div>
-
-          <div class="form-grid">
-            <label>
-              <span>名称</span>
-              <input v-model="skillForm.name" placeholder="论文规划 / 每周复盘" />
-            </label>
-            <label>
-              <span>描述</span>
-              <input v-model="skillForm.description" placeholder="这个 skill 适合什么工作流" />
-            </label>
-            <label>
-              <span>正文</span>
-              <textarea
-                v-model="skillForm.content"
-                class="skill-input"
-                placeholder="写入助手规则、任务拆解方法、资料整理偏好..."
-              ></textarea>
-            </label>
-          </div>
-
-          <button :disabled="!canSaveSkill || busy" @click="saveSkill">保存并启用 skill</button>
-        </section>
-      </div>
-
-      <section v-else-if="assistantMode === 'history'" class="card history-panel">
-        <div class="history-head">
-          <div>
-            <h3>历史会话</h3>
-            <p class="muted">保留最近 50 次会话，点击可回溯上下文。</p>
-          </div>
-          <button class="ghost compact" :disabled="busy || uploadingFiles || attachingFiles" @click="startNewChat">
-            <ArtIcon name="plus" tone="aqua" :size="16" />
-            <span>新聊天</span>
-          </button>
-        </div>
-
-        <div v-if="historyLoading" class="history-empty">正在加载历史...</div>
-        <div v-else-if="!conversations.length" class="history-empty">暂无历史会话</div>
-        <div v-else class="history-list" role="list">
-          <button
-            v-for="row in conversations"
-            :key="row.id"
-            class="history-row"
-            :class="{ active: row.id === conversationId }"
-            type="button"
-            @click="openConversation(row)"
-          >
-            <span class="history-title">{{ row.title || '新的会话' }}</span>
-            <span class="history-snippet">{{ row.last_message || '暂无消息' }}</span>
-            <span class="history-meta">
-              {{ formatHistoryTime(row.updated_at) }} · {{ row.message_count }} 条
-            </span>
-          </button>
-        </div>
-      </section>
-
-      <section v-else class="card chat-panel chat-stage">
-        <div class="chat-head">
-          <div class="chat-copy">
-            <h3>{{ assistantName }} 对话</h3>
-            <p class="muted">低风险操作会直接执行；危险操作会显示二次确认卡片。</p>
-          </div>
-          <span v-if="busy || uploadingFiles || attachingFiles" class="tag">
-            {{ uploadingFiles ? '入库中' : attachingFiles ? '添加中' : '处理中' }}
-          </span>
-          <button v-else class="ghost compact" @click="assistantMode = 'settings'">
-            <ArtIcon name="assistant" tone="aqua" :size="16" />
-            <span>配置</span>
-          </button>
-        </div>
-
-        <div ref="messagesRef" class="messages" role="log" aria-live="polite" :aria-busy="busy">
-          <div v-if="!messages.length" class="empty-chat">
-            <div class="empty-title">从一个想法开始</div>
-            <div>告诉{{ assistantName }}你要安排什么，或让它整理刚上传的资料。</div>
-          </div>
-
-          <article v-for="(message, index) in visibleMessages" :key="index" :class="['message', message.role]">
-            <div class="message-role">
-              {{ message.role === 'user' ? '你' : message.role === 'assistant' ? assistantName : '系统' }}
-            </div>
-            <div
-              v-if="message.content?.trim()"
-              class="message-content"
-            >
-              <template v-for="(block, blockIndex) in message.blocks" :key="blockIndex">
-                <ul v-if="block.type === 'list'" class="message-list">
-                  <li v-for="(item, itemIndex) in block.items" :key="itemIndex">{{ item }}</li>
-                </ul>
-                <p v-else-if="block.type === 'paragraph'" class="message-paragraph">
-                  <template v-for="(line, lineIndex) in block.lines" :key="lineIndex">
-                    <span>{{ line }}</span>
-                    <br v-if="lineIndex < block.lines.length - 1" />
-                  </template>
-                </p>
-              </template>
-            </div>
-
-            <div v-if="message.tool_results?.length" class="tool-results">
-              <span class="tag">已执行 {{ message.tool_results.length }} 个工具</span>
-              <details>
-                <summary>查看结果</summary>
-                <pre>{{ JSON.stringify(message.tool_results, null, 2) }}</pre>
-              </details>
-            </div>
-
-            <div v-for="action in message.pending_actions || []" :key="action.id" class="pending-card">
-              <div class="pending-head">
-                <div>
-                  <strong>危险操作待确认</strong>
-                  <p>{{ pendingStatusText(action) }}</p>
-                </div>
-                <span class="danger-dot"></span>
-              </div>
-              <p class="pending-summary">{{ action.summary }}</p>
-              <ul v-if="action.preview?.length" class="pending-preview">
-                <li v-for="(line, previewIndex) in action.preview" :key="previewIndex">{{ line }}</li>
-              </ul>
-              <div class="pending-actions">
-                <button v-if="!pendingTokens[action.id]" class="ghost" :disabled="busy" @click="firstConfirm(action)">
-                  第一次确认
-                </button>
-                <button v-else class="danger" :disabled="busy" @click="secondConfirm(action)">
-                  我已理解影响，执行
-                </button>
-              </div>
-            </div>
-          </article>
-        </div>
-
-        <div class="composer">
-          <div class="composer-input">
-            <textarea
-              ref="composerInput"
-              v-model="input"
-              placeholder="例如：帮我把本周论文阅读拆成三天计划，并给明晚加一个提醒..."
-              :disabled="uploadingFiles || attachingFiles"
-              @keydown.ctrl.enter.prevent="send"
-            ></textarea>
-            <div v-if="uploadingFiles" class="upload-hint">正在上传资料到资料库...</div>
-            <div v-if="attachingFiles" class="upload-hint">正在添加对话附件...</div>
-            <div v-if="chatAttachments.length" class="attachment-strip">
-              <span v-for="file in chatAttachments" :key="file.id" class="attachment-chip">
-                <ArtIcon :name="file.kind === 'image' ? 'image' : 'file'" tone="aqua" :size="15" />
-                <span>{{ file.original_name }}</span>
-                <button type="button" :aria-label="`移除 ${file.original_name}`" @click="removeChatAttachment(file.id)">
-                  <ArtIcon name="close" tone="pearl" :size="14" />
-                </button>
-              </span>
-            </div>
-          </div>
-          <div class="composer-toolbar">
-            <div class="composer-file-actions">
-              <button class="ghost compact" :disabled="busy || uploadingFiles || attachingFiles" @click="aiAttachmentInput?.click()">
-                <ArtIcon name="file" tone="aqua" :size="18" />
-                <span>看文件</span>
-              </button>
-              <button class="ghost compact" :disabled="busy || uploadingFiles || attachingFiles" @click="chatFileInput?.click()">
-                <ArtIcon name="upload" tone="mint" :size="18" />
-                <span>入库</span>
-              </button>
-            </div>
-            <button
-              class="send-action"
-              :disabled="busy || uploadingFiles || attachingFiles || (!input.trim() && !chatAttachments.length)"
-              @click="send"
-            >
-              <ArtIcon name="send" tone="on-accent" :size="20" />
-              <span>{{ busy ? '处理中...' : '发送' }}</span>
-            </button>
-          </div>
-          <input ref="chatFileInput" type="file" multiple hidden @change="onChatFiles" />
-          <input ref="aiAttachmentInput" type="file" multiple hidden @change="onAiAttachmentFiles" />
-        </div>
-      </section>
+      <AssistantChat
+        v-else
+        ref="chatRef"
+        v-model="input"
+        :messages="messages"
+        :assistant-name="assistantName"
+        :busy="busy"
+        :uploading-files="uploadingFiles"
+        :attaching-files="attachingFiles"
+        :chat-attachments="chatAttachments"
+        :pending-tokens="pendingTokens"
+        :failed-text="failedChatText"
+        @send="send"
+        @retry="retryFailed"
+        @dismiss-failed="failedChatText = ''"
+        @first-confirm="firstConfirm"
+        @second-confirm="secondConfirm"
+        @remove-attachment="removeChatAttachment"
+        @pick-chat-files="chatFileInput?.click()"
+        @pick-ai-attachments="aiAttachmentInput?.click()"
+        @open-settings="assistantMode = 'settings'"
+      />
     </main>
+
+    <!-- 隐藏文件输入保留在壳层：子组件通过事件让父层触发选择，请求逻辑不变 -->
+    <input ref="chatFileInput" type="file" multiple hidden @change="onChatFiles" />
+    <input ref="aiAttachmentInput" type="file" multiple hidden @change="onAiAttachmentFiles" />
+    <input ref="fileInput" type="file" accept=".md,.txt" hidden @change="onSkillFile" />
   </div>
   </div>
   </div>
@@ -1429,7 +1163,7 @@ onBeforeUnmount(() => {
 }
 
 .assistant-layer.fullscreen {
-  background: rgba(232, 248, 255, 0.68);
+  background: var(--overlay-bg);
   backdrop-filter: blur(5px);
   -webkit-backdrop-filter: blur(5px);
 }
@@ -1474,14 +1208,7 @@ onBeforeUnmount(() => {
 }
 
 .assistant-head,
-.panel-title,
-.panel-actions,
-.head-actions,
-.chat-head,
-.history-head,
-.pending-head,
-.pending-actions,
-.skill-tools {
+.head-actions {
   display: flex;
   gap: 12px;
 }
@@ -1520,12 +1247,8 @@ onBeforeUnmount(() => {
   display: none;
 }
 
-.head-copy,
-.chat-copy {
-  min-width: 0;
-}
-
 .head-copy {
+  min-width: 0;
   flex: 1;
 }
 
@@ -1541,10 +1264,6 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.chat-head h3 {
-  overflow-wrap: anywhere;
-}
-
 .assistant-shell.dragging .assistant-head {
   cursor: grabbing;
 }
@@ -1553,16 +1272,11 @@ onBeforeUnmount(() => {
   cursor: default;
 }
 
-.assistant-head h2,
-.panel-title h3,
-.chat-head h3 {
+.assistant-head h2 {
   margin: 0;
 }
 
-.assistant-head p,
-.panel-title p,
-.chat-head p,
-.pending-head p {
+.assistant-head p {
   margin: 4px 0 0;
 }
 
@@ -1580,34 +1294,6 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-.assistant-settings {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  padding: 2px 4px 4px;
-}
-
-.assistant-shell:not(.fullscreen) .assistant-settings {
-  grid-template-columns: 1fr;
-}
-
-.config-panel,
-.persona-panel,
-.skill-panel,
-.chat-panel {
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-
-.chat-panel {
-  border-radius: var(--radius-sm);
-  box-shadow: none;
-}
-
 .mode-switch {
   display: inline-grid;
   grid-template-columns: repeat(3, minmax(52px, 1fr));
@@ -1615,7 +1301,7 @@ onBeforeUnmount(() => {
   padding: 4px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--surface-2);
   box-shadow: var(--shadow-inset);
 }
 
@@ -1631,161 +1317,25 @@ onBeforeUnmount(() => {
   box-shadow: 0 5px 16px var(--accent-glow);
 }
 
-.panel-title,
-.chat-head,
-.history-head,
-.pending-head {
-  align-items: flex-start;
-  justify-content: space-between;
-}
-
-.panel-title h3,
-.chat-head h3,
-.history-head h3 {
-  font-size: 16px;
-  font-weight: 800;
-}
-
-.panel-title .compact,
-.skill-tools .compact {
-  flex-shrink: 0;
-}
-
-.pill-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 14px 0;
-}
-
-.pill {
-  padding: 7px 13px;
-  font-size: 12px;
-  box-shadow: var(--shadow-inset);
-}
-
-.pill.active,
-.pill.enabled {
-  color: #fff;
-  background: linear-gradient(135deg, var(--accent), var(--sea-400));
-  box-shadow: 0 4px 14px var(--accent-glow), var(--shadow-inset);
-}
-
-.form-grid {
-  display: grid;
-  gap: 10px;
-}
-
-label {
-  display: grid;
-  gap: 5px;
-}
-
-label span {
-  color: var(--text-soft);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.check-field {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  box-shadow: var(--shadow-inset);
-}
-
-.check-field input {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  margin-top: 2px;
-  accent-color: var(--accent);
-}
-
-.check-copy {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.check-copy strong {
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.35;
-}
-
-.check-copy small {
-  color: var(--text-soft);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.wide-field {
-  min-width: 0;
-}
-
-.model-picker {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-}
-
-.model-picker input {
-  min-width: 0;
-}
-
-.model-select {
-  margin-top: 6px;
-}
-
-.headers-input,
-.persona-input {
-  min-height: 82px;
-  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-}
-
-.native-options-input {
-  min-height: 96px;
-}
-
-.persona-input {
-  min-height: 108px;
-}
-
-.skill-input {
-  min-height: 150px;
-}
-
-.panel-actions,
-.skill-tools {
-  align-items: center;
-  flex-wrap: wrap;
-  margin-top: 12px;
-}
-
-.compact {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  padding: 7px 14px;
-  font-size: 12px;
-}
-
 .alert-line,
 .notice-line {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
   padding: 12px 16px;
   font-weight: 600;
 }
 
+.alert-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .alert-line {
   color: var(--pri-high);
-  background: rgba(242, 107, 122, 0.08);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
 }
 
 .notice-line {
@@ -1793,382 +1343,9 @@ label span {
   background: var(--accent-soft);
 }
 
-.chat-panel {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.history-panel {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.9);
-}
-
-.history-head {
+.line-close {
   flex-shrink: 0;
-}
-
-.history-head h3 {
-  margin: 0;
-}
-
-.history-head p {
-  margin: 4px 0 0;
-}
-
-.history-list {
-  min-height: 0;
-  overflow-y: auto;
-  display: grid;
-  gap: 8px;
-  padding-right: 4px;
-}
-
-.history-row {
-  display: grid;
-  gap: 4px;
-  width: 100%;
-  min-height: 76px;
-  padding: 11px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  color: var(--text);
-  text-align: left;
-  box-shadow: var(--shadow-inset);
-}
-
-.history-row.active {
-  border-color: var(--border-strong);
-  background: var(--accent-soft);
-}
-
-.history-title,
-.history-snippet,
-.history-meta {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.history-title {
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.history-snippet {
-  color: var(--text);
-  font-size: 13px;
-}
-
-.history-meta,
-.history-empty {
-  color: var(--text-soft);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.history-empty {
-  display: grid;
-  place-items: center;
-  min-height: 220px;
-  text-align: center;
-}
-
-.chat-stage {
-  width: 100%;
-  margin: 0 auto;
-}
-
-.assistant-shell.fullscreen .chat-stage {
-  max-width: 980px;
-}
-
-.assistant-shell:not(.fullscreen) .chat-panel {
-  padding: 0;
-  border: 0;
-  background: transparent;
-}
-
-.assistant-shell:not(.fullscreen) .chat-head {
-  display: none;
-}
-
-.messages {
-  flex: 1;
-  min-height: 0;
-  overflow-y: scroll;
-  overflow-x: hidden;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 6px 6px 8px 2px;
-  scrollbar-gutter: stable;
-}
-
-.empty-chat {
-  margin: auto;
-  text-align: center;
-  color: var(--text-soft);
-  max-width: 380px;
-  display: grid;
-  gap: 6px;
-  padding: 28px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface-2);
-  box-shadow: var(--shadow-inset);
-}
-
-.empty-title {
-  color: var(--text);
-  font-weight: 800;
-}
-
-.message {
-  width: min(88%, 640px);
-  max-width: 100%;
-  flex: 0 0 auto;
-  display: block;
-  height: auto;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  box-shadow: var(--shadow-inset);
-  contain: layout paint;
-  overflow: hidden;
-}
-
-.assistant-shell:not(.fullscreen) .message {
-  max-width: calc(100% - 14px);
-}
-
-.assistant-shell:not(.fullscreen) .message.user {
-  width: fit-content;
-  max-width: min(82%, 360px);
-}
-
-.assistant-shell:not(.fullscreen) .message.assistant,
-.assistant-shell:not(.fullscreen) .message.system {
-  width: min(92%, 430px);
-  max-width: min(92%, 430px);
-}
-
-.message.user {
-  align-self: flex-end;
-  background: var(--accent-soft);
-}
-
-.message.assistant,
-.message.system {
-  align-self: flex-start;
-}
-
-.message.system {
-  border-color: var(--border-strong);
-}
-
-.message-role {
-  font-size: 12px;
-  font-weight: 800;
-  color: var(--text-soft);
-}
-
-.message-content {
-  display: block;
-  margin-top: 5px;
-  color: var(--text);
-  font-size: 14px;
-  line-height: 1.7;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.message-paragraph,
-.message-list {
-  margin: 0 0 8px;
-}
-
-.message-paragraph:last-child,
-.message-list:last-child {
-  margin-bottom: 0;
-}
-
-.message-list {
-  padding-left: 18px;
-}
-
-.message-list li + li {
-  margin-top: 3px;
-}
-
-.tool-results {
-  display: grid;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-summary {
-  cursor: pointer;
-  color: var(--text-soft);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-pre {
-  max-height: 180px;
-  margin: 8px 0 0;
-  overflow: auto;
-  padding: 10px;
-  border-radius: var(--radius-xs);
-  background: var(--surface);
-  color: var(--text);
-  font-size: 12px;
-}
-
-.pending-card {
-  margin-top: 12px;
-  padding: 12px;
-  border: 1px solid rgba(242, 107, 122, 0.38);
-  border-radius: var(--radius-sm);
-  background: rgba(242, 107, 122, 0.08);
-}
-
-.pending-head strong {
-  color: var(--pri-high);
-}
-
-.danger-dot {
-  width: 12px;
-  height: 12px;
-  margin-top: 5px;
-  border-radius: 50%;
-  background: var(--pri-high);
-  box-shadow: 0 0 0 5px rgba(242, 107, 122, 0.12);
-  flex-shrink: 0;
-}
-
-.pending-summary {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.pending-preview {
-  margin: 10px 0 0;
-  padding-left: 18px;
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.pending-actions {
-  justify-content: flex-end;
-  margin-top: 10px;
-}
-
-.composer {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.composer-input {
-  min-width: 0;
-}
-
-.composer textarea {
-  width: 100%;
-  min-height: 58px;
-  max-height: 104px;
-  resize: none;
-  overflow-y: auto;
-}
-
-.upload-hint {
-  margin-top: 5px;
-  color: var(--text-soft);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.attachment-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 7px;
-}
-
-.attachment-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  padding: 5px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--surface-2);
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 700;
-  overflow-wrap: anywhere;
-}
-
-.attachment-chip button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 22px;
-  width: 22px;
-  padding: 0;
-  border-radius: var(--radius-pill);
-  font-size: 11px;
-  box-shadow: none;
-  flex-shrink: 0;
-}
-
-.composer-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.composer-file-actions {
-  display: flex;
-  gap: 8px;
-  min-width: 0;
-}
-
-.composer-file-actions button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-width: 70px;
-}
-
-.send-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-width: 82px;
-  flex-shrink: 0;
+  padding: 4px 8px;
 }
 
 @media (max-width: 980px) {
@@ -2177,7 +1354,7 @@ pre {
   }
 
   .assistant-layer.fullscreen {
-    background: rgba(232, 248, 255, 0.66);
+    background: var(--overlay-bg);
   }
 
   .assistant-shell {
@@ -2191,53 +1368,17 @@ pre {
   .assistant-head {
     flex-direction: row;
   }
-
-  .assistant-settings {
-    grid-template-columns: 1fr;
-  }
-
-  .chat-panel {
-    min-height: 0;
-  }
 }
 
 @media (max-width: 640px) {
-  .assistant-head .muted,
-  .panel-title .muted,
-  .chat-head .muted {
+  .assistant-head .muted {
     display: none;
-  }
-
-  .panel-actions,
-  .model-picker,
-  .composer {
-    width: 100%;
-    grid-template-columns: 1fr;
-  }
-
-  .composer-toolbar {
-    align-items: stretch;
-  }
-
-  .composer-file-actions {
-    flex: 1;
-  }
-
-  .composer-file-actions button,
-  .send-action {
-    flex: 1;
-    min-width: 0;
   }
 
   .head-actions {
     display: flex;
     width: auto;
     flex-wrap: nowrap;
-  }
-
-  .composer button {
-    width: 100%;
-    min-width: 0;
   }
 
   .assistant-fab {
@@ -2257,10 +1398,6 @@ pre {
   .assistant-fab :deep(.art-icon.tile) {
     width: 40px;
     height: 40px;
-  }
-
-  .message {
-    width: fit-content;
   }
 
   .assistant-shell.fullscreen {
@@ -2312,5 +1449,624 @@ pre {
 }
 .assistant-shell.float-mode .fullscreen-action {
   display: none;
+}
+</style>
+
+<!-- 对话/历史/设置子组件复用同名 class，样式集中在壳层维护。
+     该块不设 scoped（scoped 无法覆盖子组件内部元素），统一以 .assistant-shell 作前缀避免外泄。 -->
+<style>
+.assistant-shell .panel-title,
+.assistant-shell .panel-actions,
+.assistant-shell .chat-head,
+.assistant-shell .history-head,
+.assistant-shell .pending-head,
+.assistant-shell .pending-actions,
+.assistant-shell .skill-tools {
+  display: flex;
+  gap: 12px;
+}
+
+.assistant-shell .chat-copy {
+  min-width: 0;
+}
+
+.assistant-shell .chat-head h3 {
+  overflow-wrap: anywhere;
+}
+
+.assistant-shell .panel-title p,
+.assistant-shell .chat-head p,
+.assistant-shell .history-head p,
+.assistant-shell .pending-head p {
+  margin: 4px 0 0;
+}
+
+.assistant-shell .panel-title,
+.assistant-shell .chat-head,
+.assistant-shell .history-head,
+.assistant-shell .pending-head {
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.assistant-shell .panel-title h3,
+.assistant-shell .chat-head h3,
+.assistant-shell .history-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.assistant-shell .panel-title .compact,
+.assistant-shell .skill-tools .compact {
+  flex-shrink: 0;
+}
+
+.assistant-shell .assistant-settings {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* 必须显式 max-content：auto 行在定高容器里会被拉伸分配剩余空间，
+     <details> 卡片内容超出轨道高度，导致手风琴互相重叠 */
+  grid-auto-rows: max-content;
+  gap: 16px;
+  padding: 2px 4px 4px;
+  align-content: start;
+  align-items: start;
+}
+
+.assistant-shell:not(.fullscreen) .assistant-settings {
+  grid-template-columns: 1fr;
+}
+
+.assistant-shell .pill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.assistant-shell .pill {
+  padding: 7px 13px;
+  font-size: 12px;
+  box-shadow: var(--shadow-inset);
+}
+
+.assistant-shell .pill.active,
+.assistant-shell .pill.enabled {
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--sea-400));
+  box-shadow: 0 4px 14px var(--accent-glow), var(--shadow-inset);
+}
+
+.assistant-shell .form-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.assistant-shell .assistant-settings label {
+  display: grid;
+  gap: 5px;
+}
+
+.assistant-shell .assistant-settings label span {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.assistant-shell .check-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-inset);
+}
+
+.assistant-shell .check-field input {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.assistant-shell .check-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.assistant-shell .check-copy strong {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.assistant-shell .check-copy small {
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.assistant-shell .wide-field {
+  min-width: 0;
+}
+
+.assistant-shell .model-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.assistant-shell .model-picker input {
+  min-width: 0;
+}
+
+.assistant-shell .model-select {
+  margin-top: 6px;
+}
+
+.assistant-shell .headers-input,
+.assistant-shell .persona-input {
+  min-height: 82px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+
+.assistant-shell .native-options-input {
+  min-height: 96px;
+}
+
+.assistant-shell .persona-input {
+  min-height: 108px;
+}
+
+.assistant-shell .skill-input {
+  min-height: 150px;
+}
+
+.assistant-shell .panel-actions,
+.assistant-shell .skill-tools {
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.assistant-shell .compact {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 7px 14px;
+  font-size: 12px;
+}
+
+.assistant-shell .chat-panel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+  background: var(--surface);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.assistant-shell .history-panel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.assistant-shell .history-head {
+  flex-shrink: 0;
+}
+
+.assistant-shell .history-list {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.assistant-shell .history-row {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  min-height: 76px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  text-align: left;
+  box-shadow: var(--shadow-inset);
+}
+
+.assistant-shell .history-row.active {
+  border-color: var(--border-strong);
+  background: var(--accent-soft);
+}
+
+.assistant-shell .history-title,
+.assistant-shell .history-snippet,
+.assistant-shell .history-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-shell .history-title {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.assistant-shell .history-snippet {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.assistant-shell .history-meta,
+.assistant-shell .history-empty {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.assistant-shell .history-empty {
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  text-align: center;
+}
+
+.assistant-shell .chat-stage {
+  width: 100%;
+  margin: 0 auto;
+}
+
+.assistant-shell.fullscreen .chat-stage {
+  max-width: 980px;
+}
+
+.assistant-shell:not(.fullscreen) .chat-panel {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.assistant-shell:not(.fullscreen) .chat-head {
+  display: none;
+}
+
+.assistant-shell .messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: scroll;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 6px 6px 8px 2px;
+  scrollbar-gutter: stable;
+}
+
+.assistant-shell .empty-chat {
+  margin: auto;
+  text-align: center;
+  color: var(--text-soft);
+  max-width: 380px;
+  display: grid;
+  gap: 6px;
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-inset);
+}
+
+.assistant-shell .empty-title {
+  color: var(--text);
+  font-weight: 800;
+}
+
+.assistant-shell .message {
+  position: relative;
+  width: min(88%, 640px);
+  max-width: 100%;
+  flex: 0 0 auto;
+  display: block;
+  height: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-inset);
+  contain: layout paint;
+  overflow: hidden;
+}
+
+.assistant-shell:not(.fullscreen) .message {
+  max-width: calc(100% - 14px);
+}
+
+.assistant-shell:not(.fullscreen) .message.user {
+  width: fit-content;
+  max-width: min(82%, 360px);
+}
+
+.assistant-shell:not(.fullscreen) .message.assistant,
+.assistant-shell:not(.fullscreen) .message.system {
+  width: min(92%, 430px);
+  max-width: min(92%, 430px);
+}
+
+.assistant-shell .message.user {
+  align-self: flex-end;
+  background: var(--accent-soft);
+}
+
+.assistant-shell .message.assistant,
+.assistant-shell .message.system {
+  align-self: flex-start;
+}
+
+.assistant-shell .message.system {
+  border-color: var(--border-strong);
+}
+
+.assistant-shell .message-role {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-soft);
+}
+
+.assistant-shell .message-content {
+  display: block;
+  margin-top: 5px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.7;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.assistant-shell .message-paragraph,
+.assistant-shell .message-list {
+  margin: 0 0 8px;
+}
+
+.assistant-shell .message-paragraph:last-child,
+.assistant-shell .message-list:last-child {
+  margin-bottom: 0;
+}
+
+.assistant-shell .message-list {
+  padding-left: 18px;
+}
+
+.assistant-shell .message-list li + li {
+  margin-top: 3px;
+}
+
+.assistant-shell .tool-results {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.assistant-shell summary {
+  cursor: pointer;
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.assistant-shell pre {
+  max-height: 180px;
+  margin: 8px 0 0;
+  overflow: auto;
+  padding: 10px;
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.assistant-shell .pending-card {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 38%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+.assistant-shell .pending-head strong {
+  color: var(--pri-high);
+}
+
+.assistant-shell .danger-dot {
+  width: 12px;
+  height: 12px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--pri-high);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--danger) 12%, transparent);
+  flex-shrink: 0;
+}
+
+.assistant-shell .pending-summary {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.assistant-shell .pending-preview {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.assistant-shell .pending-actions {
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.assistant-shell .composer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.assistant-shell .composer-input {
+  min-width: 0;
+}
+
+.assistant-shell .composer textarea {
+  width: 100%;
+  min-height: 58px;
+  max-height: 104px;
+  resize: none;
+  overflow-y: auto;
+}
+
+.assistant-shell .upload-hint {
+  margin-top: 5px;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.assistant-shell .attachment-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.assistant-shell .attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.assistant-shell .attachment-chip button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  width: 22px;
+  padding: 0;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  box-shadow: none;
+  flex-shrink: 0;
+}
+
+.assistant-shell .composer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.assistant-shell .composer-file-actions {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.assistant-shell .composer-file-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 70px;
+}
+
+.assistant-shell .send-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 82px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 980px) {
+  .assistant-shell .assistant-settings {
+    grid-template-columns: 1fr;
+  }
+
+  .assistant-shell .chat-panel {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .assistant-shell .panel-title .muted,
+  .assistant-shell .chat-head .muted {
+    display: none;
+  }
+
+  .assistant-shell .panel-actions,
+  .assistant-shell .model-picker,
+  .assistant-shell .composer {
+    width: 100%;
+    grid-template-columns: 1fr;
+  }
+
+  .assistant-shell .composer-toolbar {
+    align-items: stretch;
+  }
+
+  .assistant-shell .composer-file-actions {
+    flex: 1;
+  }
+
+  .assistant-shell .composer-file-actions button,
+  .assistant-shell .send-action {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .assistant-shell .composer button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .assistant-shell .message {
+    width: fit-content;
+  }
 }
 </style>

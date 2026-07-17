@@ -27,6 +27,7 @@ const files = {
   reminders: read('components/RemindersPanel.vue'),
   taskCard: read('components/TaskCard.vue'),
   assistant: read('views/AssistantView.vue'),
+  assistantChat: readOptional('views/assistant/AssistantChat.vue'),
   artIcon: readOptional('components/ArtIcon.vue'),
 }
 
@@ -59,6 +60,16 @@ const bannedTextIconMarkup = [
   /class="file-icon"[^>]*>\s*\{\{/,
   /class="assistant-fab"(?:(?!<\/button>)[\s\S])*?<span>\s*[^<{][^<]{0,8}\s*<\/span>/,
 ]
+
+// 页面头部统一走 PageHeader 组件(icon 属性对应原 ArtIcon name)
+const pageHeaderIcons = {
+  board: 'board',
+  overview: 'overview',
+  calendar: 'calendar',
+  timeline: 'timeline',
+  library: 'library',
+  trash: 'trash',
+}
 
 const requiredIconNames = [
   'brand',
@@ -129,7 +140,7 @@ const checks = [
   {
     name: 'decorative float utility is removed from production UI',
     pass:
-      !/class="[^"]*\bfloat(?:-slow|-delay)?\b/.test(allSource) &&
+      !/class="[^"]*\bfloat(?:-slow|-delay)?\b(?!-)/.test(allSource) &&
       !/\.float(?:-slow|-delay)?\b/.test(files.theme),
   },
   {
@@ -214,21 +225,16 @@ const checks = [
       /<ArtIcon name="brand"[\s\S]{0,120}:size="38"[\s\S]{0,80}tile/.test(files.app) &&
       /<ArtIcon :name="tab.icon"[\s\S]{0,140}:size="20"/.test(files.app) &&
       /\.tab :deep\(\.art-icon\)\s*\{[\s\S]{0,80}width:\s*22px[\s\S]{0,80}height:\s*22px/.test(files.app) &&
-      [
-        [files.board, 'board'],
-        [files.overview, 'overview'],
-        [files.calendar, 'calendar'],
-        [files.timeline, 'timeline'],
-        [files.library, 'library'],
-        [files.trash, 'trash'],
-      ].every(([source, icon]) => new RegExp(`<ArtIcon name="${icon}"[\\s\\S]{0,120}:size="44"`).test(source)) &&
+      Object.entries(pageHeaderIcons).every(([key, icon]) =>
+        new RegExp(`<PageHeader[\\s\\S]{0,80}icon="${icon}"`).test(files[key])
+      ) &&
       /<ArtIcon name="assistant"[\s\S]{0,120}:size="36"/.test(files.assistant) &&
       workspaceViewKeys.every((key) => /:size="34"[\s\S]{0,80}tile/.test(files[key])) &&
       /class="create-btn"[\s\S]{0,180}<ArtIcon name="plus"[\s\S]{0,80}:size="20"/.test(files.board) &&
       /class="create-btn"[\s\S]{0,180}<ArtIcon name="plus"[\s\S]{0,80}:size="20"/.test(files.calendar) &&
       /class="create-btn"[\s\S]{0,180}<ArtIcon name="plus"[\s\S]{0,80}:size="20"/.test(files.timeline) &&
       /class="upload-btn"[\s\S]{0,180}<ArtIcon name="upload"[\s\S]{0,80}:size="20"/.test(files.library) &&
-      /class="send-action"[\s\S]{0,280}<ArtIcon name="send"[\s\S]{0,80}:size="20"/.test(files.assistant) &&
+      /class="send-action"[\s\S]{0,280}<ArtIcon name="send"[\s\S]{0,80}:size="20"/.test(files.assistantChat) &&
       /class="file-art"[\s\S]{0,260}:size="84"/.test(files.library) &&
       /class="row-art"[\s\S]{0,120}:size="42"/.test(files.trash) &&
       /class="file-art compact"[\s\S]{0,280}:size="40"/.test(files.modal),

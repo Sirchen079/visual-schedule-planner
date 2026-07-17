@@ -1,11 +1,13 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import TaskForm from './TaskForm.vue'
 import ArtIcon from './ArtIcon.vue'
+import BaseModal from './ui/BaseModal.vue'
 import { attachFile, detachFile, getContentUrl, listFiles } from '../api/files'
 import { createSubtask, deleteSubtask, updateSubtask } from '../api/tasks'
 
 const props = defineProps({
+  open: { type: Boolean, default: false },
   task: { type: Object, default: null },
 })
 const emit = defineEmits(['save', 'delete', 'close', 'changed'])
@@ -13,6 +15,26 @@ const emit = defineEmits(['save', 'delete', 'close', 'changed'])
 const allFiles = ref([])
 const selectedFileId = ref('')
 const fileError = ref(null)
+
+// 组件常驻挂载、由 open 控制显隐(保证开合动画完整);
+// 每次打开时按当前 task 重置内部状态,避免串用上次的内容。
+watch(
+  () => props.open,
+  async (isOpen) => {
+    if (!isOpen) return
+    subtasks.value = [...(props.task?.subtasks || [])]
+    newSub.value = ''
+    selectedFileId.value = ''
+    fileError.value = null
+    if (props.task) {
+      try {
+        allFiles.value = await listFiles()
+      } catch (e) {
+        fileError.value = e.message
+      }
+    }
+  }
+)
 
 const attachedIds = computed(() => new Set((props.task?.files || []).map((f) => f.id)))
 const attachableFiles = computed(() => allFiles.value.filter((f) => !attachedIds.value.has(f.id)))
@@ -41,15 +63,6 @@ function fileSubtitle(file) {
   }
   return file.mime_type || '文件'
 }
-
-onMounted(async () => {
-  if (!props.task) return
-  try {
-    allFiles.value = await listFiles()
-  } catch (e) {
-    fileError.value = e.message
-  }
-})
 
 async function doAttach() {
   if (!props.task || !selectedFileId.value) return
@@ -95,14 +108,10 @@ async function removeSub(s) {
 </script>
 
 <template>
-  <div class="overlay" @click.self="emit('close')">
+  <BaseModal :open="open" size="md" :label="task ? '编辑任务' : '新建任务'" @close="emit('close')">
     <div class="modal">
       <div class="modal-head">
         <div class="modal-title">{{ task ? '编辑任务' : '新建任务' }}</div>
-        <button class="ghost close-btn" @click="emit('close')">
-          <ArtIcon name="close" tone="pearl" :size="18" />
-          <span>关闭</span>
-        </button>
       </div>
 
       <TaskForm :model-value="task" @save="(p) => emit('save', p)" @cancel="emit('close')" />
@@ -190,38 +199,16 @@ async function removeSub(s) {
         <span>删除任务</span>
       </button>
     </div>
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(8, 47, 73, 0.3);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-  padding: 20px;
-}
-
+/* overlay / Esc / 焦点陷阱 / z-index 统一由 BaseModal 承担，
+   这里只保留弹窗内部内容布局 */
 .modal {
-  width: 560px;
-  max-width: 92vw;
-  max-height: 88vh;
-  overflow: auto;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xl), var(--shadow-inset);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   display: flex;
   flex-direction: column;
   gap: 18px;
-  position: relative;
   padding: 22px;
 }
 
@@ -233,20 +220,12 @@ async function removeSub(s) {
   font-weight: 800;
   flex-shrink: 0;
   gap: 12px;
+  /* 避开 BaseModal 右上角关闭钮 */
+  padding-right: 40px;
 }
 
 .modal-title {
   color: var(--text);
-}
-
-.close-btn {
-  padding: 7px 12px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  flex-shrink: 0;
 }
 
 .files-section {
@@ -397,7 +376,7 @@ async function removeSub(s) {
   border-radius: var(--radius-pill);
   background: var(--surface-3);
   overflow: hidden;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--overlay-bg) 20%, transparent);
 }
 
 .sub-progress-fill {
@@ -409,8 +388,8 @@ async function removeSub(s) {
 }
 
 .subtask-row.done {
-  background: rgba(116, 230, 156, 0.08);
-  border-color: rgba(116, 230, 156, 0.22);
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+  border-color: color-mix(in srgb, var(--success) 22%, transparent);
 }
 
 .subtask-row {

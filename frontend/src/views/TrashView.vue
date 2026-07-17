@@ -3,10 +3,15 @@ import { computed, inject, onMounted, ref } from 'vue'
 import { listTrash, purgeTask, restoreTask } from '../api/tasks'
 import { listTrashFiles, purgeFile, restoreFile } from '../api/files'
 import ArtIcon from '../components/ArtIcon.vue'
+import AppSpinner from '../components/ui/AppSpinner.vue'
+import EmptyState from '../components/ui/EmptyState.vue'
+import PageHeader from '../components/ui/PageHeader.vue'
 
 const emit = defineEmits(['changed'])
 // 应用内确认对话框（App.vue provide）；提供降级以防组件树外调用
 const confirmDialog = inject('confirm-dialog', (o) => Promise.resolve(window.confirm(o.message || '')))
+// 全局操作反馈 toast（App.vue provide）
+const toast = inject('toast', { success: () => {}, error: () => {}, info: () => {}, undo: () => {} })
 
 const tasks = ref([])
 const files = ref([])
@@ -39,9 +44,14 @@ function timeText(t) {
 }
 
 async function restoreTaskItem(t) {
-  await restoreTask(t.id)
-  tasks.value = tasks.value.filter((x) => x.id !== t.id)
-  emit('changed')
+  try {
+    await restoreTask(t.id)
+    tasks.value = tasks.value.filter((x) => x.id !== t.id)
+    emit('changed')
+    toast.success(`已恢复「${t.title}」`)
+  } catch {
+    toast.error('恢复失败，请重试')
+  }
 }
 async function purgeTaskItem(t) {
   const ok = await confirmDialog({
@@ -51,13 +61,23 @@ async function purgeTaskItem(t) {
     danger: true,
   })
   if (!ok) return
-  await purgeTask(t.id)
-  tasks.value = tasks.value.filter((x) => x.id !== t.id)
+  try {
+    await purgeTask(t.id)
+    tasks.value = tasks.value.filter((x) => x.id !== t.id)
+    toast.success('已彻底删除')
+  } catch {
+    toast.error('删除失败，请重试')
+  }
 }
 async function restoreFileItem(f) {
-  await restoreFile(f.id)
-  files.value = files.value.filter((x) => x.id !== f.id)
-  emit('changed')
+  try {
+    await restoreFile(f.id)
+    files.value = files.value.filter((x) => x.id !== f.id)
+    emit('changed')
+    toast.success(`已恢复「${f.original_name}」`)
+  } catch {
+    toast.error('恢复失败，请重试')
+  }
 }
 async function purgeFileItem(f) {
   const ok = await confirmDialog({
@@ -67,8 +87,13 @@ async function purgeFileItem(f) {
     danger: true,
   })
   if (!ok) return
-  await purgeFile(f.id)
-  files.value = files.value.filter((x) => x.id !== f.id)
+  try {
+    await purgeFile(f.id)
+    files.value = files.value.filter((x) => x.id !== f.id)
+    toast.success('已彻底删除')
+  } catch {
+    toast.error('删除失败，请重试')
+  }
 }
 
 onMounted(load)
@@ -76,18 +101,16 @@ onMounted(load)
 
 <template>
   <div class="trash workspace-page">
-    <div class="trash-head animate-in">
-      <h2 class="page-title">
-        <ArtIcon name="trash" tone="coral" :size="44" tile label="回收站" />
-        <span>回收站</span>
-      </h2>
-      <p class="muted">误删的东西在这里暂存 30 天，可随时恢复或彻底清除。</p>
-    </div>
+    <PageHeader
+      class="animate-in"
+      icon="trash"
+      title="回收站"
+      subtitle="误删的东西在这里暂存 30 天，可随时恢复或彻底清除。"
+    />
 
     <div v-if="error" class="card error animate-in">{{ error }}</div>
-    <div v-if="loading" class="center muted">
-      <span class="spinner"></span>
-      <p>加载中…</p>
+    <div v-if="loading" class="center">
+      <AppSpinner size="lg" label="加载中…" />
     </div>
 
     <div v-if="!loading" class="trash-metrics">
@@ -172,10 +195,13 @@ onMounted(load)
       </div>
     </section>
 
-    <div v-if="!loading && !tasks.length && !files.length" class="card empty animate-in">
-      <div class="empty-title">回收站为空</div>
-      <div class="muted">删除的任务和文件会显示在这里。</div>
-    </div>
+    <EmptyState
+      v-if="!loading && !tasks.length && !files.length"
+      class="animate-in"
+      icon="trash"
+      title="回收站为空"
+      hint="删除的任务和文件会显示在这里。"
+    />
   </div>
 </template>
 
@@ -183,28 +209,14 @@ onMounted(load)
 .trash {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
   max-width: none;
   margin: 0 auto;
 }
 
-.trash-head {
-  position: relative;
-}
-
-.trash-head h2 {
-  margin: 0;
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: 0.5px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.trash-head p {
-  margin: 6px 0 0;
-  font-size: 14px;
+/* PageHeader 自带 margin-bottom，与页面 flex 间距叠加拿掉 */
+.trash :deep(.page-header) {
+  margin-bottom: 0;
 }
 
 .trash-metrics {
@@ -214,11 +226,11 @@ onMounted(load)
 }
 
 .group {
-  padding: 20px 22px;
+  padding: 20px 24px;
 }
 
 .group h3 {
-  margin: 0 0 14px;
+  margin: 0 0 16px;
   font-size: 15px;
   font-weight: 700;
   display: flex;
@@ -228,8 +240,8 @@ onMounted(load)
 }
 
 .count-pill {
-  margin-left: 2px;
-  padding: 1px 10px;
+  margin-left: 4px;
+  padding: 2px 12px;
   border-radius: var(--radius-pill);
   background: var(--accent-soft);
   color: var(--accent-hover);
@@ -242,11 +254,11 @@ onMounted(load)
 .row {
   display: flex;
   align-items: center;
-  gap: 13px;
-  padding: 12px 14px;
+  gap: 12px;
+  padding: 12px 16px;
   border-radius: var(--radius-sm);
   background: var(--surface-2);
-  margin-bottom: 9px;
+  margin-bottom: 8px;
   border: 1px solid transparent;
   box-shadow: var(--shadow-inset);
   transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
@@ -272,7 +284,7 @@ onMounted(load)
 
 .row-title {
   font-weight: 600;
-  font-size: 14.5px;
+  font-size: 14px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -283,10 +295,10 @@ onMounted(load)
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-muted);
   width: fit-content;
-  padding: 1px 8px;
+  padding: 2px 8px;
   border-radius: var(--radius-pill);
   background: var(--surface);
   border: 1px solid var(--border);
@@ -301,69 +313,37 @@ onMounted(load)
 .row-actions button {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
 }
 
 .restore-btn {
-  padding: 7px 15px;
+  padding: 8px 16px;
   font-size: 13px;
 }
 
 .purge-btn {
-  padding: 7px 14px;
+  padding: 8px 16px;
   font-size: 13px;
   color: var(--pri-high);
 }
 
 .purge-btn:hover {
-  background: rgba(242, 107, 122, 0.12);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--pri-high);
-  box-shadow: 0 4px 12px rgba(242, 107, 122, 0.2), var(--shadow-inset);
-}
-
-.empty {
-  text-align: center;
-  padding: 56px 20px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-}
-
-.empty-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--danger) 20%, transparent), var(--shadow-inset);
 }
 
 .center {
-  text-align: center;
-  padding: 60px 20px;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 14px;
-}
-
-.spinner {
-  width: 30px;
-  height: 30px;
-  border: 3px solid var(--surface-2);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.9s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  justify-content: center;
+  padding: 60px 20px;
 }
 
 .error {
-  color: var(--pri-high);
-  background: rgba(242, 107, 122, 0.08);
-  padding: 14px 18px;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  padding: 12px 16px;
 }
 
 @media (max-width: 600px) {
@@ -375,7 +355,7 @@ onMounted(load)
   }
   .row-actions {
     width: 100%;
-    margin-left: 51px;
+    margin-left: 54px;
   }
 }
 </style>

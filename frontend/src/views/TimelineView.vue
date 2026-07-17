@@ -1,6 +1,8 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import ArtIcon from '../components/ArtIcon.vue'
+import EmptyState from '../components/ui/EmptyState.vue'
+import PageHeader from '../components/ui/PageHeader.vue'
 
 const props = defineProps({
   tasks: { type: Array, required: true },
@@ -98,23 +100,49 @@ function fillOf(t, p) {
 function fmt(d) {
   return `${d.getMonth() + 1}/${d.getDate()}`
 }
+
+function fmtDate(d) {
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`
+}
+
+// bar 悬浮提示：跟随鼠标的玻璃卡，pointer-events:none 不遮挡拖拽/点击
+const tip = ref(null) // { title, priority, progress, startText, endText, x, y }
+function showTip(e, t) {
+  const { start, end } = span(t)
+  tip.value = {
+    title: t.title,
+    priority: t.priority,
+    progress: t.progress || 0,
+    startText: start ? fmtDate(start) : '未定',
+    endText: end ? fmtDate(end) : '未定',
+    x: e.clientX,
+    y: e.clientY,
+  }
+}
+function moveTip(e) {
+  if (!tip.value) return
+  tip.value.x = e.clientX
+  tip.value.y = e.clientY
+}
+function hideTip() {
+  tip.value = null
+}
 </script>
 
 <template>
   <div class="timeline workspace-page">
-    <div class="tl-head">
-      <div class="tl-title">
-        <h2 class="page-title">
-          <ArtIcon name="timeline" tone="sand" :size="44" tile label="时间轴" />
-          <span>时间轴</span>
-        </h2>
-        <p class="muted">查看任务跨度、并行关系和完成进度。</p>
-      </div>
-      <button class="create-btn" @click="emit('create')">
-        <ArtIcon name="plus" tone="on-accent" :size="20" />
-        <span>新建任务</span>
-      </button>
-    </div>
+    <PageHeader
+      icon="timeline"
+      title="时间轴"
+      subtitle="查看任务跨度、并行关系和完成进度。"
+    >
+      <template #actions>
+        <button class="create-btn" @click="emit('create')">
+          <ArtIcon name="plus" tone="on-accent" :size="20" />
+          <span>新建任务</span>
+        </button>
+      </template>
+    </PageHeader>
 
     <div class="timeline-metrics">
       <article class="metric-tile">
@@ -162,10 +190,12 @@ function fmt(d) {
       </div>
     </div>
 
-    <div v-if="!ranged.length" class="card empty">
-      <div class="empty-title">还没有带起止时间的任务</div>
-      <div class="muted">在任务里填写开始日期和结束日期后，这里会显示时间跨度。</div>
-    </div>
+    <EmptyState
+      v-if="!ranged.length"
+      icon="timeline"
+      title="还没有带起止时间的任务"
+      hint="在任务里填写开始日期和结束日期后，这里会显示时间跨度。"
+    />
 
     <div v-else class="tl-scroll card">
       <div class="tl-grid" :style="{ minWidth: Math.max(totalDays * 28, 640) + 'px' }">
@@ -197,7 +227,9 @@ function fmt(d) {
                 background: priMeta(t.priority).color,
               }"
               @click="emit('open', t)"
-              :title="`${t.title}（${t.priority}，进度 ${t.progress || 0}%）`"
+              @mouseenter="showTip($event, t)"
+              @mousemove="moveTip"
+              @mouseleave="hideTip"
             >
               <span class="bar-text">{{ t.progress || 0 }}%</span>
             </div>
@@ -209,6 +241,9 @@ function fmt(d) {
                 background: priMeta(t.priority).color,
               }"
               @click="emit('open', t)"
+              @mouseenter="showTip($event, t)"
+              @mousemove="moveTip"
+              @mouseleave="hideTip"
             >
               <span class="bar-text">{{ t.progress || 0 }}%</span>
             </div>
@@ -226,6 +261,17 @@ function fmt(d) {
         </span>
       </div>
     </section>
+
+    <Teleport to="body">
+      <div v-if="tip" class="tl-tip" :style="{ left: tip.x + 'px', top: tip.y + 'px' }">
+        <div class="tl-tip-title">{{ tip.title }}</div>
+        <div class="tl-tip-row">{{ tip.startText }} → {{ tip.endText }}</div>
+        <div class="tl-tip-row">
+          <span class="tl-tip-dot" :style="{ background: priMeta(tip.priority).color }"></span>
+          <span>{{ tip.priority }}优先级 · 进度 {{ tip.progress }}%</span>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -233,31 +279,16 @@ function fmt(d) {
 .timeline {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
   height: 100%;
   max-width: none;
   margin: 0 auto;
 }
 
-.tl-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
+/* PageHeader 自带 margin-bottom，与页面 flex 间距叠加拿掉 */
+.timeline :deep(.page-header) {
+  margin-bottom: 0;
   flex-shrink: 0;
-}
-
-.tl-title h2 {
-  margin: 0;
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: 0.5px;
-  white-space: nowrap;
-}
-
-.tl-title p {
-  margin: 6px 0 0;
-  font-size: 14px;
 }
 
 .timeline-metrics {
@@ -270,8 +301,8 @@ function fmt(d) {
 .create-btn {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 11px 22px;
+  gap: 8px;
+  padding: 12px 24px;
   font-size: 14px;
   font-weight: 600;
 }
@@ -288,7 +319,7 @@ function fmt(d) {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 14px;
+  padding: 12px 16px;
   align-self: stretch;
   flex-wrap: wrap;
 }
@@ -296,7 +327,7 @@ function fmt(d) {
 .legend-item {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   min-width: 0;
   font-size: 13px;
   color: var(--text-soft);
@@ -308,14 +339,14 @@ function fmt(d) {
 }
 
 .dot {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
 }
 
 .legend-sep {
   width: 1px;
-  height: 18px;
+  height: 16px;
   background: var(--border);
 }
 
@@ -346,25 +377,10 @@ function fmt(d) {
   background: var(--pri-mid);
 }
 
-.empty {
-  text-align: center;
-  padding: 52px 24px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-}
-
-.empty-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text);
-}
-
 .tl-scroll {
   flex: 1;
   overflow: auto;
-  padding: 14px 0;
+  padding: 12px 0;
 }
 
 .tl-grid {
@@ -385,15 +401,15 @@ function fmt(d) {
 }
 
 .label-col {
-  width: 170px;
+  width: 172px;
   flex-shrink: 0;
-  padding: 0 14px;
+  padding: 0 12px;
 }
 
 .scale {
   position: relative;
   flex: 1;
-  height: 26px;
+  height: 24px;
 }
 
 .tick {
@@ -410,7 +426,7 @@ function fmt(d) {
   content: '';
   position: absolute;
   left: 50%;
-  top: 22px;
+  top: 20px;
   bottom: -100vh;
   width: 1px;
   background: var(--border);
@@ -457,14 +473,15 @@ function fmt(d) {
 .bar,
 .fill {
   position: absolute;
-  top: 5px;
-  height: 22px;
+  top: 4px;
+  height: 24px;
   border-radius: var(--radius-pill);
   cursor: pointer;
   display: flex;
   align-items: center;
-  padding-left: 10px;
+  padding: 0 12px;
   overflow: hidden;
+  container-type: inline-size;
   transition: transform 0.2s ease, filter 0.2s ease;
 }
 
@@ -484,15 +501,68 @@ function fmt(d) {
 }
 
 .bar-text {
+  min-width: 0;
   font-size: 11px;
   color: #fff;
   font-weight: 700;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 窄条只留色块，文字交给悬浮提示 */
+@container (max-width: 60px) {
+  .bar-text {
+    display: none;
+  }
+}
+
+/* 悬浮提示卡：fixed 跟随鼠标，teleport 到 body 避免被滚动容器裁剪 */
+.tl-tip {
+  position: fixed;
+  z-index: 100;
+  transform: translate(-50%, calc(-100% - 12px));
+  pointer-events: none;
+  min-width: 180px;
+  max-width: 260px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg), var(--shadow-inset);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.tl-tip-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-soft);
+  white-space: nowrap;
+}
+
+.tl-tip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .unsched {
-  padding: 16px 18px;
+  padding: 16px 20px;
 }
 
 .unsched h3 {
@@ -510,8 +580,8 @@ function fmt(d) {
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 13px;
+  gap: 8px;
+  padding: 8px 12px;
   border-radius: var(--radius-pill);
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -527,14 +597,8 @@ function fmt(d) {
 }
 
 @media (max-width: 720px) {
-  .tl-head {
-    align-items: center;
-  }
-  .tl-title p {
-    display: none;
-  }
   .legend {
-    gap: 10px 14px;
+    gap: 8px 12px;
   }
   .timeline-metrics {
     grid-template-columns: 1fr;
@@ -544,7 +608,7 @@ function fmt(d) {
   }
   .label-col {
     width: 120px;
-    padding: 0 10px;
+    padding: 0 8px;
   }
   .row-sub {
     display: none;

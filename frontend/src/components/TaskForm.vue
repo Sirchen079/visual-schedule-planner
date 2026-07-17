@@ -19,6 +19,9 @@ const form = reactive({
 })
 const tagInput = ref('')
 
+// 校验反馈：标题必填；开始日期不能晚于结束日期
+const errors = reactive({ title: '', dateRange: '' })
+
 watch(
   () => props.modelValue,
   (v) => {
@@ -46,9 +49,22 @@ watch(
       })
     }
     tagInput.value = ''
+    errors.title = ''
+    errors.dateRange = ''
   },
   { immediate: true }
 )
+
+// 输入修正后即时清除对应错误
+watch(
+  () => form.title,
+  (v) => {
+    if (v.trim()) errors.title = ''
+  }
+)
+watch([() => form.start_date, () => form.end_date], () => {
+  errors.dateRange = ''
+})
 
 function addTag() {
   const name = tagInput.value.trim()
@@ -62,7 +78,12 @@ function removeTag(i) {
 }
 
 function save() {
-  if (!form.title.trim()) return
+  errors.title = form.title.trim() ? '' : '请填写任务标题'
+  errors.dateRange =
+    form.start_date && form.end_date && form.start_date > form.end_date
+      ? '开始日期不能晚于结束日期'
+      : ''
+  if (errors.title || errors.dateRange) return
   const payload = { ...form }
   // 日期：空值传 null（后端 Optional），有值则带时间部分对齐到整天
   const dateFields = { start_date: 'T00:00:00', end_date: 'T23:59:59', due_date: 'T23:59:59' }
@@ -74,20 +95,27 @@ function save() {
 </script>
 
 <template>
-  <form class="task-form" @submit.prevent="save">
+  <form
+    class="task-form"
+    @submit.prevent="save"
+    @keydown.ctrl.enter.prevent="save"
+    @keydown.meta.enter.prevent="save"
+  >
     <div class="field">
       <label>标题 <span class="required">*</span></label>
-      <input v-model="form.title" placeholder="要做什么？" autofocus />
+      <input v-model="form.title" placeholder="要做什么？" autofocus :class="{ invalid: errors.title }" />
+      <p v-if="errors.title" class="field-error">{{ errors.title }}</p>
     </div>
 
     <div class="grid">
       <div class="field">
         <label>开始日期</label>
-        <input type="date" v-model="form.start_date" />
+        <input type="date" v-model="form.start_date" :class="{ invalid: errors.dateRange }" />
       </div>
       <div class="field">
         <label>结束日期</label>
-        <input type="date" v-model="form.end_date" />
+        <input type="date" v-model="form.end_date" :class="{ invalid: errors.dateRange }" />
+        <p v-if="errors.dateRange" class="field-error">{{ errors.dateRange }}</p>
       </div>
       <div class="field">
         <label>截止日期</label>
@@ -163,6 +191,22 @@ label {
 
 .required {
   color: var(--pri-high);
+}
+
+.field-error {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+input.invalid {
+  border-color: var(--danger);
+}
+
+input.invalid:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 16%, transparent);
 }
 
 .grid {

@@ -1,20 +1,29 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, inject, onMounted, ref, watch } from 'vue'
 import { deleteReport, generateReport, getReport, listReports } from '../api/ai'
 import { getSettings } from '../api/settings'
+import ArtIcon from '../components/ArtIcon.vue'
+import AppSpinner from '../components/ui/AppSpinner.vue'
+import PageHeader from '../components/ui/PageHeader.vue'
+import SegmentedControl from '../components/ui/SegmentedControl.vue'
 
 const emit = defineEmits(['changed'])
+// 全局 toast 与应用内确认对话框(App.vue provide);提供降级以防组件树外调用
+const toast = inject('toast', { success: () => {}, error: () => {}, info: () => {}, undo: () => {} })
+const confirmDialog = inject('confirm-dialog', (o) => Promise.resolve(window.confirm(o.message || '')))
 
 const reportType = ref('daily') // daily / weekly
+const typeOptions = [
+  { value: 'daily', label: '日报', icon: 'calendar' },
+  { value: 'weekly', label: '周报', icon: 'timeline' },
+]
 const targetDate = ref(todayStr())
 const reports = ref([])
 const current = ref(null)
 const busy = ref(false)
 const error = ref('')
-const copied = ref(false)
 // 报告个性化设置（来自应用设置，带默认值兜底）
 const settings = ref({ taskLimit: 50, timeout: 180, historyFilter: true })
-let copiedTimer = null
 
 function todayStr() {
   const d = new Date()
@@ -74,8 +83,9 @@ async function generate() {
     )
     await loadReports()
     emit('changed')
+    toast.success('报告已生成')
   } catch (e) {
-    error.value = e.message
+    toast.error(`生成${typeLabel.value}失败：${e.message}`)
   } finally {
     busy.value = false
   }
@@ -92,25 +102,31 @@ async function viewReport(id) {
 }
 
 async function removeReport(id) {
+  const ok = await confirmDialog({
+    title: '删除报告',
+    message: '删除后不可恢复，确定删除这份报告吗？',
+    confirmText: '删除',
+    danger: true,
+  })
+  if (!ok) return
   try {
     await deleteReport(id)
     if (current.value?.id === id) current.value = null
     await loadReports()
+    toast.success('报告已删除')
   } catch (e) {
-    error.value = e.message
+    toast.error(`删除失败：${e.message}`)
   }
 }
 
-function copyContent() {
+async function copyContent() {
   if (!current.value?.content) return
-  navigator.clipboard
-    ?.writeText(current.value.content)
-    .then(() => {
-      copied.value = true
-      clearTimeout(copiedTimer)
-      copiedTimer = setTimeout(() => (copied.value = false), 1500)
-    })
-    .catch(() => {})
+  try {
+    await navigator.clipboard.writeText(current.value.content)
+    toast.success('已复制到剪贴板')
+  } catch {
+    toast.error('复制失败，请手动选择文本复制')
+  }
 }
 
 // 轻量 markdown 渲染（先 escape 再处理标题/粗体/列表/段落），避免引入额外依赖
@@ -159,28 +175,24 @@ function renderMarkdown(md) {
 </script>
 
 <template>
-  <div class="report-view">
-    <section class="toolbar panel">
-      <div class="seg">
-        <button :class="{ active: reportType === 'daily' }" @click="reportType = 'daily'">日报</button>
-        <button :class="{ active: reportType === 'weekly' }" @click="reportType = 'weekly'">周报</button>
-      </div>
+  <div class="report-view workspace-page">
+    <PageHeader icon="archive" title="日报周报" subtitle="由 AI 汇总你的任务进展，一键生成日报与周报。" />
+
+    <section class="toolbar card">
+      <SegmentedControl v-model="reportType" :options="typeOptions" />
       <input v-model="targetDate" type="date" />
-      <button class="primary" :disabled="busy" @click="generate">
+      <button type="button" :disabled="busy" @click="generate">
         {{ busy ? '生成中…' : `生成${typeLabel}` }}
       </button>
-      <button v-if="current" class="copy-btn" :class="{ done: copied }" @click="copyContent">
-        {{ copied ? '已复制 ✓' : '复制全文' }}
-      </button>
+      <button v-if="current" type="button" class="ghost" @click="copyContent">复制全文</button>
     </section>
 
     <p v-if="error" class="error">{{ error }}</p>
 
     <div class="body">
-      <section class="content panel">
+      <section class="content card">
         <div v-if="busy" class="loading-overlay">
-          <span class="spinner"></span>
-          <p>正在生成{{ typeLabel }}…</p>
+          <AppSpinner size="lg" :label="`正在生成${typeLabel}…`" />
         </div>
         <article v-if="current" class="report-article" :class="{ dimmed: busy }">
           <header>
@@ -194,7 +206,7 @@ function renderMarkdown(md) {
         </div>
       </section>
 
-      <aside class="history panel">
+      <aside class="history card">
         <h3>
           历史报告
           <span v-if="settings.historyFilter" class="filter-tag">仅{{ typeLabel }}</span>
@@ -203,13 +215,16 @@ function renderMarkdown(md) {
           <button
             v-for="r in reports"
             :key="r.id"
+            type="button"
             class="hist-item"
             :class="{ active: current?.id === r.id }"
             @click="viewReport(r.id)"
           >
             <span class="hist-title">{{ r.title }}</span>
             <span class="hist-meta">{{ typeLabelOf(r) }} · {{ formatDate(r.created_at) }}</span>
-            <span class="hist-del" title="删除" @click.stop="removeReport(r.id)">×</span>
+            <span class="hist-del" title="删除" @click.stop="removeReport(r.id)">
+              <ArtIcon name="close" tone="pearl" :size="14" />
+            </span>
           </button>
           <p v-if="!reports.length" class="muted">暂无历史报告</p>
         </div>
@@ -224,15 +239,12 @@ function renderMarkdown(md) {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
   height: 100%;
 }
-.panel {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 16px;
-  box-shadow: var(--shadow-md), var(--shadow-inset);
+/* 根节点已有 gap,去掉 PageHeader 自带下间距避免叠加 */
+.report-view :deep(.page-header) {
+  margin-bottom: 0;
 }
 .toolbar {
   display: flex;
@@ -240,46 +252,12 @@ function renderMarkdown(md) {
   gap: 12px;
   flex-wrap: wrap;
 }
-.seg {
-  display: inline-flex;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 3px;
-}
-.seg button {
-  background: transparent;
-  padding: 6px 16px;
-  border-radius: var(--radius-sm);
-  font-weight: 600;
-  color: var(--text-soft);
-}
-.seg button.active {
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-}
-input[type='date'] {
-  padding: 7px 10px;
-  border-radius: var(--radius-sm);
-}
-.primary {
-  background: var(--accent);
-  color: #fff;
-  font-weight: 650;
-  padding: 8px 18px;
-  border-radius: var(--radius-sm);
-}
-.copy-btn {
-  padding: 8px 14px;
-  border-radius: var(--radius-sm);
-  color: var(--text-soft);
-}
-.copy-btn.done {
-  color: var(--success);
-  font-weight: 650;
+/* 全局 input 为 width:100%,工具条内恢复自适应宽度 */
+.toolbar input[type='date'] {
+  width: auto;
 }
 .error {
-  color: var(--pri-high);
+  color: var(--danger);
   margin: 0;
 }
 .body {
@@ -287,7 +265,7 @@ input[type='date'] {
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 280px;
-  gap: 14px;
+  gap: 16px;
 }
 .content {
   position: relative;
@@ -299,35 +277,18 @@ input[type='date'] {
   inset: 0;
   z-index: 3;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  color: var(--text-soft);
   background: color-mix(in srgb, var(--surface) 72%, transparent);
   border-radius: var(--radius-md);
 }
 .placeholder {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
   color: var(--text-soft);
   min-height: 240px;
-}
-.spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid var(--surface-2);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.9s linear infinite;
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  text-align: center;
 }
 .report-article.dimmed {
   opacity: 0.45;
@@ -406,14 +367,17 @@ input[type='date'] {
   grid-template-columns: 1fr auto;
   gap: 2px 8px;
   text-align: left;
+  color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 10px 12px;
+  box-shadow: none;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 .hist-item:hover {
   border-color: var(--accent);
+  background: var(--surface);
 }
 .hist-item.active {
   border-color: var(--accent);
@@ -432,18 +396,17 @@ input[type='date'] {
   grid-column: 2;
   grid-row: 1 / span 2;
   align-self: center;
-  color: var(--text-soft);
-  font-size: 16px;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
+  display: inline-flex;
+  padding: 4px;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: background 0.15s ease;
 }
 .hist-del:hover {
-  color: var(--pri-high);
-  background: rgba(242, 107, 122, 0.1);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
-.muted {
-  color: var(--text-soft);
-  font-size: 13px;
+.hist-del:hover :deep(.art-icon) {
+  --icon-color: var(--danger);
 }
 @media (max-width: 900px) {
   .body {

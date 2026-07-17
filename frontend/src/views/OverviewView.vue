@@ -1,6 +1,8 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import ArtIcon from '../components/ArtIcon.vue'
+import EmptyState from '../components/ui/EmptyState.vue'
+import PageHeader from '../components/ui/PageHeader.vue'
 
 const props = defineProps({
   tasks: { type: Array, required: true },
@@ -91,19 +93,31 @@ const stats = computed(() => [
   { label: '本周截止', value: weekDue.value.length, tone: 'calm', icon: 'timeline', iconTone: 'sand' },
   { label: '完成率', value: `${doneRate.value}%`, tone: 'calm', icon: 'overview', iconTone: 'mint' },
 ])
+
+// App.vue 中 openEdit(null) 与 openCreate() 等价(editing 为 null 时保存走新建),
+// 空状态「新建任务」沿用现有 open 事件,不新增事件。
+function createTask() {
+  emit('open', null)
+}
 </script>
 
 <template>
   <div class="overview workspace-page">
-    <div class="overview-head">
-      <h2 class="page-title">
-        <ArtIcon name="overview" tone="mint" :size="44" tile label="日程总览" />
-        <span>日程总览</span>
-      </h2>
-      <p class="muted">从全局看清轻重缓急，让节奏保持平稳。</p>
-    </div>
+    <PageHeader icon="overview" title="总览" subtitle="从全局看清轻重缓急，让节奏保持平稳。" />
 
-    <div class="overview-grid workspace-shell">
+    <EmptyState
+      v-if="!tasks.length"
+      icon="task"
+      title="还没有任务"
+      hint="创建第一项任务后，这里会汇总逾期、今日到期、本周截止与完成节奏。"
+    >
+      <button type="button" class="empty-create" @click="createTask">
+        <ArtIcon name="plus" tone="on-accent" :size="16" />
+        <span>新建任务</span>
+      </button>
+    </EmptyState>
+
+    <div v-else class="overview-grid workspace-shell">
       <aside class="overview-rail workspace-rail section-panel">
         <ArtIcon name="overview" tone="mint" :size="62" tile label="完成节奏" />
         <div class="completion">
@@ -115,7 +129,7 @@ const stats = computed(() => [
         </div>
         <div class="rail-stats">
           <div class="rail-stat" v-for="(count, status) in statusCount" :key="status">
-            <span class="status-dot" :class="status"></span>
+            <span class="status-dot" :data-status="status"></span>
             <span>{{ status }}</span>
             <strong>{{ count }}</strong>
           </div>
@@ -193,7 +207,7 @@ const stats = computed(() => [
             </h3>
             <div class="status-grid">
               <div class="status-item" v-for="(count, status) in statusCount" :key="status">
-                <span class="status-dot" :class="status"></span>
+                <span class="status-dot" :data-status="status"></span>
                 <span class="status-name">{{ status }}</span>
                 <span class="status-num">{{ count }}</span>
               </div>
@@ -244,22 +258,20 @@ const stats = computed(() => [
 .overview {
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 20px;
   max-width: none;
   margin: 0 auto;
 }
 
-.overview-head h2 {
-  margin: 0;
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: 0.5px;
-  white-space: nowrap;
+/* 根节点已有 gap,去掉 PageHeader 自带下间距避免叠加 */
+.overview :deep(.page-header) {
+  margin-bottom: 0;
 }
 
-.overview-head p {
-  margin: 6px 0 0;
-  font-size: 14px;
+.empty-create {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .stats-grid {
@@ -271,7 +283,7 @@ const stats = computed(() => [
 .stat {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   padding: 20px;
 }
 
@@ -280,7 +292,7 @@ const stats = computed(() => [
 }
 
 .stat.alert .stat-icon {
-  color: var(--pri-high);
+  color: var(--danger);
 }
 
 .stat-main {
@@ -295,13 +307,13 @@ const stats = computed(() => [
 }
 
 .stat.alert .num {
-  color: var(--pri-high);
+  color: var(--danger);
 }
 
 .stat .label {
   color: var(--text-soft);
   font-size: 12px;
-  margin-top: 3px;
+  margin-top: 4px;
   font-weight: 500;
 }
 
@@ -312,7 +324,7 @@ const stats = computed(() => [
 }
 
 .section h3 {
-  margin: 0 0 14px;
+  margin: 0 0 12px;
   font-size: 15px;
   font-weight: 700;
   display: flex;
@@ -324,14 +336,14 @@ const stats = computed(() => [
 .task-list {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 8px;
 }
 
 .li {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  gap: 12px;
   padding: 12px 14px;
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -357,9 +369,9 @@ const stats = computed(() => [
 }
 
 .tag.today {
-  background: rgba(69, 184, 235, 0.1);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
   color: var(--accent-hover);
-  border-color: rgba(69, 184, 235, 0.22);
+  border-color: color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 .status-section {
@@ -369,8 +381,8 @@ const stats = computed(() => [
 .status-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
-  margin-bottom: 18px;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
 .status-item {
@@ -395,9 +407,10 @@ const stats = computed(() => [
   flex-shrink: 0;
 }
 
-.status-dot.待办 { background: var(--pri-high); }
-.status-dot.进行中 { background: var(--pri-mid); }
-.status-dot.完成 { background: var(--pri-low); }
+/* 状态语义:待办=中性,进行中=警示,完成=成功(勿与优先级色混淆) */
+.status-dot[data-status='待办'] { background: var(--sea-400); }
+.status-dot[data-status='进行中'] { background: var(--warning); }
+.status-dot[data-status='完成'] { background: var(--success); }
 
 .status-name {
   color: var(--text-soft);
@@ -431,11 +444,11 @@ const stats = computed(() => [
 }
 
 .progress-bar.doing {
-  background: linear-gradient(90deg, var(--pri-mid), var(--sand-200));
+  background: linear-gradient(90deg, var(--warning), var(--sand-200));
 }
 
 .total {
-  margin: 14px 0 0;
+  margin: 16px 0 0;
   text-align: center;
   font-size: 13px;
 }
@@ -473,7 +486,7 @@ const stats = computed(() => [
 
 .completion strong {
   color: var(--accent-strong);
-  font-size: 42px;
+  font-size: 40px;
   line-height: 1;
 }
 
@@ -503,7 +516,7 @@ const stats = computed(() => [
   min-width: 0;
   padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   background: var(--surface-2);
 }
 
@@ -533,7 +546,7 @@ const stats = computed(() => [
 }
 
 .advice-item.urgent {
-  border-color: rgba(217, 93, 106, 0.3);
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
   background: var(--danger-soft);
 }
 

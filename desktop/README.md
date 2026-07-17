@@ -57,8 +57,11 @@ npm start
 
 ## 图标
 
-`build/icon.ico`（多尺寸）与 `build/icon-256.png`（托盘）由 `scripts/build-icon.py`
-从 `frontend/public/favicon.svg` 生成。替换图标源后重新运行该脚本与 `npm run dist`。
+`build/icon.ico`（16–256 多尺寸）、`build/icon-256.png`（托盘）与 `build/icon-1024.png`
+由 `scripts/build-icon.py` 用 Pillow 程序化绘制：海玻璃水蓝青渐变底板 + 水滴融合表盘
+（10:10 指针），与前端 sea-glass 主题一致；≤48 小尺寸使用加粗笔画变体保证可读性。
+修改脚本后重新运行该脚本与 `npm run dist`。浏览器标签页图标为
+`frontend/public/favicon.svg`（同一设计的手绘简版）。
 
 ## 端口与单实例
 

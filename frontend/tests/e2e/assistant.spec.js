@@ -139,10 +139,13 @@ test('settings remain reachable from the floating assistant', async ({ page }) =
   await page.getByRole('button', { name: /知时助手/ }).click()
   await page.getByRole('tab', { name: '设置' }).click()
 
-  await expect(page.getByRole('heading', { name: '模型配置' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '助手人设' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Skill 规则' })).toBeVisible()
+  // 设置区为手风琴分组:摘要行全部可见,默认展开「模型配置」
+  await expect(page.getByText('模型配置', { exact: true })).toBeVisible()
+  await expect(page.getByText('人设', { exact: true })).toBeVisible()
+  await expect(page.getByText('Skill 规则', { exact: true })).toBeVisible()
   await expect(page.getByLabel('Provider')).toHaveValue('claude_messages')
+  // HTTP Proxy 在折叠的「高级选项」组内,展开后可见
+  await page.getByText('高级选项', { exact: true }).click()
   await expect(page.getByLabel('HTTP Proxy')).toHaveValue('http://127.0.0.1:7890')
 })
 
@@ -229,5 +232,5 @@ test('mobile opens the assistant in fullscreen mode with settings available', as
   await expect(page.getByRole('button', { name: '退出全屏' })).toBeVisible()
 
   await page.getByRole('tab', { name: '设置' }).click()
-  await expect(page.getByRole('heading', { name: '模型配置' })).toBeVisible()
+  await expect(page.getByText('模型配置', { exact: true })).toBeVisible()
 })

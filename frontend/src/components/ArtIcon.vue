@@ -29,6 +29,8 @@ const ICON_NAMES = [
   'sun',
   'close',
   'restore',
+  'check',
+  'alert',
   'upload',
   'file',
   'image',
@@ -75,9 +77,10 @@ const fileLabel = computed(() => props.labelText.slice(0, 5).toUpperCase())
       <circle v-if="tile" class="soft-orbit" cx="12" cy="12" r="9.2" />
 
       <g v-if="iconName === 'brand'">
-        <path d="M4.2 14.2c2.4-3.8 5.7-4.2 9.6-1.2 2.2 1.7 4.2 1.8 6 .4" />
-        <path d="M5.4 17.2c2.8 1.5 5.7 1.1 8.7-1.1 1.9-1.4 3.7-1.6 5.4-.4" />
-        <circle class="pearl" cx="14.9" cy="7.6" r="2.6" />
+        <path d="M12 2.8c-1 2-3.9 5.6-4.47 7.54a5.2 5.2 0 1 0 8.94 0C15.9 8.4 13 4.8 12 2.8Z" />
+        <path d="M12 13l-2.17-1.25" />
+        <path d="M12 13l2.86-1.65" />
+        <circle class="pearl" cx="12" cy="13" r="0.8" />
       </g>
       <g v-else-if="iconName === 'board'">
         <rect x="4" y="5" width="4.5" height="13.5" rx="1.4" />
@@ -159,6 +162,15 @@ const fileLabel = computed(() => props.labelText.slice(0, 5).toUpperCase())
         <path d="M7.2 8.6H4.4V5.8" />
         <path d="M12 9v4.2l2.8 1.6" />
       </g>
+      <g v-else-if="iconName === 'check'">
+        <circle cx="12" cy="12" r="8.4" />
+        <path d="M8.2 12.4l2.6 2.6 5-5.4" />
+      </g>
+      <g v-else-if="iconName === 'alert'">
+        <path d="M12 4.4 3.6 18.8h16.8L12 4.4Z" />
+        <path d="M12 9.6v4.4" />
+        <path d="M12 16.6v.2" />
+      </g>
       <g v-else-if="iconName === 'upload'">
         <path d="M5 17.4v1.2a1.8 1.8 0 0 0 1.8 1.8h10.4a1.8 1.8 0 0 0 1.8-1.8v-1.2" />
         <path d="M12 15.8V4.6M8.5 8.1L12 4.6l3.5 3.5" />
@@ -234,8 +246,8 @@ const fileLabel = computed(() => props.labelText.slice(0, 5).toUpperCase())
 .art-icon.tile {
   border-radius: 38%;
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.26)),
-    color-mix(in srgb, var(--icon-color) 12%, transparent);
+    var(--tile-sheen),
+    color-mix(in srgb, var(--icon-color) 13%, transparent);
   border: 1px solid color-mix(in srgb, var(--icon-color) 24%, var(--border));
   box-shadow: var(--shadow-xs), var(--shadow-inset), 0 0 18px var(--icon-glow);
 }
@@ -252,7 +264,7 @@ const fileLabel = computed(() => props.labelText.slice(0, 5).toUpperCase())
 }
 
 .art-icon .pearl {
-  fill: color-mix(in srgb, currentColor 20%, white);
+  fill: color-mix(in srgb, currentColor 22%, var(--icon-pearl-mix));
   stroke: currentColor;
 }
 
@@ -278,27 +290,27 @@ const fileLabel = computed(() => props.labelText.slice(0, 5).toUpperCase())
 
 .tone-mint {
   --icon-color: var(--success);
-  --icon-glow: rgba(74, 175, 124, 0.18);
+  --icon-glow: color-mix(in srgb, var(--success) 18%, transparent);
 }
 
 .tone-pearl {
   --icon-color: var(--text-soft);
-  --icon-glow: rgba(151, 200, 218, 0.18);
+  --icon-glow: var(--accent-glow);
 }
 
 .tone-coral {
   --icon-color: var(--danger);
-  --icon-glow: rgba(217, 93, 106, 0.16);
+  --icon-glow: color-mix(in srgb, var(--danger) 16%, transparent);
 }
 
 .tone-sand {
   --icon-color: var(--warning);
-  --icon-glow: rgba(197, 138, 66, 0.16);
+  --icon-glow: color-mix(in srgb, var(--warning) 16%, transparent);
 }
 
 .tone-slate {
   --icon-color: var(--text-soft);
-  --icon-glow: rgba(23, 56, 74, 0.1);
+  --icon-glow: color-mix(in srgb, var(--text) 10%, transparent);
 }
 
 .tone-on-accent {

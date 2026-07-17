@@ -1,11 +1,11 @@
-﻿; 知时 桌面应用 Inno Setup 安装脚本
+; 知时 桌面应用 Inno Setup 安装脚本
 ; 解决 electron-builder NSIS 无法在选盘符时自动建子目录的问题：
 ; Inno Setup 目录页选盘符时，Pascal Script 自动在路径末尾追加 \知时
 ; 编译：ISCC.exe zhishi.iss
 ; 源：electron-builder 产出的 release/win-unpacked/
 
 #define MyAppName "知时"
-#define MyAppVersion "1.2.2"
+#define MyAppVersion "1.2.3"
 #define MyAppPublisher "知时"
 #define MyAppExeName "知时.exe"
 

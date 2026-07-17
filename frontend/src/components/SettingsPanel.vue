@@ -1,10 +1,15 @@
 <script setup>
 // 设置面板：开机自启（注册表）、知时助手悬浮窗、关闭按钮行为（后端应用设置）。
 // 桌面环境经 IPC 读写；浏览器访问时桌面相关项禁用并提示仅在桌面应用内可用。
+// 弹层基座为 BaseModal(Esc、焦点陷阱、z-index 统一),组件常驻、由 open 属性控制。
 import { onMounted, onBeforeUnmount, ref } from 'vue'
 import ArtIcon from './ArtIcon.vue'
+import BaseModal from './ui/BaseModal.vue'
 import { getSettings, updateSettings } from '../api/settings'
 
+defineProps({
+  open: { type: Boolean, default: false },
+})
 const emit = defineEmits(['close'])
 
 const api = window.electronAPI
@@ -146,16 +151,10 @@ function openGitHub() {
   if (window.electronAPI?.openExternal) window.electronAPI.openExternal(GITHUB_URL)
   else window.open(GITHUB_URL, '_blank', 'noopener')
 }
-
-function onKeydown(e) {
-  if (e.key === 'Escape') emit('close')
-}
-onMounted(() => window.addEventListener('keydown', onKeydown))
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
-  <div class="overlay" @click.self="emit('close')">
+  <BaseModal :open="open" size="sm" :closable="false" label="设置" @close="emit('close')">
     <div class="panel">
       <div class="head">
         <div class="head-title">
@@ -301,34 +300,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         </span>
       </section>
     </div>
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 130;
-  background: rgba(23, 74, 102, 0.28);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-
 .panel {
-  width: 420px;
-  max-width: 92vw;
-  max-height: 90vh;
-  overflow-y: auto;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xl), var(--shadow-inset);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   padding: 22px;
 }
 
@@ -424,7 +400,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 .row-desc {
   margin-top: 3px;
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--text-soft);
 }
 .saved-hint {
@@ -442,7 +418,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   flex: 1;
   min-width: 0;
   padding: 9px 6px;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 650;
   border-radius: var(--radius-sm);
   background: var(--surface);
@@ -457,7 +433,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 .seg-btn.active {
   color: #fff;
-  background: linear-gradient(135deg, var(--accent), #62b8d2);
+  background: var(--btn-gradient);
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
   box-shadow: 0 4px 14px var(--accent-glow);
 }
@@ -484,11 +460,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   background: var(--surface-3);
 }
 .switch.on {
-  background: linear-gradient(135deg, var(--accent), #62b8d2);
+  background: var(--btn-gradient);
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
 }
 .switch.on:hover {
-  background: linear-gradient(135deg, var(--accent-hover), var(--accent));
+  background: var(--btn-gradient-hover);
 }
 .switch .knob {
   width: 18px;

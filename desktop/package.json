@@ -1,14 +1,14 @@
 {
   "name": "zhishi-desktop",
   "private": true,
-  "version": "1.2.2",
+  "version": "1.2.3",
   "license": "MIT",
   "description": "知时 - 桌面应用壳（Electron + 本地 FastAPI 后端）",
   "author": "知时",
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "set \"ELECTRON_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/electron/\" && set \"ELECTRON_BUILDER_BIN_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/\" && electron-builder --win",
+    "dist": "set \"ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/\" && set \"ELECTRON_BUILDER_BIN_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/\" && electron-builder --win",
     "build:backend": "node scripts/build-backend.js",
     "build:icon": "python scripts/build-icon.py"
   },

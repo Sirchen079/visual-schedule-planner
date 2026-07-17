@@ -2,9 +2,15 @@
 import { computed, inject, onMounted, ref } from 'vue'
 import { deleteFile, getContentUrl, listFiles, uploadFile } from '../api/files'
 import ArtIcon from '../components/ArtIcon.vue'
+import AppSpinner from '../components/ui/AppSpinner.vue'
+import BaseModal from '../components/ui/BaseModal.vue'
+import EmptyState from '../components/ui/EmptyState.vue'
+import PageHeader from '../components/ui/PageHeader.vue'
 
 // 应用内确认对话框（App.vue provide）；提供降级以防组件树外调用
 const confirmDialog = inject('confirm-dialog', (o) => Promise.resolve(window.confirm(o.message || '')))
+// 全局操作反馈 toast（App.vue provide）
+const toast = inject('toast', { success: () => {}, error: () => {}, info: () => {}, undo: () => {} })
 
 const files = ref([])
 const q = ref('')
@@ -12,7 +18,8 @@ const loading = ref(false)
 const error = ref(null)
 const preview = ref(null)
 const input = ref(null)
-const dragOver = ref(false)
+const dragActive = ref(false)
+const uploadProgress = ref(null) // { done, total }
 const previewFailures = ref(new Set())
 
 const isLink = (file) => Boolean(file.source_url)
@@ -66,19 +73,27 @@ async function load() {
   }
 }
 
+// 多文件并行上传：实时进度 + 逐个汇报结果
 async function uploadMany(fileList) {
   const list = Array.from(fileList || [])
   if (!list.length) return
-  loading.value = true
-  try {
-    for (const file of list) await uploadFile(file)
+  uploadProgress.value = { done: 0, total: list.length }
+  const results = await Promise.allSettled(
+    list.map((file) =>
+      uploadFile(file).finally(() => {
+        uploadProgress.value.done += 1
+      })
+    )
+  )
+  uploadProgress.value = null
+  const succeeded = results.filter((r) => r.status === 'fulfilled').length
+  if (succeeded) {
+    toast.success(`已上传 ${succeeded} 个文件`)
     await load()
-  } catch (e) {
-    error.value = e.message
-  } finally {
-    loading.value = false
-    dragOver.value = false
   }
+  results.forEach((r, i) => {
+    if (r.status === 'rejected') toast.error(`「${list[i].name}」上传失败`)
+  })
 }
 
 async function remove(file) {
@@ -88,8 +103,13 @@ async function remove(file) {
     confirmText: '移入回收站',
   })
   if (!ok) return
-  await deleteFile(file.id)
-  await load()
+  try {
+    await deleteFile(file.id)
+    toast.success('已移入回收站')
+    await load()
+  } catch {
+    toast.error(`「${file.original_name}」删除失败`)
+  }
 }
 
 function open(file) {
@@ -109,7 +129,30 @@ function markPreviewFailed(file) {
   previewFailures.value = new Set([...previewFailures.value, file.id])
 }
 
-const emptyText = computed(() => (q.value ? '没有匹配的资料' : '还没有资料，拖文件进来试试'))
+// 整页拖放：dragenter/dragleave 计数器，避免在子元素间移动时高亮闪烁
+let dragDepth = 0
+const hasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files')
+function onDragEnter(e) {
+  if (!hasFiles(e)) return
+  dragDepth += 1
+  dragActive.value = true
+}
+function onDragOver(e) {
+  if (hasFiles(e)) e.preventDefault()
+}
+function onDragLeave(e) {
+  if (!hasFiles(e)) return
+  dragDepth = Math.max(dragDepth - 1, 0)
+  if (!dragDepth) dragActive.value = false
+}
+function onDrop(e) {
+  if (!hasFiles(e)) return
+  e.preventDefault()
+  dragDepth = 0
+  dragActive.value = false
+  uploadMany(e.dataTransfer.files)
+}
+
 const typeStats = computed(() => {
   const stats = [
     { key: 'pdf', label: 'PDF', icon: 'file', tone: 'coral', count: files.value.filter(isPdf).length },
@@ -125,31 +168,29 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="library workspace-page">
-    <div class="library-head">
-      <div>
-        <h2 class="page-title">
-        <ArtIcon name="library" tone="aqua" :size="44" tile label="资料库" />
-        <span>资料库</span>
-      </h2>
-        <p class="muted">集中管理论文、课件、截图、链接和任务资料。</p>
-      </div>
-      <button class="upload-btn" @click="input?.click()">
-        <ArtIcon name="upload" tone="on-accent" :size="20" />
-        <span>上传资料</span>
-      </button>
-      <input ref="input" type="file" multiple hidden @change="uploadMany($event.target.files)" />
-    </div>
-
-    <div
-      class="drop card"
-      :class="{ active: dragOver }"
-      @dragover.prevent="dragOver = true"
-      @dragleave.prevent="dragOver = false"
-      @drop.prevent="uploadMany($event.dataTransfer.files)"
-      @click="input?.click()"
+  <div
+    class="library workspace-page"
+    @dragenter="onDragEnter"
+    @dragover="onDragOver"
+    @dragleave="onDragLeave"
+    @drop="onDrop"
+  >
+    <PageHeader
+      icon="library"
+      title="资料库"
+      subtitle="集中管理论文、课件、截图、链接和任务资料。"
     >
-      <div class="drop-title">{{ dragOver ? '松开以上传文件' : '拖拽文件到这里，或点击选择' }}</div>
+      <template #actions>
+        <button class="upload-btn" @click="input?.click()">
+          <ArtIcon name="upload" tone="on-accent" :size="20" />
+          <span>上传资料</span>
+        </button>
+        <input ref="input" type="file" multiple hidden @change="uploadMany($event.target.files)" />
+      </template>
+    </PageHeader>
+
+    <div class="drop card" :class="{ active: dragActive }" @click="input?.click()">
+      <div class="drop-title">{{ dragActive ? '松开以上传文件' : '拖拽文件到这里，或点击选择' }}</div>
       <div class="muted">文件将保存到本机资料库，便于后续关联任务。</div>
     </div>
 
@@ -172,14 +213,20 @@ onMounted(load)
     </div>
 
     <div v-if="error" class="card error">{{ error }}</div>
-    <div v-if="loading" class="loading-line muted">
-      <span class="spinner"></span>
-      <span>处理中…</span>
+
+    <div v-if="uploadProgress" class="status-line">
+      <AppSpinner size="sm" :label="`正在上传 ${uploadProgress.done}/${uploadProgress.total}`" />
+    </div>
+    <div v-else-if="loading" class="status-line">
+      <AppSpinner size="sm" label="加载中…" />
     </div>
 
-    <div v-if="!loading && !files.length" class="card empty">
-      <div>{{ emptyText }}</div>
-    </div>
+    <EmptyState
+      v-if="!loading && !files.length"
+      icon="library"
+      :title="q ? '没有匹配的资料' : '还没有资料'"
+      :hint="q ? '换个关键词试试。' : '把文件拖进页面，或点击右上角上传按钮。'"
+    />
 
     <div class="grid" v-else>
       <div class="file-card card" v-for="file in files" :key="file.id">
@@ -219,55 +266,46 @@ onMounted(load)
       </div>
     </div>
 
-    <Transition name="pop">
-      <div v-if="preview" class="overlay" @click.self="preview = null">
-        <div class="preview-modal card">
-          <div class="modal-head">
-            <span class="preview-name" :title="preview.original_name">{{ preview.original_name }}</span>
-            <button class="ghost" @click="preview = null">关闭</button>
-          </div>
-          <img v-if="isImage(preview)" :src="getContentUrl(preview.id)" />
-          <iframe v-else :src="getContentUrl(preview.id)"></iframe>
-        </div>
+    <BaseModal
+      :open="!!preview"
+      size="lg"
+      :label="preview?.original_name || '预览'"
+      @close="preview = null"
+    >
+      <div v-if="preview" class="preview-body">
+        <div class="preview-name" :title="preview.original_name">{{ preview.original_name }}</div>
+        <img v-if="isImage(preview)" :src="getContentUrl(preview.id)" :alt="preview.original_name" />
+        <iframe v-else :src="getContentUrl(preview.id)" :title="preview.original_name"></iframe>
       </div>
-    </Transition>
+    </BaseModal>
+
+    <div v-if="dragActive" class="drag-mask">
+      <ArtIcon name="upload" tone="aqua" :size="56" tile />
+      <span class="drag-mask-text">松开以上传文件</span>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .library {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
   max-width: none;
   margin: 0 auto;
 }
 
-.library-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-h2 {
-  margin: 0;
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: 0.5px;
-  white-space: nowrap;
-}
-
-p {
-  margin: 6px 0 0;
-  font-size: 14px;
+/* PageHeader 自带 margin-bottom，与页面 flex 间距叠加拿掉 */
+.library :deep(.page-header) {
+  margin-bottom: 0;
 }
 
 .upload-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 11px 22px;
+  gap: 8px;
+  padding: 12px 24px;
   border-radius: var(--radius-pill);
   font-size: 14px;
   font-weight: 600;
@@ -285,7 +323,7 @@ p {
   text-align: center;
   border: 2px dashed var(--border);
   cursor: pointer;
-  padding: 22px 28px;
+  padding: 24px 28px;
   transition: transform 0.25s ease, border-color 0.25s ease, background 0.25s ease;
 }
 
@@ -305,54 +343,40 @@ p {
 .drop-title {
   font-weight: 600;
   font-size: 15px;
-  margin-bottom: 5px;
+  margin-bottom: 4px;
 }
 
 .toolbar {
   display: flex;
-  gap: 10px;
+  gap: 12px;
 }
 
 .search-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .toolbar input {
   max-width: 340px;
 }
 
-.loading-line {
+.status-line {
   display: flex;
   align-items: center;
-  gap: 10px;
-}
-
-.spinner {
-  width: 18px;
-  height: 18px;
-  border: 2px solid var(--surface-2);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.9s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 18px;
+  gap: 16px;
 }
 
 .file-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 13px;
+  gap: 8px;
+  padding: 12px;
   transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
 
@@ -362,7 +386,7 @@ p {
 }
 
 .preview {
-  height: 145px;
+  height: 144px;
   border-radius: var(--radius-sm);
   background: var(--surface-2);
   overflow: hidden;
@@ -411,66 +435,43 @@ p {
 .actions {
   display: flex;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 8px;
   margin-top: auto;
 }
 
 .actions button {
-  padding: 6px 12px;
+  padding: 4px 12px;
   font-size: 13px;
 }
 
-.empty,
 .error {
   text-align: center;
-  padding: 40px;
+  padding: 16px 20px;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
 }
 
-.error {
-  color: var(--pri-high);
-  background: rgba(242, 107, 122, 0.08);
-}
-
-.overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  background: rgba(8, 47, 73, 0.32);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+/* 预览弹层内容（外壳由 BaseModal 提供） */
+.preview-body {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  height: min(76vh, 720px);
   padding: 20px;
 }
 
-.preview-modal {
-  width: min(900px, 92vw);
-  height: min(720px, 88vh);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.modal-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-  font-weight: 700;
-  flex-shrink: 0;
-  gap: 12px;
-}
-
 .preview-name {
+  font-weight: 700;
+  padding-right: 44px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+  flex-shrink: 0;
 }
 
-.preview-modal img,
-.preview-modal iframe {
+.preview-body img,
+.preview-body iframe {
   flex: 1;
   width: 100%;
   min-height: 0;
@@ -480,13 +481,31 @@ p {
   background: var(--surface-2);
 }
 
+/* 整页拖放高亮遮罩（pointer-events 关闭，不拦截落下的文件） */
+.drag-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border-radius: var(--radius-lg);
+  border: 2px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 82%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+
+.drag-mask-text {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent-hover);
+}
+
 @media (max-width: 640px) {
-  .library-head {
-    align-items: center;
-  }
-  .library-head p {
-    display: none;
-  }
   .toolbar input {
     max-width: none;
   }

@@ -3,11 +3,14 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import draggable from 'vuedraggable'
 import TaskCard from '../components/TaskCard.vue'
 import ArtIcon from '../components/ArtIcon.vue'
+import PageHeader from '../components/ui/PageHeader.vue'
+import { getDueReminders } from '../api/reminders'
+import { useWarmGreeting } from '../composables/useWarmGreeting'
 
 const props = defineProps({
   tasks: { type: Array, required: true },
 })
-const emit = defineEmits(['open', 'update-status', 'create'])
+const emit = defineEmits(['open', 'update-status', 'create', 'quick-create'])
 
 const COLUMNS = ['待办', '进行中', '完成']
 const lists = ref({ 待办: [], 进行中: [], 完成: [] })
@@ -90,14 +93,41 @@ function onKey(e) {
   }
 }
 onMounted(() => window.addEventListener('keydown', onKey))
-onUnmounted(() => window.removeEventListener('keydown', onKey))
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKey)
+  clearDragMarks()
+})
+
+// 拖拽：仅允许跨列移动（同列排序不持久化、刷新会回弹，禁止以免误导）。
+// 拖动过程中高亮可投放的目标列，同列时给出 not-allowed 光标反馈。
+function onMove(evt) {
+  const crossColumn = evt.from !== evt.to
+  document
+    .querySelectorAll('.col-body.drop-target')
+    .forEach((el) => el.classList.remove('drop-target'))
+  if (crossColumn && evt.to) evt.to.classList.add('drop-target')
+  document.body.classList.toggle('drag-no-drop', !crossColumn)
+  return crossColumn
+}
+
+function clearDragMarks() {
+  document
+    .querySelectorAll('.col-body.drop-target')
+    .forEach((el) => el.classList.remove('drop-target'))
+  document.body.classList.remove('drag-no-drop')
+}
 
 function onEnd(evt, targetStatus) {
+  clearDragMarks()
   const item = lists.value[targetStatus]?.[evt.newIndex]
   if (item && item.status !== targetStatus) {
     emit('update-status', item, targetStatus)
   }
 }
+
+// 排序键 → 中文文案（与工具栏下拉选项一致）
+const SORT_LABELS = { created: '最近创建', due: '截止日期', priority: '优先级' }
+const sortLabel = computed(() => SORT_LABELS[sortBy.value] || SORT_LABELS.created)
 
 const columnMeta = {
   待办: {
@@ -125,23 +155,67 @@ const boardMetrics = computed(() => [
 ])
 
 const visibleTags = computed(() => allTags.value.slice(0, 7))
+
+// 暖心提醒：时间问候 + 任务安排 + 连续使用时长，右侧栏顶部展示
+const { warm } = useWarmGreeting(() => props.tasks)
+
+// 右侧栏快速新建：回车即建到目标列（默认待办，列头 + 号可切换目标列并聚焦）
+const quickTitle = ref('')
+const quickStatus = ref('待办')
+const quickInput = ref(null)
+function focusQuick(status) {
+  quickStatus.value = status
+  quickInput.value?.focus()
+}
+function quickAdd() {
+  const title = quickTitle.value.trim()
+  if (!title) return
+  emit('quick-create', { title, status: quickStatus.value })
+  quickTitle.value = ''
+}
+
+// 临期/逾期任务（与提醒同源：24h 内到期 + 已逾期），点击直接打开编辑
+const dueSoon = ref({ upcoming: [], overdue: [] })
+async function loadDueSoon() {
+  try {
+    dueSoon.value = await getDueReminders(24)
+  } catch {
+    // 提醒接口不可用时静默降级，右侧栏仅不展示该块
+  }
+}
+onMounted(loadDueSoon)
+watch(() => props.tasks, loadDueSoon)
+const dueItems = computed(() =>
+  [
+    ...dueSoon.value.overdue.map((t) => ({ ...t, _overdue: true })),
+    ...dueSoon.value.upcoming,
+  ].slice(0, 6)
+)
+function fmtDue(d) {
+  if (!d) return ''
+  return new Date(d).toLocaleString('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
 </script>
 
 <template>
   <div class="board workspace-page">
-    <div class="board-head">
-      <div class="board-title">
-        <h2 class="page-title">
-          <ArtIcon name="board" tone="aqua" :size="44" tile label="任务看板" />
-          <span>任务看板</span>
-        </h2>
-        <p class="muted">像潮汐一样把任务归位，保持推进节奏清晰。</p>
-      </div>
-      <button class="create-btn" @click="emit('create')">
-        <ArtIcon name="plus" tone="on-accent" :size="20" />
-        <span>新建任务</span>
-      </button>
-    </div>
+    <PageHeader
+      icon="board"
+      title="任务看板"
+      subtitle="像潮汐一样把任务归位，保持推进节奏清晰。"
+    >
+      <template #actions>
+        <button class="create-btn" @click="emit('create')">
+          <ArtIcon name="plus" tone="on-accent" :size="20" />
+          <span>新建任务</span>
+        </button>
+      </template>
+    </PageHeader>
 
     <div class="board-toolbar">
       <div class="ctl">
@@ -200,6 +274,14 @@ const visibleTags = computed(() => allTags.value.slice(0, 7))
               <span class="col-name">{{ col }}</span>
             </div>
             <span class="count">{{ lists[col].length }}</span>
+            <button
+              class="col-add"
+              :title="`快速新建到「${col}」`"
+              :aria-label="`快速新建到${col}`"
+              @click="focusQuick(col)"
+            >
+              <ArtIcon name="plus" tone="pearl" :size="13" />
+            </button>
           </div>
 
           <draggable
@@ -207,6 +289,7 @@ const visibleTags = computed(() => allTags.value.slice(0, 7))
             group="tasks"
             item-key="id"
             :animation="220"
+            :move="onMove"
             ghost-class="ghost"
             chosen-class="chosen"
             drag-class="dragging"
@@ -215,11 +298,16 @@ const visibleTags = computed(() => allTags.value.slice(0, 7))
             @end="(e) => onEnd(e, col)"
           >
             <template #item="{ element }">
-              <TaskCard :task="element" @click="emit('open', element)" />
+              <TaskCard
+                :task="element"
+                @click="emit('open', element)"
+                @quick-status="(t, s) => emit('update-status', t, s)"
+              />
             </template>
             <template #footer>
-              <div v-if="!lists[col].length" class="empty-hint muted">
+              <div v-if="!lists[col].length" key="empty-hint" class="empty-hint muted">
                 <span>{{ columnMeta[col].hint }}</span>
+                <button class="empty-add" @click="focusQuick(col)">＋ 快速新建</button>
               </div>
             </template>
           </draggable>
@@ -228,33 +316,72 @@ const visibleTags = computed(() => allTags.value.slice(0, 7))
         </div>
       </div>
 
-      <aside class="board-insight section-panel">
-        <div class="insight-head">
-          <ArtIcon name="sort" tone="aqua" :size="38" tile label="看板节奏" />
-          <div>
-            <h3>看板节奏</h3>
-            <p class="muted">把筛选、标签和推进状态放在同一侧观察。</p>
+      <div class="board-side">
+        <section class="warmth-panel section-panel" :class="`mood-${warm.mood}`">
+          <ArtIcon :name="warm.icon" :tone="warm.tone" :size="34" tile :label="warm.title" />
+          <div class="warmth-text">
+            <strong>{{ warm.title }}</strong>
+            <p v-for="(line, i) in warm.lines" :key="i">{{ line }}</p>
           </div>
-        </div>
-        <div class="insight-block">
-          <strong>当前排序</strong>
-          <span>{{ sortBy }}</span>
-        </div>
-        <div class="tag-cloud" v-if="visibleTags.length">
-          <span
-            v-for="tag in visibleTags"
-            :key="tag.name"
-            class="tag-chip"
-            :style="{ '--tag-color': tag.color || 'var(--accent)' }"
-          >
-            {{ tag.name }}
-          </span>
-        </div>
-        <div v-else class="workspace-empty compact-empty">
-          <ArtIcon name="tag" tone="mint" :size="46" tile label="标签" />
-          <span>还没有标签，任务增加后这里会成为快速导航区。</span>
-        </div>
-      </aside>
+        </section>
+
+        <aside class="board-insight section-panel">
+          <div class="insight-head">
+            <ArtIcon name="sort" tone="aqua" :size="38" tile label="看板节奏" />
+            <div>
+              <h3>看板节奏</h3>
+              <p class="muted">快速新建、临期任务与标签导航放在手边。</p>
+            </div>
+          </div>
+
+          <div class="quick-add">
+            <input
+              ref="quickInput"
+              v-model="quickTitle"
+              placeholder="快速新建，回车创建"
+              @keydown.enter.prevent="quickAdd"
+            />
+            <select v-model="quickStatus" title="新建到哪一列" aria-label="新建到哪一列">
+              <option v-for="col in COLUMNS" :key="col" :value="col">{{ col }}</option>
+            </select>
+          </div>
+
+          <div class="due-block" v-if="dueItems.length">
+            <p class="due-title muted">临期任务 · {{ dueItems.length }}</p>
+            <button
+              v-for="t in dueItems"
+              :key="t.id"
+              class="due-item"
+              :class="{ overdue: t._overdue }"
+              :title="t.title"
+              @click="emit('open', t)"
+            >
+              <span class="due-dot"></span>
+              <span class="due-name">{{ t.title }}</span>
+              <span class="due-date">{{ t._overdue ? '已逾期' : fmtDue(t.due_date) }}</span>
+            </button>
+          </div>
+
+          <div class="insight-block">
+            <strong>当前排序</strong>
+            <span>{{ sortLabel }}</span>
+          </div>
+          <div class="tag-cloud" v-if="visibleTags.length">
+            <span
+              v-for="tag in visibleTags"
+              :key="tag.name"
+              class="tag-chip"
+              :style="{ '--tag-color': tag.color || 'var(--accent)' }"
+            >
+              {{ tag.name }}
+            </span>
+          </div>
+          <div v-else class="workspace-empty compact-empty">
+            <ArtIcon name="tag" tone="mint" :size="46" tile label="标签" />
+            <span>还没有标签，任务增加后这里会成为快速导航区。</span>
+          </div>
+        </aside>
+      </div>
     </div>
   </div>
 </template>
@@ -269,11 +396,9 @@ const visibleTags = computed(() => allTags.value.slice(0, 7))
   margin: 0 auto;
 }
 
-.board-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
+/* PageHeader 自带 margin-bottom，这里交给 .board 的 gap 统一节奏 */
+.board :deep(.page-header) {
+  margin-bottom: 0;
   flex-shrink: 0;
 }
 
@@ -338,19 +463,6 @@ const visibleTags = computed(() => allTags.value.slice(0, 7))
   flex-shrink: 0;
 }
 
-.board-title h2 {
-  margin: 0;
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: 0.5px;
-  white-space: nowrap;
-}
-
-.board-title p {
-  margin: 6px 0 0;
-  font-size: 14px;
-}
-
 .board-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -399,6 +511,123 @@ const visibleTags = computed(() => allTags.value.slice(0, 7))
   padding: 16px;
 }
 
+/* 右栏：暖心提醒独立板块 + 看板节奏 */
+.board-side {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  min-width: 0;
+}
+
+/* 暖心提醒独立板块：暖色渐变 + 左侧竖条 + 图标呼吸光晕，与「看板节奏」拉开视觉层级 */
+.warmth-panel {
+  position: relative;
+  display: flex;
+  gap: 13px;
+  align-items: flex-start;
+  padding: 16px 18px 16px 20px;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--warning) 34%, var(--border));
+  background:
+    radial-gradient(circle at 88% -20%, color-mix(in srgb, var(--warning) 22%, transparent), transparent 55%),
+    linear-gradient(
+      120deg,
+      color-mix(in srgb, var(--warning) 13%, var(--surface)),
+      color-mix(in srgb, var(--danger) 7%, var(--surface))
+    );
+  box-shadow:
+    var(--shadow-sm),
+    var(--shadow-inset),
+    0 0 26px color-mix(in srgb, var(--warning) 13%, transparent);
+  animation: warmth-in 0.5s ease both;
+}
+
+/* 左侧暖色竖条（板块的身份标识） */
+.warmth-panel::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(180deg, var(--warning), var(--danger));
+}
+
+/* 夜晚：换成静谧蓝调 */
+.warmth-panel.mood-night,
+.warmth-panel.mood-late {
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
+  background:
+    radial-gradient(circle at 88% -20%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 55%),
+    linear-gradient(
+      120deg,
+      color-mix(in srgb, var(--accent) 11%, var(--surface)),
+      color-mix(in srgb, var(--surface-3) 55%, var(--surface))
+    );
+  box-shadow:
+    var(--shadow-sm),
+    var(--shadow-inset),
+    0 0 26px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.warmth-panel.mood-night::after,
+.warmth-panel.mood-late::after {
+  background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+}
+
+/* 深夜：更沉、更暗，只留一点月光 */
+.warmth-panel.mood-late {
+  background:
+    radial-gradient(circle at 15% 0%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 50%),
+    linear-gradient(120deg, color-mix(in srgb, var(--surface-3) 70%, var(--surface)), var(--surface));
+  box-shadow: var(--shadow-xs), var(--shadow-inset);
+}
+
+/* 图标呼吸光晕，让板块"活"起来但不吵 */
+.warmth-panel :deep(.art-icon.tile) {
+  animation: warmth-breathe 3.2s ease-in-out infinite;
+}
+
+@keyframes warmth-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes warmth-breathe {
+  0%,
+  100% {
+    box-shadow: var(--shadow-xs), var(--shadow-inset), 0 0 8px var(--icon-glow);
+  }
+  50% {
+    box-shadow: var(--shadow-xs), var(--shadow-inset), 0 0 22px var(--icon-glow);
+  }
+}
+
+.warmth-text {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.warmth-text strong {
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.warmth-text p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
 .insight-head {
   display: flex;
   gap: 12px;
@@ -444,8 +673,8 @@ const visibleTags = computed(() => allTags.value.slice(0, 7))
   padding: 0 10px;
   border-radius: var(--radius-pill);
   border: 1px solid color-mix(in srgb, var(--tag-color) 28%, var(--border));
-  background: color-mix(in srgb, var(--tag-color) 12%, white);
-  color: color-mix(in srgb, var(--tag-color) 74%, #14303f);
+  background: color-mix(in srgb, var(--tag-color) 12%, var(--surface-solid));
+  color: color-mix(in srgb, var(--tag-color) 70%, var(--text));
   font-size: 12px;
   font-weight: 800;
 }
@@ -518,6 +747,7 @@ const visibleTags = computed(() => allTags.value.slice(0, 7))
 }
 
 .count {
+  margin-left: auto;
   background: var(--surface);
   color: var(--text-soft);
   border-radius: var(--radius-pill);
@@ -530,6 +760,134 @@ const visibleTags = computed(() => allTags.value.slice(0, 7))
   text-align: center;
 }
 
+/* 列头快速新建：平时收起，悬停列时浮现，保持表头干净 */
+.col-add {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 8px;
+  box-shadow: none;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.column:hover .col-add,
+.col-add:focus-visible {
+  opacity: 1;
+}
+
+.col-add:hover {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+/* 右侧栏：快速新建（回车创建到目标列） */
+.quick-add {
+  display: flex;
+  gap: 8px;
+}
+
+.quick-add input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  font-size: 13px;
+}
+
+.quick-add select {
+  width: 82px;
+  height: 38px;
+  padding: 0 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* 右侧栏：临期/逾期任务块 */
+.due-block {
+  display: grid;
+  gap: 6px;
+}
+
+.due-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.due-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-xs);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  box-shadow: none;
+}
+
+.due-item:hover {
+  background: var(--accent-soft);
+  border-color: var(--border-strong);
+  box-shadow: none;
+}
+
+.due-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warning);
+  flex-shrink: 0;
+}
+
+.due-item.overdue .due-dot {
+  background: var(--danger);
+}
+
+.due-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.due-date {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.due-item.overdue .due-date {
+  color: var(--danger);
+}
+
+/* 空列快捷入口 */
+.empty-add {
+  background: transparent;
+  color: var(--accent);
+  border: 1px dashed var(--border-strong);
+  padding: 6px 14px;
+  font-size: 12px;
+  box-shadow: none;
+}
+
+.empty-add:hover {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border-color: var(--accent);
+  box-shadow: none;
+}
+
 .col-body {
   flex: 1;
   overflow-y: auto;
@@ -537,6 +895,15 @@ const visibleTags = computed(() => allTags.value.slice(0, 7))
   min-height: 80px;
   padding: 4px;
   border-radius: var(--radius-sm);
+  outline: 2px dashed transparent;
+  outline-offset: -4px;
+  transition: outline-color 0.15s ease, background-color 0.15s ease;
+}
+
+/* 拖动中可投放的目标列高亮 */
+.col-body.drop-target {
+  outline-color: var(--accent);
+  background-color: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
 .col-body.empty {
@@ -545,14 +912,15 @@ const visibleTags = computed(() => allTags.value.slice(0, 7))
   justify-content: center;
 }
 
-.col-body:deep(.sortable-ghost) {
+/* 与 draggable 的 ghost-class / drag-class 对应 */
+.col-body:deep(.ghost) {
   opacity: 0.35;
   background: var(--accent-soft);
   border: 2px dashed var(--accent);
   border-radius: var(--radius-sm);
 }
 
-.col-body:deep(.sortable-drag) {
+.col-body:deep(.dragging) {
   opacity: 0.96;
   box-shadow: var(--shadow-lg);
 }
@@ -602,14 +970,16 @@ const visibleTags = computed(() => allTags.value.slice(0, 7))
   .ctl:first-child {
     max-width: none;
   }
-  .board-head {
-    align-items: center;
-  }
   .board-metrics {
     grid-template-columns: 1fr;
   }
-  .board-title p {
-    display: none;
-  }
+}
+</style>
+
+<style>
+/* 同列禁止投放的全局光标反馈（挂在 body 上，无法 scoped） */
+body.drag-no-drop,
+body.drag-no-drop * {
+  cursor: not-allowed !important;
 }
 </style>

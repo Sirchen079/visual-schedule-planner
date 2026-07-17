@@ -5,13 +5,13 @@ import ArtIcon from './ArtIcon.vue'
 const props = defineProps({
   task: { type: Object, required: true },
 })
-const emit = defineEmits(['click'])
+const emit = defineEmits(['click', 'quick-status'])
 
 const priMeta = computed(() => {
   const map = {
-    高: { color: 'var(--pri-high)', bg: 'rgba(242, 107, 122, 0.12)' },
-    中: { color: 'var(--pri-mid)', bg: 'rgba(251, 191, 122, 0.15)' },
-    低: { color: 'var(--pri-low)', bg: 'rgba(116, 230, 156, 0.12)' },
+    高: { color: 'var(--pri-high)', bg: 'color-mix(in srgb, var(--pri-high) 12%, transparent)' },
+    中: { color: 'var(--pri-mid)', bg: 'color-mix(in srgb, var(--pri-mid) 15%, transparent)' },
+    低: { color: 'var(--pri-low)', bg: 'color-mix(in srgb, var(--pri-low) 12%, transparent)' },
   }
   return map[props.task.priority] || map['中']
 })
@@ -37,10 +37,26 @@ const subPct = computed(() => {
   return Math.round((subDoneCount.value / all.length) * 100)
 })
 
+// 悬停快捷状态切换：按当前状态推进到下一列，点击不打开弹窗
+const NEXT_STATUS = {
+  待办: { status: '进行中', icon: 'chevron-right', tone: 'aqua', label: '开始推进' },
+  进行中: { status: '完成', icon: 'check', tone: 'mint', label: '标记完成' },
+  完成: { status: '待办', icon: 'restore', tone: 'sand', label: '重新打开' },
+}
+const nextMeta = computed(() => NEXT_STATUS[props.task.status] || NEXT_STATUS['待办'])
+
 </script>
 
 <template>
-  <div class="task-card" @click="emit('click', task)">
+  <article
+    class="task-card"
+    tabindex="0"
+    role="button"
+    :aria-label="`任务：${task.title}`"
+    @click="emit('click', task)"
+    @keydown.enter.prevent="emit('click', task)"
+    @keydown.space.prevent="emit('click', task)"
+  >
     <div class="card-glow" :style="{ background: priMeta.color }"></div>
     <div class="card-inner">
       <div class="row main">
@@ -80,7 +96,16 @@ const subPct = computed(() => {
         <span>{{ subPct }}%</span>
       </div>
     </div>
-  </div>
+    <button
+      class="quick-status"
+      :title="`${nextMeta.label}（→ ${nextMeta.status}）`"
+      :aria-label="nextMeta.label"
+      tabindex="-1"
+      @click.stop="emit('quick-status', task, nextMeta.status)"
+    >
+      <ArtIcon :name="nextMeta.icon" :tone="nextMeta.tone" :size="14" />
+    </button>
+  </article>
 </template>
 
 <style scoped>
@@ -104,6 +129,11 @@ const subPct = computed(() => {
 
 .task-card:active {
   transform: scale(0.99);
+}
+
+.task-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .card-glow {
@@ -133,7 +163,7 @@ const subPct = computed(() => {
 
 .title {
   font-weight: 650;
-  font-size: 14.5px;
+  font-size: 15px;
   word-break: break-word;
   color: var(--text);
   line-height: 1.5;
@@ -186,7 +216,7 @@ const subPct = computed(() => {
   background: var(--surface-3);
   border-radius: var(--radius-pill);
   overflow: hidden;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--overlay-bg) 20%, transparent);
 }
 
 .fill {
@@ -227,7 +257,7 @@ const subPct = computed(() => {
   border-radius: var(--radius-pill);
   background: var(--surface-3);
   overflow: hidden;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--overlay-bg) 20%, transparent);
 }
 
 .sub-mini-fill {
@@ -236,5 +266,40 @@ const subPct = computed(() => {
   background: linear-gradient(90deg, var(--accent), var(--sea-300));
   border-radius: var(--radius-pill);
   transition: width 0.5s ease;
+}
+
+/* 悬停浮现的快捷状态切换（待办→进行中→完成→待办） */
+.quick-status {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-soft);
+  box-shadow: var(--shadow-xs);
+  opacity: 0;
+  transform: translateY(3px);
+  transition: opacity 0.15s ease, transform 0.15s ease, background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.task-card:hover .quick-status,
+.quick-status:focus-visible {
+  opacity: 1;
+  transform: none;
+}
+
+.quick-status:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  box-shadow: var(--shadow-xs);
 }
 </style>

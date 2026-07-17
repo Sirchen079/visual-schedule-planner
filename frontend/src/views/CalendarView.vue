@@ -1,13 +1,19 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, inject, onMounted, ref, watch } from 'vue'
 import { createScheduleEntry, deleteScheduleEntry, getDaySchedule, getMonthSchedule, updateScheduleEntry } from '../api/schedule'
 import ArtIcon from '../components/ArtIcon.vue'
+import AppSpinner from '../components/ui/AppSpinner.vue'
+import EmptyState from '../components/ui/EmptyState.vue'
+import PageHeader from '../components/ui/PageHeader.vue'
+import SegmentedControl from '../components/ui/SegmentedControl.vue'
 
 const props = defineProps({
   tasks: { type: Array, required: true },
 })
 
 const emit = defineEmits(['open', 'create'])
+
+const toast = inject('toast', null)
 
 const WEEK_LABELS = ['一', '二', '三', '四', '五', '六', '日']
 const MONTH_LABELS = ['1 月', '2 月', '3 月', '4 月', '5 月', '6 月', '7 月', '8 月', '9 月', '10 月', '11 月', '12 月']
@@ -49,6 +55,11 @@ const error = ref('')
 
 let dayRequestId = 0
 let monthRequestId = 0
+
+const modeOptions = [
+  { value: 'day', label: '日行动', icon: 'task' },
+  { value: 'month', label: '月计划', icon: 'timeline' },
+]
 
 const bucketMeta = {
   must_do: {
@@ -180,7 +191,8 @@ const dayBuckets = computed(() => [
   createBucketVm('unscheduled', false),
 ])
 
-const selectedDayPreviewBuckets = computed(() => dayBuckets.value)
+// 「等待安放」与选中日期无关，月视图预览不再重复展示，只在日模式保留一个。
+const selectedDayPreviewBuckets = computed(() => dayBuckets.value.filter((bucket) => bucket.key !== 'unscheduled'))
 
 const dayRail = computed(() => {
   const summary = daySchedule.value?.summary || {}
@@ -394,8 +406,9 @@ async function quickAssign(taskId) {
       note: 'Quick assign',
     })
     await refreshVisibleSchedule()
+    toast?.success('已更新安排')
   } catch (err) {
-    error.value = err?.message || '排期失败'
+    toast?.error(err?.message || '排期失败')
   } finally {
     mutating.value = false
   }
@@ -418,8 +431,9 @@ async function moveEntryToNextDay(item) {
       note: item.entry.note || '顺延一天',
     })
     await refreshVisibleSchedule()
+    toast?.success('已顺延到明天')
   } catch (err) {
-    error.value = err?.message || '移动排期失败'
+    toast?.error(err?.message || '移动排期失败')
   } finally {
     mutating.value = false
   }
@@ -432,8 +446,9 @@ async function removeEntry(item) {
   try {
     await deleteScheduleEntry(item.entry.id)
     await refreshVisibleSchedule()
+    toast?.success('已移除排期')
   } catch (err) {
-    error.value = err?.message || '移除排期失败'
+    toast?.error(err?.message || '移除排期失败')
   } finally {
     mutating.value = false
   }
@@ -467,42 +482,9 @@ onMounted(async () => {
 
 <template>
   <section class="calendar-action-center workspace-page">
-    <header class="action-header glass">
-      <div class="header-copy">
-        <div class="page-title">
-          <ArtIcon name="calendar" tone="aqua" :size="44" tile label="日程行动中心" />
-          <div>
-            <h2>日程行动中心</h2>
-            <p>{{ selectedDateLabel }}</p>
-          </div>
-        </div>
-        <p class="focus-phrase">{{ focusPhrase }}</p>
-      </div>
-
-      <div class="header-controls">
-        <div class="segmented" role="tablist" aria-label="日程视图模式">
-          <button
-            class="ghost mode-button"
-            data-view-mode="day"
-            :aria-pressed="mode === 'day'"
-            :class="{ active: mode === 'day' }"
-            @click="mode = 'day'"
-          >
-            <ArtIcon name="task" tone="aqua" :size="24" />
-            <span>Day Action</span>
-          </button>
-          <button
-            class="ghost mode-button"
-            data-view-mode="month"
-            :aria-pressed="mode === 'month'"
-            :class="{ active: mode === 'month' }"
-            @click="mode = 'month'"
-          >
-            <ArtIcon name="timeline" tone="mint" :size="24" />
-            <span>Month Plan</span>
-          </button>
-        </div>
-
+    <PageHeader icon="calendar" title="日程行动中心" :subtitle="focusPhrase">
+      <template #actions>
+        <SegmentedControl v-model="mode" :options="modeOptions" aria-label="日程视图模式" />
         <div class="date-nav">
           <button class="ghost icon-button" title="上一段" @click="prevPeriod">
             <ArtIcon name="chevron-left" tone="pearl" :size="22" label="上一段" />
@@ -520,22 +502,22 @@ onMounted(async () => {
             <span>新建任务</span>
           </button>
         </div>
-      </div>
+      </template>
+    </PageHeader>
 
-      <div class="signal-grid">
-        <article v-for="signal in actionSignals" :key="signal.key" class="signal-card">
-          <ArtIcon :name="signal.icon" :tone="signal.tone" :size="34" tile :label="signal.label" />
-          <div>
-            <strong>{{ signal.count }}</strong>
-            <span>{{ signal.label }}</span>
-          </div>
-        </article>
-      </div>
-    </header>
+    <div class="signal-grid">
+      <article v-for="signal in actionSignals" :key="signal.key" class="metric-tile signal-card">
+        <ArtIcon :name="signal.icon" :tone="signal.tone" :size="34" tile :label="signal.label" />
+        <div>
+          <strong>{{ signal.count }}</strong>
+          <span>{{ signal.label }}</span>
+        </div>
+      </article>
+    </div>
 
     <p v-if="error" class="error-line" role="alert">{{ error }}</p>
 
-    <div v-if="mode === 'day'" class="day-layout">
+    <div v-if="mode === 'day'" class="day-layout" data-view-mode="day">
       <aside class="day-side">
         <section class="day-rail glass">
           <div class="rail-head">
@@ -663,18 +645,12 @@ onMounted(async () => {
             </article>
           </div>
 
-          <div v-else class="empty-bucket">
-            <ArtIcon :name="bucket.icon" :tone="bucket.tone" :size="28" />
-            <div>
-              <strong>{{ bucket.empty.title }}</strong>
-              <p>{{ bucket.empty.text }}</p>
-            </div>
-          </div>
+          <EmptyState v-else :icon="bucket.icon" :title="bucket.empty.title" :hint="bucket.empty.text" compact />
         </section>
       </main>
     </div>
 
-    <div v-else class="month-layout">
+    <div v-else class="month-layout" data-view-mode="month">
       <section class="month-plan-grid glass">
         <div class="month-weekdays">
           <span v-for="label in WEEK_LABELS" :key="label">{{ label }}</span>
@@ -763,8 +739,7 @@ onMounted(async () => {
     </div>
 
     <div v-if="loadingDay || loadingMonth" class="loading-overlay" aria-live="polite">
-      <span class="spinner-ring"></span>
-      <span>{{ loadingDay ? '正在更新日程…' : '正在同步月度信号…' }}</span>
+      <AppSpinner size="lg" :label="loadingDay ? '正在更新日程…' : '正在同步月度信号…'" />
     </div>
   </section>
 </template>
@@ -773,127 +748,17 @@ onMounted(async () => {
 .calendar-action-center {
   position: relative;
   display: grid;
-  gap: 16px;
+  gap: var(--gap);
   max-width: none;
   margin: 0 auto;
   padding-bottom: 8px;
 }
 
-.action-header,
-.day-rail,
-.assistant-panel,
-.day-bucket,
-.month-plan-grid,
-.selected-day-preview {
-  position: relative;
-  overflow: hidden;
-  border-radius: 8px;
+.calendar-action-center :deep(.page-header) {
+  margin-bottom: 0;
 }
 
-.action-header::before,
-.day-rail::before,
-.assistant-panel::before,
-.day-bucket::before,
-.month-plan-grid::before,
-.selected-day-preview::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at top right, rgba(255, 255, 255, 0.26), transparent 32%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.16), transparent 48%);
-  pointer-events: none;
-}
-
-.action-header {
-  display: grid;
-  gap: 14px;
-  padding: 18px;
-}
-
-@media (min-width: 900px) {
-  .action-header {
-    grid-template-columns: minmax(280px, 0.9fr) minmax(520px, 1.1fr);
-    align-items: start;
-  }
-
-  .header-controls {
-    justify-items: end;
-  }
-
-  .signal-grid {
-    grid-column: 1 / -1;
-  }
-}
-
-.header-copy,
-.header-controls {
-  display: grid;
-  gap: 12px;
-}
-
-.page-title {
-  align-items: flex-start;
-}
-
-.page-title h2 {
-  margin: 0;
-  font-size: 28px;
-  line-height: 1.1;
-}
-
-.page-title p,
-.focus-phrase,
-.nav-label span,
-.bucket-title p,
-.rail-head p,
-.assistant-panel-head p,
-.preview-head p,
-.empty-bucket p {
-  margin: 0;
-  color: var(--text-soft);
-}
-
-.focus-phrase {
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.header-controls {
-  align-items: end;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.segmented {
-  display: inline-grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px;
-  padding: 4px;
-  width: fit-content;
-  max-width: 100%;
-  background: rgba(255, 255, 255, 0.55);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: var(--shadow-inset);
-}
-
-.mode-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 42px;
-  padding: 8px 14px;
-  border-radius: 8px;
-}
-
-.mode-button.active {
-  background: linear-gradient(135deg, var(--accent), var(--sea-400));
-  color: #fff;
-  border-color: transparent;
-  box-shadow: 0 10px 24px var(--accent-glow);
-}
-
+/* ===== 页头操作区 ===== */
 .date-nav {
   display: flex;
   flex-wrap: wrap;
@@ -912,6 +777,15 @@ onMounted(async () => {
   font-size: 15px;
 }
 
+.nav-label span,
+.rail-head p,
+.assistant-panel-head p,
+.bucket-title p,
+.preview-head p {
+  margin: 0;
+  color: var(--text-soft);
+}
+
 .icon-button {
   width: 40px;
   height: 40px;
@@ -919,7 +793,6 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
 }
 
 .icon-button.small {
@@ -935,26 +808,24 @@ onMounted(async () => {
 .create-btn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 42px;
-  padding: 10px 16px;
+  gap: 6px;
+  padding: 10px 18px;
+  font-weight: 600;
 }
 
+.create-btn :deep(.art-icon) {
+  transition: transform 0.2s ease;
+}
+
+.create-btn:hover :deep(.art-icon) {
+  transform: rotate(90deg);
+}
+
+/* ===== 信号指标 ===== */
 .signal-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
-}
-
-.signal-card {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  padding: 12px;
-  border: 1px solid rgba(151, 200, 218, 0.42);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.54);
 }
 
 .signal-card strong,
@@ -973,17 +844,28 @@ onMounted(async () => {
 .error-line {
   margin: 0;
   padding: 12px 14px;
-  border: 1px solid rgba(217, 93, 106, 0.28);
-  border-radius: 8px;
-  background: rgba(253, 236, 239, 0.88);
+  border: 1px solid color-mix(in srgb, var(--danger) 32%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
   color: var(--danger);
   font-weight: 700;
 }
 
+/* ===== 玻璃面板（视觉由全局 .glass 提供，这里统一圆角与内边距） ===== */
+.day-rail,
+.assistant-panel,
+.day-bucket,
+.month-plan-grid,
+.selected-day-preview {
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+/* ===== 日模式布局 ===== */
 .day-layout {
   display: grid;
   grid-template-columns: 340px minmax(0, 1fr);
-  gap: 16px;
+  gap: var(--gap);
   align-items: start;
 }
 
@@ -992,15 +874,7 @@ onMounted(async () => {
 .month-layout,
 .preview-buckets {
   display: grid;
-  gap: 16px;
-}
-
-.day-rail,
-.assistant-panel,
-.day-bucket,
-.month-plan-grid,
-.selected-day-preview {
-  padding: 16px;
+  gap: var(--gap);
 }
 
 .rail-head,
@@ -1035,7 +909,11 @@ onMounted(async () => {
   top: 8px;
   bottom: 8px;
   width: 1px;
-  background: linear-gradient(180deg, rgba(59, 152, 198, 0.3), rgba(74, 175, 124, 0.18));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 30%, transparent),
+    color-mix(in srgb, var(--success) 18%, transparent)
+  );
 }
 
 .rail-slot {
@@ -1059,28 +937,28 @@ onMounted(async () => {
 .slot-dot {
   width: 12px;
   height: 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--accent);
-  box-shadow: 0 0 0 6px rgba(59, 152, 198, 0.12);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
-.rail-slot[data-accent="must_do"] .slot-dot {
+.rail-slot[data-accent='must_do'] .slot-dot {
   background: var(--danger);
-  box-shadow: 0 0 0 6px rgba(217, 93, 106, 0.14);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--danger) 16%, transparent);
 }
 
-.rail-slot[data-accent="planned"] .slot-dot {
+.rail-slot[data-accent='planned'] .slot-dot {
   background: var(--accent);
 }
 
-.rail-slot[data-accent="in_progress_today"] .slot-dot {
+.rail-slot[data-accent='in_progress_today'] .slot-dot {
   background: var(--success);
-  box-shadow: 0 0 0 6px rgba(74, 175, 124, 0.14);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--success) 16%, transparent);
 }
 
-.rail-slot[data-accent="upcoming_pressure"] .slot-dot {
+.rail-slot[data-accent='upcoming_pressure'] .slot-dot {
   background: var(--warning);
-  box-shadow: 0 0 0 6px rgba(197, 138, 66, 0.14);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--warning) 16%, transparent);
 }
 
 .assistant-actions {
@@ -1098,30 +976,23 @@ onMounted(async () => {
   padding: 10px 12px;
 }
 
+/* 6 列网格：焦点桶（必须处理 / 今日安排）各占 3 列，次级桶各占 2 列，分区一目了然 */
 .day-main {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   align-items: start;
 }
 
 .day-bucket {
   display: grid;
   gap: 12px;
-  min-height: 220px;
+  align-content: start;
+  grid-column: span 2;
+  min-height: 200px;
 }
 
 .day-bucket.prominent {
+  grid-column: span 3;
   min-height: 250px;
-}
-
-.day-bucket[data-bucket="must_do"],
-.day-bucket[data-bucket="planned"] {
-  grid-column: span 1;
-}
-
-.day-bucket[data-bucket="in_progress_today"],
-.day-bucket[data-bucket="upcoming_pressure"],
-.day-bucket[data-bucket="unscheduled"] {
-  min-height: 180px;
 }
 
 .bucket-head,
@@ -1152,7 +1023,7 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-2);
   border: 1px solid var(--border);
   color: var(--text-soft);
@@ -1170,9 +1041,9 @@ onMounted(async () => {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   padding: 10px;
-  border: 1px solid rgba(151, 200, 218, 0.42);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
 }
 
 .task-body {
@@ -1230,7 +1101,7 @@ onMounted(async () => {
   max-width: 100%;
   min-height: 24px;
   padding: 0 9px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1247,8 +1118,8 @@ onMounted(async () => {
 
 .tag-chip {
   border: 1px solid color-mix(in srgb, var(--tag-color) 26%, var(--border));
-  background: color-mix(in srgb, var(--tag-color) 12%, white);
-  color: color-mix(in srgb, var(--tag-color) 74%, #14303f);
+  background: color-mix(in srgb, var(--tag-color) 12%, var(--surface));
+  color: color-mix(in srgb, var(--tag-color) 72%, var(--text));
 }
 
 .task-actions {
@@ -1256,23 +1127,7 @@ onMounted(async () => {
   gap: 6px;
 }
 
-.empty-bucket {
-  display: grid;
-  gap: 8px;
-  align-content: center;
-  min-height: 110px;
-  padding: 10px;
-  border: 1px dashed rgba(151, 200, 218, 0.55);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.34);
-}
-
-.empty-bucket strong,
-.preview-empty {
-  color: var(--text);
-  font-weight: 800;
-}
-
+/* ===== 月模式布局 ===== */
 .month-layout {
   grid-template-columns: minmax(0, 1.7fr) 360px;
   align-items: start;
@@ -1301,31 +1156,34 @@ onMounted(async () => {
   gap: 8px;
   min-height: 108px;
   padding: 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(151, 200, 218, 0.42);
-  background: rgba(255, 255, 255, 0.62);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  box-shadow: none;
   color: var(--text);
   text-align: left;
 }
 
-.month-cell.level-0 {
-  background: rgba(255, 255, 255, 0.46);
+/* hover 规则写在热力层级之前，让层级色在悬停时保持不丢失 */
+.month-cell:hover {
+  background: var(--surface-3);
+  border-color: var(--border-strong);
 }
 
 .month-cell.level-1 {
-  background: linear-gradient(180deg, rgba(229, 244, 249, 0.86), rgba(255, 255, 255, 0.68));
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .month-cell.level-2 {
-  background: linear-gradient(180deg, rgba(210, 239, 249, 0.92), rgba(255, 255, 255, 0.72));
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 .month-cell.level-3 {
-  background: linear-gradient(180deg, rgba(200, 232, 243, 0.96), rgba(243, 251, 255, 0.82));
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .month-cell.level-4 {
-  background: linear-gradient(180deg, rgba(189, 228, 241, 0.98), rgba(236, 248, 252, 0.88));
+  background: color-mix(in srgb, var(--accent) 65%, transparent);
 }
 
 .month-cell.muted {
@@ -1334,12 +1192,14 @@ onMounted(async () => {
 
 .month-cell.today {
   border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px rgba(59, 152, 198, 0.3);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .month-cell.selected {
   border-color: var(--accent-strong);
-  box-shadow: inset 0 0 0 1px rgba(25, 105, 143, 0.34), var(--shadow-sm);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent-strong) 34%, transparent),
+    var(--shadow-sm);
 }
 
 .cell-top {
@@ -1369,34 +1229,36 @@ onMounted(async () => {
   justify-content: flex-start;
   padding-inline: 8px;
   min-height: 22px;
-  background: rgba(255, 255, 255, 0.74);
+  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
   border: 1px solid var(--border);
   color: var(--text-soft);
 }
 
-.signal-chip[data-tone="coral"] {
-  border-color: rgba(217, 93, 106, 0.28);
+.signal-chip[data-tone='coral'] {
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
   color: var(--danger);
 }
 
-.signal-chip[data-tone="aqua"] {
-  border-color: rgba(59, 152, 198, 0.28);
+.signal-chip[data-tone='aqua'] {
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
   color: var(--accent-strong);
 }
 
-.signal-chip[data-tone="mint"] {
-  border-color: rgba(74, 175, 124, 0.28);
+.signal-chip[data-tone='mint'] {
+  border-color: color-mix(in srgb, var(--success) 30%, transparent);
   color: var(--success);
 }
 
-.signal-chip[data-tone="sand"] {
-  border-color: rgba(197, 138, 66, 0.28);
+.signal-chip[data-tone='sand'] {
+  border-color: color-mix(in srgb, var(--warning) 30%, transparent);
   color: var(--warning);
 }
 
+/* ===== 选中日预览 ===== */
 .selected-day-preview {
   display: grid;
   gap: 14px;
+  align-content: start;
 }
 
 .preview-summary {
@@ -1409,18 +1271,18 @@ onMounted(async () => {
   gap: 8px;
   min-width: calc(50% - 4px);
   padding: 10px;
-  border: 1px solid rgba(151, 200, 218, 0.42);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
 }
 
 .preview-bucket {
   display: grid;
   gap: 8px;
   padding: 10px;
-  border: 1px solid rgba(151, 200, 218, 0.34);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.48);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
 }
 
 .preview-bucket-head {
@@ -1446,11 +1308,17 @@ onMounted(async () => {
   gap: 8px;
   min-width: 0;
   padding: 8px 10px;
-  border: 1px solid rgba(151, 200, 218, 0.34);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: none;
   color: var(--text);
   text-align: left;
+}
+
+.preview-task:hover {
+  background: var(--accent-soft);
+  border-color: var(--border-strong);
 }
 
 .preview-task small {
@@ -1467,43 +1335,45 @@ onMounted(async () => {
   justify-content: center;
 }
 
+/* ===== 局部加载遮罩 ===== */
 .loading-overlay {
   position: absolute;
   inset: 0;
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  background: rgba(247, 252, 255, 0.52);
-  backdrop-filter: blur(3px);
-  border-radius: 8px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 68%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   color: var(--text-soft);
   font-weight: 700;
 }
 
-.spinner-ring {
-  width: 18px;
-  height: 18px;
-  border: 2px solid rgba(59, 152, 198, 0.2);
-  border-top-color: var(--accent);
-  border-radius: 999px;
-  animation: spin 0.9s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
+/* ===== 中间档 768–1100px：侧栏上置并排，月预览下沉为底部面板 ===== */
 @media (max-width: 1100px) {
   .day-layout,
   .month-layout {
     grid-template-columns: 1fr;
   }
 
-  .day-main {
-    grid-template-columns: 1fr;
+  .day-side {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  .preview-summary {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .preview-signal {
+    min-width: 0;
+  }
+
+  .preview-buckets {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .signal-grid {
@@ -1512,7 +1382,6 @@ onMounted(async () => {
 }
 
 @media (max-width: 768px) {
-  .action-header,
   .day-rail,
   .assistant-panel,
   .day-bucket,
@@ -1521,12 +1390,30 @@ onMounted(async () => {
     padding: 14px;
   }
 
-  .page-title h2 {
-    font-size: 24px;
+  .day-side {
+    grid-template-columns: 1fr;
+  }
+
+  .day-main {
+    grid-template-columns: 1fr;
+  }
+
+  .day-bucket,
+  .day-bucket.prominent {
+    grid-column: auto;
+    min-height: 0;
   }
 
   .signal-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .preview-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .preview-buckets {
+    grid-template-columns: 1fr;
   }
 
   .month-grid {
@@ -1544,21 +1431,18 @@ onMounted(async () => {
     gap: 12px;
   }
 
-  .segmented,
   .date-nav,
   .signal-grid,
   .preview-summary {
     width: 100%;
   }
 
-  .mode-button,
   .assistant-plan-button,
   .today-button,
   .create-btn {
     min-width: 0;
   }
 
-  .mode-button span,
   .assistant-plan-button span,
   .create-btn span {
     overflow-wrap: anywhere;
@@ -1569,7 +1453,6 @@ onMounted(async () => {
     grid-template-columns: 1fr;
   }
 
-  .signal-card,
   .preview-signal {
     min-width: 0;
   }

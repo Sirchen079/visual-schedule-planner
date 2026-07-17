@@ -220,16 +220,17 @@ test('calendar defaults to day action view and can switch to month plan', async 
   await openCalendar(page)
 
   await expect(page.locator('.calendar-action-center')).toBeVisible()
-  await expect(page.locator('[data-view-mode="day"]')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('.day-layout[data-view-mode="day"]')).toBeVisible()
   await expect(page.locator('.day-bucket')).toHaveCount(5)
   await expect(page.getByText('来源 manual')).toBeVisible()
   await expect(page.getByText('子任务 1/1')).toBeVisible()
   await expect(page.getByText('资料 1')).toBeVisible()
 
-  await page.locator('[data-view-mode="month"]').click()
+  await page.getByRole('tab', { name: '月计划' }).click()
+  await expect(page.locator('.month-layout[data-view-mode="month"]')).toBeVisible()
   await expect(page.locator('.month-plan-grid')).toBeVisible()
   await expect(page.locator('.selected-day-preview')).toBeVisible()
-  await expect(page.locator('.selected-day-preview .preview-bucket')).toHaveCount(5)
+  await expect(page.locator('.selected-day-preview .preview-bucket')).toHaveCount(4)
   await expect(page.locator('.month-cell.selected')).toBeVisible()
 })
 
@@ -255,7 +256,7 @@ test('calendar remains usable on a narrow viewport', async ({ page }) => {
   await expect(page.locator('.day-bucket')).toHaveCount(5)
   await expect(page.locator('.assistant-plan-button').first()).toBeVisible()
 
-  await page.locator('[data-view-mode="month"]').click()
+  await page.getByRole('tab', { name: '月计划' }).click()
   await expect(page.locator('.month-plan-grid')).toBeVisible()
   await expect(page.locator('.selected-day-preview')).toBeVisible()
 })

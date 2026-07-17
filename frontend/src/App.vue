@@ -18,6 +18,8 @@ import ArtIcon from './components/ArtIcon.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import StartupReminder from './components/StartupReminder.vue'
+import BaseModal from './components/ui/BaseModal.vue'
+import AppSpinner from './components/ui/AppSpinner.vue'
 
 const { tasks, loading, error, load, add, update, remove } = useTasks()
 const { upcoming, overdue, count, panelOpen, start: startReminders, refresh: refreshReminders } = useReminders()
@@ -60,6 +62,7 @@ onMounted(() => {
   })
   // 主窗口重新获得焦点时静默刷新任务，确保悬浮窗里 AI 建的任务同步到看板
   window.addEventListener('focus', onFocusReload)
+  window.addEventListener('keydown', onGlobalKeydown)
   // 开机自启的主窗口：提醒已由独立小窗承载，跳过通知轮询避免重复弹窗
   if (isAutoStartHost) return
   if (window.Notification && Notification.permission === 'default') {
@@ -73,6 +76,7 @@ function onFocusReload() {
 }
 onBeforeUnmount(() => {
   window.removeEventListener('focus', onFocusReload)
+  window.removeEventListener('keydown', onGlobalKeydown)
 })
 
 const view = ref('board')
@@ -86,7 +90,12 @@ const tabs = [
   { key: 'trash', label: '回收站', icon: 'trash' },
 ]
 
-const theme = ref(localStorage.getItem('theme') || 'light')
+// 主题：有手动选择用手动选择；首次启动跟随系统 prefers-color-scheme
+const storedTheme = localStorage.getItem('theme')
+const theme = ref(
+  storedTheme ||
+    (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+)
 const shuttingDown = ref(false)
 const settingsOpen = ref(false)
 
@@ -157,6 +166,10 @@ async function onSave(payload) {
   }
   closeModal()
 }
+// 看板右侧栏快速新建：只带标题和目标列，其余走后端默认值
+async function onQuickCreate({ title, status }) {
+  await add({ title, status })
+}
 async function onDelete(t) {
   const ok = await confirmDialog({
     title: '移入回收站',
@@ -166,7 +179,7 @@ async function onDelete(t) {
   if (!ok) return
   await remove(t.id)
   closeModal()
-  showToast(`已将「${t.title}」移入回收站`, async () => {
+  toastService.undo(`已将「${t.title}」移入回收站`, async () => {
     await restoreTask(t.id)
     await load()
   })
@@ -194,13 +207,26 @@ async function shutdownService() {
   }
 }
 
-// 删除后给一次"撤销恢复"的机会（软删可恢复）
+// 全局操作反馈 toast:success / error / info / undo,自动消失。
+// 由 App 顶层 provide,任意后代 inject('toast') 调用。
 const toast = ref(null)
 let toastTimer = null
-function showToast(message, undoFn) {
-  toast.value = { message, undo: undoFn }
+function showToast(message, { type = 'info', undo = null, duration = 5000 } = {}) {
+  toast.value = { message, type, undo }
   clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => (toast.value = null), 6000)
+  toastTimer = setTimeout(() => (toast.value = null), duration)
+}
+const toastService = {
+  success: (msg, opts = {}) => showToast(msg, { ...opts, type: 'success' }),
+  error: (msg, opts = {}) => showToast(msg, { ...opts, type: 'error', duration: 7000 }),
+  info: (msg, opts = {}) => showToast(msg, { ...opts, type: 'info' }),
+  undo: (msg, undoFn) => showToast(msg, { type: 'info', undo: undoFn, duration: 6000 }),
+}
+provide('toast', toastService)
+const toastMeta = {
+  success: { icon: 'check', tone: 'mint' },
+  error: { icon: 'alert', tone: 'coral' },
+  info: { icon: 'bell', tone: 'aqua' },
 }
 function dismissToast() {
   clearTimeout(toastTimer)
@@ -212,6 +238,33 @@ async function undoDelete() {
     await toast.value.undo()
   } finally {
     dismissToast()
+  }
+}
+
+// 全局快捷键:? 打开帮助;各视图自己的快捷键(如看板 / 与 N)在视图内注册
+const shortcutsOpen = ref(false)
+const shortcutGroups = [
+  {
+    name: '全局',
+    items: [
+      { keys: ['?'], desc: '打开快捷键帮助' },
+      { keys: ['Esc'], desc: '关闭弹层' },
+    ],
+  },
+  {
+    name: '看板',
+    items: [
+      { keys: ['/'], desc: '聚焦搜索框' },
+      { keys: ['N'], desc: '新建任务' },
+    ],
+  },
+]
+function onGlobalKeydown(e) {
+  const tag = e.target?.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return
+  if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+    e.preventDefault()
+    shortcutsOpen.value = !shortcutsOpen.value
   }
 }
 </script>
@@ -273,7 +326,7 @@ async function undoDelete() {
 
     <main class="content">
       <div v-if="loading" class="center muted">
-        <span class="spinner"></span>
+        <AppSpinner size="lg" label="加载中" />
         <p>加载中…</p>
       </div>
       <div v-else-if="error" class="center">
@@ -287,6 +340,7 @@ async function undoDelete() {
           @open="openEdit"
           @create="openCreate"
           @update-status="onStatusChange"
+          @quick-create="onQuickCreate"
         />
         <OverviewView v-else-if="view === 'overview'" :tasks="tasks" @open="openEdit" />
         <CalendarView v-else-if="view === 'calendar'" :tasks="tasks" @open="openEdit" @create="openCreate" />
@@ -299,16 +353,14 @@ async function undoDelete() {
 
     <AssistantView @changed="load" />
 
-    <Transition name="pop">
-      <TaskModal
-        v-if="modalOpen"
-        :task="editing"
-        @save="onSave"
-        @delete="onDelete"
-        @changed="load"
-        @close="closeModal"
-      />
-    </Transition>
+    <TaskModal
+      :open="modalOpen"
+      :task="editing"
+      @save="onSave"
+      @delete="onDelete"
+      @changed="load"
+      @close="closeModal"
+    />
 
     <Transition name="pop">
       <RemindersPanel
@@ -320,9 +372,7 @@ async function undoDelete() {
       />
     </Transition>
 
-    <Transition name="pop">
-      <SettingsPanel v-if="settingsOpen" @close="settingsOpen = false" />
-    </Transition>
+    <SettingsPanel :open="settingsOpen" @close="settingsOpen = false" />
 
     <ConfirmDialog
       :open="confirmState.open"
@@ -338,16 +388,38 @@ async function undoDelete() {
     <StartupReminder v-if="!isAutoStartHost" @open="openEdit" />
 
     <Transition name="toast">
-      <div v-if="toast" class="toast">
+      <div v-if="toast" :class="['toast', `toast-${toast.type}`]">
         <span class="toast-bar"></span>
-        <ArtIcon class="toast-icon" name="restore" tone="mint" :size="22" tile label="撤销" />
+        <ArtIcon
+          class="toast-icon"
+          :name="toastMeta[toast.type]?.icon || 'bell'"
+          :tone="toastMeta[toast.type]?.tone || 'aqua'"
+          :size="22"
+          tile
+          label="提示"
+        />
         <span class="toast-msg">{{ toast.message }}</span>
-        <button class="toast-undo" @click="undoDelete">撤销</button>
+        <button v-if="toast.undo" class="toast-undo" @click="undoDelete">撤销</button>
         <button class="ghost toast-close" @click="dismissToast">
           <ArtIcon name="close" tone="pearl" :size="16" label="关闭提示" />
         </button>
       </div>
     </Transition>
+
+    <BaseModal :open="shortcutsOpen" size="sm" label="快捷键帮助" @close="shortcutsOpen = false">
+      <div class="shortcuts-body">
+        <h3>快捷键</h3>
+        <div v-for="group in shortcutGroups" :key="group.name" class="shortcut-group">
+          <p class="shortcut-group-name muted">{{ group.name }}</p>
+          <div v-for="item in group.items" :key="item.desc" class="shortcut-row">
+            <span class="shortcut-keys">
+              <kbd v-for="k in item.keys" :key="k">{{ k }}</kbd>
+            </span>
+            <span class="shortcut-desc">{{ item.desc }}</span>
+          </div>
+        </div>
+      </div>
+    </BaseModal>
   </div>
 </template>
 
@@ -434,7 +506,7 @@ async function undoDelete() {
 
 .tab:not(.active):hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.4);
+  background: var(--tab-hover);
 }
 
 .topbar-actions {
@@ -480,7 +552,7 @@ async function undoDelete() {
   font-weight: 700;
   line-height: 18px;
   text-align: center;
-  box-shadow: 0 2px 6px rgba(242, 107, 122, 0.5);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--danger) 50%, transparent);
 }
 .shutdown {
   color: var(--text-soft);
@@ -496,7 +568,7 @@ async function undoDelete() {
 
 .content {
   flex: 1;
-  padding: 22px clamp(16px, 2vw, 32px) 32px;
+  padding: 16px clamp(16px, 2vw, 32px) 28px;
   overflow: auto;
   min-height: 0;
 }
@@ -508,19 +580,6 @@ async function undoDelete() {
   flex-direction: column;
   align-items: center;
   gap: 16px;
-}
-
-.spinner {
-  width: 36px;
-  height: 36px;
-  border: 3px solid var(--surface-2);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.9s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 
 @media (max-width: 720px) {
@@ -595,7 +654,15 @@ async function undoDelete() {
   top: 0;
   bottom: 0;
   width: 5px;
-  background: linear-gradient(180deg, var(--sea-300), var(--accent), var(--foam-400));
+  background: linear-gradient(180deg, var(--sea-300), var(--accent));
+}
+
+.toast-success .toast-bar {
+  background: linear-gradient(180deg, var(--foam-300), var(--success));
+}
+
+.toast-error .toast-bar {
+  background: linear-gradient(180deg, var(--coral-300), var(--danger));
 }
 
 .toast-icon {
@@ -629,5 +696,55 @@ async function undoDelete() {
 .toast-leave-to {
   opacity: 0;
   transform: translate(-50%, 20px) scale(0.95);
+}
+
+.shortcuts-body {
+  padding: 26px 24px 20px;
+}
+
+.shortcuts-body h3 {
+  margin: 0 0 14px;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.shortcut-group + .shortcut-group {
+  margin-top: 14px;
+}
+
+.shortcut-group-name {
+  margin: 0 0 6px;
+  font-weight: 700;
+}
+
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 0;
+}
+
+.shortcut-keys {
+  min-width: 64px;
+  display: inline-flex;
+  gap: 4px;
+}
+
+.shortcut-keys kbd {
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.shortcut-desc {
+  font-size: 13px;
+  color: var(--text-soft);
 }
 </style>

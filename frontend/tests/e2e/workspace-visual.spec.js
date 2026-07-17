@@ -6,7 +6,7 @@ const pages = [
   { tab: 2, root: '.calendar-action-center', name: 'calendar' },
   { tab: 3, root: '.timeline', name: 'timeline' },
   { tab: 4, root: '.library', name: 'library' },
-  { tab: 5, root: '.trash', name: 'trash' },
+  { tab: 6, root: '.trash', name: 'trash' },
 ]
 
 function task(id, title, overrides = {}) {
@@ -86,16 +86,17 @@ async function mockBackend(page) {
   await page.route('**/schedule/day**', (route) =>
     json(route, {
       date: '2026-06-29',
+      // 计数保持为 0:避免启动提醒弹窗遮挡顶栏,干扰纯视觉壳检查
       summary: {
-        total: 1,
-        must_do: 1,
+        total: 0,
+        must_do: 0,
         planned: 0,
         in_progress_today: 0,
         upcoming_pressure: 0,
         unscheduled: 0,
       },
       buckets: {
-        must_do: [{ task: tasks[0], entry: null, reason: 'due' }],
+        must_do: [],
         planned: [],
         in_progress_today: [],
         upcoming_pressure: [],
