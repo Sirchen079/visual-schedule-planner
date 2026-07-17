@@ -2,7 +2,7 @@
 
 知时是一个本地优先的个人日程、任务与资料管理**桌面应用**。项目以 Electron 封装 FastAPI + SQLite + Vue 3，提供看板、总览、日历、时间轴、资料库、AI 助手，以及开机自启、DDL 提醒小窗、自动备份等能力。所有数据保存在本机，无需联网即可使用（AI 功能需自行配置接口）。
 
-> 📥 **[点击此处下载最新版「知时 Setup.exe」（Windows）](https://github.com/Sirchen079/visual-schedule-planner/releases/latest/download/%E7%9F%A5%E6%97%B6%20Setup.exe)**　·　[查看所有版本](https://github.com/Sirchen079/visual-schedule-planner/releases)
+> 📥 **[点击此处下载最新版「知时 Setup.exe」（Windows）](https://github.com/Sirchen079/visual-schedule-planner/releases/latest/download/Setup.exe)**　·　[查看所有版本](https://github.com/Sirchen079/visual-schedule-planner/releases)
 
 ## 功能概览
 
@@ -52,7 +52,7 @@
 
 ### 安装
 
-从 [GitHub 发布页](https://github.com/Sirchen079/visual-schedule-planner/releases/latest) 获取安装包，或 [点击此处直接下载 `知时 Setup.exe`](https://github.com/Sirchen079/visual-schedule-planner/releases/latest/download/%E7%9F%A5%E6%97%B6%20Setup.exe)。双击运行，按向导选择目录完成安装。安装程序在复制文件前会自动关闭正在运行的旧版知时（先优雅退出并备份，再覆盖），无需手动结束进程。
+从 [GitHub 发布页](https://github.com/Sirchen079/visual-schedule-planner/releases/latest) 获取安装包，或 [点击此处直接下载 `知时 Setup.exe`](https://github.com/Sirchen079/visual-schedule-planner/releases/latest/download/Setup.exe)。双击运行，按向导选择目录完成安装。安装程序在复制文件前会自动关闭正在运行的旧版知时（先优雅退出并备份，再覆盖），无需手动结束进程。
 
 ### 启动与退出
 
