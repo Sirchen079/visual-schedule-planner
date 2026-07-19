@@ -3,6 +3,11 @@
 // configForm / skillForm 是父组件持有的表单对象，此处直接双向绑定其字段（对象引用不变，数据流不变），
 // 所有保存/启用/导入等动作一律 emit 给 AssistantView 执行。
 import ArtIcon from '../../components/ArtIcon.vue'
+import TokenUsagePanel from './TokenUsagePanel.vue'
+import { ref } from 'vue'
+
+// 「用量」分组懒加载：展开后才挂载面板并请求统计接口
+const usageOpen = ref(false)
 
 defineProps({
   configs: { type: Array, default: () => [] },
@@ -97,6 +102,16 @@ defineEmits([
           <label>
             <span>API Key</span>
             <input v-model="configForm.api_key" type="password" placeholder="留空表示不修改" />
+          </label>
+          <label>
+            <span>输入价（每百万 tokens）</span>
+            <input v-model="configForm.price_input" type="number" min="0" step="0.01" placeholder="可选" />
+            <small class="muted">用于用量页成本估算；留空或 0 表示不估算。</small>
+          </label>
+          <label>
+            <span>输出价（每百万 tokens）</span>
+            <input v-model="configForm.price_output" type="number" min="0" step="0.01" placeholder="可选" />
+            <small class="muted">用于用量页成本估算；留空或 0 表示不估算。</small>
           </label>
         </div>
 
@@ -258,6 +273,19 @@ defineEmits([
         <div class="panel-actions">
           <button :disabled="!canSaveConfig || busy" @click="$emit('save-config')">保存并启用</button>
         </div>
+      </div>
+    </details>
+
+    <details class="card settings-group" @toggle="usageOpen = $event.target.open">
+      <summary>
+        <span class="group-copy">
+          <span class="group-title">用量</span>
+          <span class="group-hint muted">按日 tokens、模型调用汇总与按价目估算的成本。</span>
+        </span>
+        <ArtIcon name="chevron-right" tone="pearl" :size="16" class="group-chevron" />
+      </summary>
+      <div class="group-body">
+        <TokenUsagePanel v-if="usageOpen" />
       </div>
     </details>
   </div>

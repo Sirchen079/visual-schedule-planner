@@ -1,6 +1,6 @@
 // 知时 桌面应用主进程
 // 职责：创建窗口、系统托盘、单实例锁、探测端口、以子进程守护后端。
-const { app, BrowserWindow, Tray, Menu, dialog, ipcMain, screen, shell } = require('electron')
+const { app, BrowserWindow, Tray, Menu, dialog, ipcMain, screen, shell, globalShortcut, powerMonitor } = require('electron')
 const { spawn, execFile, spawnSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
@@ -12,6 +12,7 @@ const PREFERRED_PORT = 18731
 
 let mainWindow = null
 let reminderWindow = null
+let captureWindow = null
 let tray = null
 let backend = null
 let isQuitting = false
@@ -350,6 +351,60 @@ function createReminderWindow() {
   })
 }
 
+// 全局快速捕获小窗：Ctrl+Shift+A 随时唤出，输入一句话回车即建任务。
+// 初始隐藏（懒创建，首次按快捷键时才建窗），失焦自动隐藏，保持「随手唤出、随手消失」。
+const CAPTURE_WIN = { width: 420, height: 260 }
+function createCaptureWindow() {
+  const { workArea } = screen.getPrimaryDisplay()
+  captureWindow = new BrowserWindow({
+    width: CAPTURE_WIN.width,
+    height: CAPTURE_WIN.height,
+    // 横向居中、偏上 1/4，贴近常见启动器（Spotlight/Alfred）的唤出位置
+    x: workArea.x + Math.round((workArea.width - CAPTURE_WIN.width) / 2),
+    y: workArea.y + Math.round(workArea.height / 4),
+    frame: false,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    show: false,
+    icon: path.join(__dirname, '..', 'build', 'icon.ico'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+  const captureParams = new URLSearchParams({ view: 'capture' })
+  if (app.isPackaged) captureParams.set('packaged', '1')
+  captureWindow.loadURL(`http://127.0.0.1:${activePort}/?${captureParams}`)
+  captureWindow.on('closed', () => {
+    captureWindow = null
+  })
+  // 失焦自动隐藏（点击别处即收起），下次快捷键再唤出
+  captureWindow.on('blur', () => {
+    if (captureWindow && !captureWindow.isDestroyed() && captureWindow.isVisible()) {
+      captureWindow.hide()
+    }
+  })
+}
+
+// 快捷键切换显隐：窗口不存在/已销毁则重建；隐藏则 show+focus，显示则 hide
+function toggleCaptureWindow() {
+  if (!captureWindow || captureWindow.isDestroyed()) {
+    captureWindow = null
+    createCaptureWindow()
+  }
+  if (!captureWindow) return
+  if (captureWindow.isVisible()) {
+    captureWindow.hide()
+  } else {
+    captureWindow.show()
+    captureWindow.focus()
+  }
+}
+
 // 知时助手悬浮窗：主窗口最小化到托盘时的替代入口。按钮态 <-> 面板态同一窗口 resize。
 function createAssistantFloat() {
   if (assistantFloat) return
@@ -410,6 +465,12 @@ function destroyAssistantFloat() {
 // 小窗 -> 主进程：显示自身 / 关闭自身 / 唤出主窗口
 ipcMain.on('reminder:show', () => {
   if (reminderWindow) reminderWindow.showInactive()
+})
+// 捕获小窗：前端 Esc / 空内容 Ctrl+Enter 时请求隐藏自身
+ipcMain.on('capture:close', () => {
+  if (captureWindow && !captureWindow.isDestroyed() && captureWindow.isVisible()) {
+    captureWindow.hide()
+  }
 })
 ipcMain.on('reminder:close', () => {
   if (reminderWindow) reminderWindow.close()
@@ -562,6 +623,16 @@ ipcMain.handle('login-item:set', async (_e, openAtLogin) => {
   return await readAutostart()
 })
 
+// 系统级空闲时间（秒）：用户在任意窗口操作都算活跃，知时在后台也能感知。
+// 用于看板「连续工作」判定——避免窗口级事件检测把后台工作误判为离开。
+ipcMain.handle('system:idle', async () => {
+  try {
+    return powerMonitor.getSystemIdleTime()
+  } catch (_) {
+    return 0
+  }
+})
+
 app.whenReady().then(async () => {
   activePort = await findFreePort(PREFERRED_PORT)
   // 先准备数据目录（必要时从 AppData 迁移到软件目录），再启动后端
@@ -577,6 +648,8 @@ app.whenReady().then(async () => {
   await loadAppSettings()
   createWindow()
   createTray()
+  // 全局快速捕获：Ctrl+Shift+A 唤出/收起小窗，自启与手动启动都生效
+  globalShortcut.register('Control+Shift+A', toggleCaptureWindow)
   // 开机自启：主窗口已静默到托盘，弹出独立提醒小窗
   if (isAutoStart) createReminderWindow()
 }).catch((e) => {
@@ -591,4 +664,9 @@ app.on('before-quit', (e) => {
     e.preventDefault()
     shutdownAndQuit()
   }
+})
+
+// 退出前注销全局快捷键，避免残留占用 Ctrl+Shift+A
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll()
 })

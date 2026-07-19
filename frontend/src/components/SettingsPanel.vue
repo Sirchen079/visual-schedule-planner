@@ -1,11 +1,13 @@
 <script setup>
-// 设置面板：开机自启（注册表）、知时助手悬浮窗、关闭按钮行为（后端应用设置）。
+// 设置面板：开机自启（注册表）、知时助手悬浮窗、关闭按钮行为、AI 日报周报参数、数据互通。
+// 功能模块开关（晨报/习惯/日记/目标/番茄钟）统一在「功能管理」面板，不在此处。
 // 桌面环境经 IPC 读写；浏览器访问时桌面相关项禁用并提示仅在桌面应用内可用。
 // 弹层基座为 BaseModal(Esc、焦点陷阱、z-index 统一),组件常驻、由 open 属性控制。
-import { onMounted, onBeforeUnmount, ref } from 'vue'
+import { inject, onMounted, onBeforeUnmount, ref } from 'vue'
 import ArtIcon from './ArtIcon.vue'
 import BaseModal from './ui/BaseModal.vue'
 import { getSettings, updateSettings } from '../api/settings'
+import { exportTasksUrl, importTasksIcs } from '../api/ical'
 
 defineProps({
   open: { type: Boolean, default: false },
@@ -151,6 +153,38 @@ function openGitHub() {
   if (window.electronAPI?.openExternal) window.electronAPI.openExternal(GITHUB_URL)
   else window.open(GITHUB_URL, '_blank', 'noopener')
 }
+
+// ---- 数据互通（iCal 导入导出）----
+// toast 由 App.vue provide；提供降级以防组件树外调用
+const toast = inject('toast', { success: () => {}, error: () => {}, info: () => {}, undo: () => {} })
+const icsInput = ref(null)
+const importing = ref(false)
+
+// 导出带 Content-Disposition attachment，直接跳转触发浏览器下载
+function exportIcs() {
+  window.location.href = exportTasksUrl()
+}
+
+function pickIcs() {
+  icsInput.value?.click()
+}
+
+async function onIcsPicked(event) {
+  const file = event.target.files?.[0]
+  event.target.value = '' // 重置以便重复选择同一文件
+  if (!file) return
+  importing.value = true
+  try {
+    const res = await importTasksIcs(file)
+    toast.success(`成功导入 ${res.created} 项任务`)
+    // 通知主界面静默刷新任务列表（App.vue 监听该事件）
+    window.dispatchEvent(new Event('tasks:refresh'))
+  } catch (e) {
+    toast.error(`导入失败：${e.message}`)
+  } finally {
+    importing.value = false
+  }
+}
 </script>
 
 <template>
@@ -281,6 +315,33 @@ function openGitHub() {
             <span class="knob"></span>
           </button>
         </div>
+      </section>
+
+      <section class="row col-row ics-group">
+        <div class="group-title">数据互通</div>
+        <div class="sub-row">
+          <div class="row-main">
+            <div class="row-title">导出 .ics</div>
+            <div class="row-desc">导出包含全部任务的起止/截止日期，可导入系统日历或其他日历应用</div>
+          </div>
+          <button class="ghost ics-btn" @click="exportIcs">导出 .ics</button>
+        </div>
+        <div class="sub-row">
+          <div class="row-main">
+            <div class="row-title">导入 .ics</div>
+            <div class="row-desc">按 VEVENT 从日历文件创建新任务（上限 50MB）</div>
+          </div>
+          <button class="ghost ics-btn" :disabled="importing" @click="pickIcs">
+            {{ importing ? '导入中…' : '导入 .ics' }}
+          </button>
+        </div>
+        <input
+          ref="icsInput"
+          type="file"
+          accept=".ics"
+          class="ics-input"
+          @change="onIcsPicked"
+        />
       </section>
 
       <section
@@ -488,6 +549,20 @@ function openGitHub() {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+.ics-group {
+  gap: 10px;
+}
+.ics-btn {
+  flex-shrink: 0;
+  min-width: 96px;
+  padding: 8px 14px;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+}
+.ics-input {
+  display: none;
 }
 
 .project-row {

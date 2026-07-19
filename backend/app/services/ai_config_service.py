@@ -124,6 +124,8 @@ def to_response(config: AIConfig) -> AIConfigResponse:
         ),
         search_enhancement_enabled=bool(config.search_enhancement_enabled),
         enabled=config.enabled,
+        price_input=float(config.price_input or 0),
+        price_output=float(config.price_output or 0),
         active_skill_id=config.active_skill_id,
         created_at=config.created_at,
         updated_at=config.updated_at,

@@ -3,6 +3,7 @@ import { computed, inject, onMounted, ref, watch } from 'vue'
 import { deleteReport, generateReport, getReport, listReports } from '../api/ai'
 import { getSettings } from '../api/settings'
 import ArtIcon from '../components/ArtIcon.vue'
+import MarkdownText from '../components/MarkdownText.vue'
 import AppSpinner from '../components/ui/AppSpinner.vue'
 import PageHeader from '../components/ui/PageHeader.vue'
 import SegmentedControl from '../components/ui/SegmentedControl.vue'
@@ -128,50 +129,6 @@ async function copyContent() {
     toast.error('复制失败，请手动选择文本复制')
   }
 }
-
-// 轻量 markdown 渲染（先 escape 再处理标题/粗体/列表/段落），避免引入额外依赖
-function renderMarkdown(md) {
-  if (!md) return ''
-  const esc = (s) =>
-    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-  const out = []
-  let inList = false
-  const closeList = () => {
-    if (inList) {
-      out.push('</ul>')
-      inList = false
-    }
-  }
-  for (const raw of md.split(/\r?\n/)) {
-    const line = raw.trim()
-    if (!line) {
-      closeList()
-      continue
-    }
-    if (/^### /.test(line)) {
-      closeList()
-      out.push(`<h3>${inline(line.slice(4))}</h3>`)
-    } else if (/^## /.test(line)) {
-      closeList()
-      out.push(`<h2>${inline(line.slice(3))}</h2>`)
-    } else if (/^# /.test(line)) {
-      closeList()
-      out.push(`<h2>${inline(line.slice(2))}</h2>`)
-    } else if (/^[-*] /.test(line)) {
-      if (!inList) {
-        out.push('<ul>')
-        inList = true
-      }
-      out.push(`<li>${inline(line.slice(2))}</li>`)
-    } else {
-      closeList()
-      out.push(`<p>${inline(line)}</p>`)
-    }
-  }
-  closeList()
-  return out.join('')
-}
 </script>
 
 <template>
@@ -199,7 +156,7 @@ function renderMarkdown(md) {
             <h2>{{ current.title }}</h2>
             <span class="meta">{{ current.period_start }} ~ {{ current.period_end }} · {{ current.model_name }}</span>
           </header>
-          <div class="markdown" v-html="renderMarkdown(current.content)"></div>
+          <MarkdownText :content="current.content" />
         </article>
         <div v-else-if="!busy" class="placeholder">
           <p>选择类型与日期，点「生成{{ typeLabel }}」由 AI 汇总你的任务；或从右侧查看历史报告。</p>
@@ -306,33 +263,6 @@ function renderMarkdown(md) {
 .meta {
   font-size: 13px;
   color: var(--text-soft);
-}
-.markdown :deep(h2) {
-  font-size: 16px;
-  margin: 18px 0 8px;
-  color: var(--accent-strong);
-}
-.markdown :deep(h3) {
-  font-size: 14px;
-  margin: 14px 0 6px;
-  color: var(--text);
-}
-.markdown :deep(p) {
-  margin: 6px 0;
-  line-height: 1.7;
-  color: var(--text);
-}
-.markdown :deep(ul) {
-  margin: 6px 0;
-  padding-left: 22px;
-}
-.markdown :deep(li) {
-  margin: 3px 0;
-  line-height: 1.7;
-  color: var(--text);
-}
-.markdown :deep(strong) {
-  color: var(--text);
 }
 .history {
   display: flex;

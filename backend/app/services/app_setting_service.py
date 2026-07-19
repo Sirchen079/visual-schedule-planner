@@ -13,7 +13,25 @@ DEFAULTS: dict[str, str] = {
     "report_task_limit": "50",
     "report_timeout_seconds": "180",
     "report_history_filter": "true",
+    # 功能开关（功能管理面板）：默认全开，关闭仅隐藏入口、数据保留
+    "feature_habits_enabled": "true",
+    "feature_journal_enabled": "true",
+    "feature_goals_enabled": "true",
+    "feature_timer_enabled": "true",
+    "feature_inline_ai_enabled": "true",  # 内嵌 AI 动作（用户主动触发，不产生额外自动消耗）
+    # 自动代劳/伴随联动：默认关闭（消耗模型调用且代替用户行动，需显式授权）
+    "feature_autopilot_enabled": "false",
+    "feature_companion_enabled": "false",
+    # 晨报开关（同属功能管理）：默认关闭（消耗模型调用，需显式开启）
+    "proactive_briefing_enabled": "false",
+    # 助手模式：assistant=知时助手（原版问答式）；agent=知时代理（主动代劳的秘书）
+    "assistant_mode": "agent",
 }
+
+
+def feature_enabled(db: Session, key: str) -> bool:
+    """功能开关读取：未写入时取 DEFAULTS（功能默认开启）。"""
+    return (get_setting(db, key) or "false") == "true"
 
 
 def get_setting(db: Session, key: str, default: str | None = None) -> str | None:

@@ -131,6 +131,18 @@ export function getAiConversation(id) {
   return request(`${BASE}/conversations/${id}`)
 }
 
+export function renameConversation(id, title) {
+  return request(`${BASE}/conversations/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  })
+}
+
+export function deleteConversation(id) {
+  return request(`${BASE}/conversations/${id}`, { method: 'DELETE' })
+}
+
 export function listAiSkills() {
   return request(`${BASE}/skills`)
 }
@@ -193,6 +205,13 @@ export function executeAiAction(id, confirmToken) {
   })
 }
 
+// ---- 每日晨报（幕僚线）----
+// 当天幂等；有 AI 配置时可能触发一次模型生成，故放宽到对话级超时。
+// 前端只在用户开启「每日晨报」开关后自动调用。
+export function getTodayBriefing() {
+  return request(`${BASE}/briefing/today`, {}, CHAT_TIMEOUT_MS)
+}
+
 // ---- AI 日报/周报 ----
 const DEFAULT_REPORT_TIMEOUT_MS = 180000
 
@@ -215,4 +234,50 @@ export function getReport(id) {
 
 export function deleteReport(id) {
   return request(`${BASE}/reports/${id}`, { method: 'DELETE' })
+}
+
+// ---- AI 深度融合：内嵌动作 / 秘书自动档 ----
+// 以下接口都可能触发模型调用，统一放宽到对话级超时。
+
+// 任务一键 AI 拆解子任务；409 = 已有子任务，403 = 内嵌动作被关闭，400 = 未配置 AI
+export function breakdownSubtasks(taskId) {
+  return request(`${BASE}/actions/breakdown-subtasks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ task_id: taskId }),
+  }, CHAT_TIMEOUT_MS)
+}
+
+// 任务一键 AI 排程；date 给了则直接排程（无需 AI），缺省由 AI 选日
+export function scheduleTaskAi(taskId, date) {
+  const body = { task_id: taskId }
+  if (date) body.date = date
+  return request(`${BASE}/actions/schedule-task`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }, CHAT_TIMEOUT_MS)
+}
+
+// 日记草稿（不落库）；date 缺省为今天。source: "ai" | "rule"（无 AI 配置时规则模板兜底）
+export function journalDraft(date) {
+  return request(`${BASE}/actions/journal-draft`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(date ? { date } : {}),
+  }, CHAT_TIMEOUT_MS)
+}
+
+// 番茄钟收束语：按 TimeLog id 生成一句话小结
+export function timerSignoff(logId) {
+  return request(`${BASE}/actions/timer-signoff`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ log_id: logId }),
+  }, CHAT_TIMEOUT_MS)
+}
+
+// 秘书自动档：当天幂等，主动排程 + 拆解任务。403 = 自动档未开启
+export function runAutopilot() {
+  return request(`${BASE}/autopilot/run`, { method: 'POST' }, CHAT_TIMEOUT_MS)
 }

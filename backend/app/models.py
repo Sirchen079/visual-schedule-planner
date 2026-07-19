@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 import secrets
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Table, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, Table, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -42,11 +43,37 @@ class Task(Base):
     progress: Mapped[int] = mapped_column(Integer, default=0)  # 0-100
     start_date: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     end_date: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now()
+        DateTime, default=datetime.now, onupdate=datetime.now
     )
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # 完成时间戳：进入「完成」状态时打点，重新打开时清空（趋势分析的数据基础）
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # 截止时刻（可选 "HH:MM"），与 due_date 组合成精确截止时间
+    due_time: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
+    # 提醒偏移（JSON 分钟数组，如 [0,30,1440]：截止时 / 提前 30 分 / 提前 1 天）
+    remind_offsets_json: Mapped[str] = mapped_column(
+        "remind_offsets", Text, default="[]", nullable=False
+    )
+    # 重复规则：none / daily / weekdays / weekly / monthly；完成时惰性生成下一实例
+    recur_rule: Mapped[str] = mapped_column(String(20), default="none", nullable=False)
+    recur_interval: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    # 看板列内手动排序权重：越小越靠前，相同则按创建时间倒序（0 为默认）
+    sort_order: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    # 预估耗时（分钟，可选）；与实际计时（time_logs）对照做预估 vs 实际分析
+    estimated_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    @property
+    def remind_offsets(self) -> list[int]:
+        """提醒偏移分钟列表（DB 存 JSON 字符串，对外暴露解析后的列表）。"""
+        try:
+            value = json.loads(self.remind_offsets_json or "[]")
+        except (TypeError, json.JSONDecodeError):
+            return []
+        if not isinstance(value, list):
+            return []
+        return sorted({max(0, int(v)) for v in value if isinstance(v, (int, float))})
 
     files: Mapped[list["File"]] = relationship(
         "File", secondary=task_file, back_populates="tasks"
@@ -148,6 +175,9 @@ class AIConfig(Base):
     native_web_search_options: Mapped[str] = mapped_column(Text, default="{}")
     search_enhancement_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    # 每百万 tokens 的输入/输出单价（用户自填，用于用量成本估算；0 表示未设置）
+    price_input: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    price_output: Mapped[float] = mapped_column(Float, default=0, nullable=False)
     active_skill_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("ai_skills.id"), nullable=True
     )
@@ -238,6 +268,160 @@ class AppSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+
+
+class Habit(Base):
+    """习惯：每日/每周打卡目标。连续达成形成 streak（连续天数/周数）。"""
+
+    __tablename__ = "habits"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    # daily=每天 target_count 次；weekly=每周 target_count 次
+    period: Mapped[str] = mapped_column(String(10), default="daily", nullable=False)
+    target_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    color: Mapped[str] = mapped_column(String(20), default="#74ccf2", nullable=False)
+    sort_order: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    logs: Mapped[list["HabitLog"]] = relationship(
+        "HabitLog", back_populates="habit", cascade="all, delete-orphan"
+    )
+
+
+class HabitLog(Base):
+    """习惯打卡记录：按 (habit, date) 唯一，count 可累加。"""
+
+    __tablename__ = "habit_logs"
+    __table_args__ = (UniqueConstraint("habit_id", "date", name="uq_habit_log_day"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    habit_id: Mapped[int] = mapped_column(ForeignKey("habits.id"), nullable=False, index=True)
+    date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    habit: Mapped[Habit] = relationship("Habit", back_populates="logs")
+
+
+class TimeLog(Base):
+    """专注时间流水：一次番茄钟/正计时一条。任务删除后保留 title 快照可统计。"""
+
+    __tablename__ = "time_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    task_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("tasks.id"), nullable=True, index=True
+    )
+    task_title: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), default="pomodoro", nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    # None 表示正在计时中（全局至多一条运行中记录）
+    ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    minutes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class Goal(Base):
+    """OKR 目标：定性的方向（O），下挂若干可量化的关键结果（KR）。"""
+
+    __tablename__ = "goals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    # active / done / archived
+    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False, index=True)
+    start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    end_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    sort_order: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    key_results: Mapped[list["KeyResult"]] = relationship(
+        "KeyResult", back_populates="goal", cascade="all, delete-orphan", order_by="KeyResult.id"
+    )
+
+
+class KeyResult(Base):
+    """关键结果（KR）：manual 手动填值；tag_task_count 关联标签任务完成数；
+    habit_checkins 关联习惯打卡总次数。后两种进度自动滚出。"""
+
+    __tablename__ = "key_results"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    goal_id: Mapped[int] = mapped_column(ForeignKey("goals.id"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), default="manual", nullable=False)
+    target_value: Mapped[float] = mapped_column(Float, default=1, nullable=False)
+    current_value: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    unit: Mapped[str] = mapped_column(String(20), default="", nullable=False)
+    # 自动类 KR 的关联配置：{"tag": "标签名"} 或 {"habit_id": 1}
+    link: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    goal: Mapped[Goal] = relationship("Goal", back_populates="key_results")
+
+
+class JournalEntry(Base):
+    """日记：一天一篇（date 唯一），Markdown 正文，幕僚的推理素材。"""
+
+    __tablename__ = "journal_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    date: Mapped[date] = mapped_column(Date, nullable=False, unique=True, index=True)
+    content: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    mood: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class NotificationLog(Base):
+    """通知记录：到点提醒触发时落一条，供通知中心回溯（错过不丢）。
+
+    触发仍由前端轮询驱动（无后台定时器），记录按 (task_id, remind_at) 幂等。
+    """
+
+    __tablename__ = "notification_logs"
+    __table_args__ = (
+        UniqueConstraint("task_id", "remind_at", name="uq_notification_task_remind"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    task_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("tasks.id"), nullable=True, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(20), default="reminder", nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    body: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    remind_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    read_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class AIUsageLog(Base):
+    """AI token 用量流水：每次模型调用落一条，供用量统计与成本估算。"""
+
+    __tablename__ = "ai_usage_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    config_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("ai_configs.id"), nullable=True, index=True
+    )
+    conversation_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("ai_conversations.id"), nullable=True, index=True
+    )
+    # chat / report / briefing：调用场景
+    kind: Mapped[str] = mapped_column(String(20), default="chat", nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(30), default="", nullable=False)
+    model: Mapped[str] = mapped_column(String(100), default="", nullable=False, index=True)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
 
 class AIReport(Base):

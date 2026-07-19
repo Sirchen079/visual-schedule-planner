@@ -1,40 +1,53 @@
 <script setup>
-import { onMounted, onBeforeUnmount, provide, ref } from 'vue'
+import { computed, onMounted, onBeforeUnmount, provide, ref } from 'vue'
 import { useTasks } from './composables/useTasks'
 import { useReminders } from './composables/useReminders'
 import { restoreTask } from './api/tasks'
+import { getTodayBriefing, listAiConfigs, runAutopilot } from './api/ai'
+import { getSettings } from './api/settings'
 import BoardView from './views/BoardView.vue'
 import OverviewView from './views/OverviewView.vue'
 import LibraryView from './views/LibraryView.vue'
 import AssistantView from './views/AssistantView.vue'
 import ReportView from './views/ReportView.vue'
 import AssistantFloat from './views/AssistantFloat.vue'
+import CaptureView from './views/CaptureView.vue'
 import CalendarView from './views/CalendarView.vue'
 import TimelineView from './views/TimelineView.vue'
+import HabitsView from './views/HabitsView.vue'
+import JournalView from './views/JournalView.vue'
+import GoalsView from './views/GoalsView.vue'
 import TrashView from './views/TrashView.vue'
 import TaskModal from './components/TaskModal.vue'
 import RemindersPanel from './components/RemindersPanel.vue'
 import ArtIcon from './components/ArtIcon.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
+import FeaturePanel from './components/FeaturePanel.vue'
+import FocusTimer from './components/FocusTimer.vue'
 import StartupReminder from './components/StartupReminder.vue'
+import BriefingCard from './components/BriefingCard.vue'
+import AutopilotCard from './components/AutopilotCard.vue'
+import CommandPalette from './components/CommandPalette.vue'
 import BaseModal from './components/ui/BaseModal.vue'
 import AppSpinner from './components/ui/AppSpinner.vue'
 
 const { tasks, loading, error, load, add, update, remove } = useTasks()
-const { upcoming, overdue, count, panelOpen, start: startReminders, refresh: refreshReminders } = useReminders()
+const { upcoming, overdue, triggered, count, panelOpen, unreadCount, start: startReminders, refresh: refreshReminders } = useReminders()
 
 // 独立提醒小窗：?view=reminder 时只渲染提醒组件（frameless 小窗专用）
 // 悬浮窗：?view=assistant 时只渲染助手悬浮组件
+// 快速捕获小窗：?view=capture 时只渲染全局捕获组件（Ctrl+Shift+A 唤出）
 // 开机自启主窗口：?autostart=1 时不挂载启动弹窗（提醒由独立小窗承载）
 const urlParams = new URLSearchParams(location.search)
 const isReminderWindow = urlParams.get('view') === 'reminder'
 const isAssistantFloatWindow = urlParams.get('view') === 'assistant'
+const isCaptureWindow = urlParams.get('view') === 'capture'
 const isAutoStartHost = urlParams.get('autostart') === '1'
 
 onMounted(() => {
-  // 小窗/悬浮窗专用窗口：不加载主界面数据、不启动轮询/通知
-  if (isReminderWindow || isAssistantFloatWindow) {
+  // 小窗/悬浮窗/捕获窗专用窗口：不加载主界面数据、不启动轮询/通知
+  if (isReminderWindow || isAssistantFloatWindow || isCaptureWindow) {
     // 悬浮窗是透明窗口，清除 body/html 背景渐变，避免方形底色从圆角/圆形外露出
     if (isAssistantFloatWindow) {
       document.documentElement.style.background = 'transparent'
@@ -43,6 +56,14 @@ onMounted(() => {
     return
   }
   load()
+  // 功能开关：读取一次，控制导航/计时器等入口可见性
+  getSettings().then(applyFeatureSettings).catch(() => {})
+  // AI 配置可用性：启动读一次 provide 给各内嵌 AI 按钮（变动不频繁，不订阅更新）
+  listAiConfigs()
+    .then((configs) => {
+      aiAvailable.value = (configs || []).some((c) => c?.enabled)
+    })
+    .catch(() => {})
   // 主窗口：接收小窗「去处理」传来的 taskId，打开对应任务编辑
   window.electronAPI?.onFocusTask?.((taskId) => {
     const t = tasks.value.find((x) => x.id === taskId)
@@ -63,6 +84,12 @@ onMounted(() => {
   // 主窗口重新获得焦点时静默刷新任务，确保悬浮窗里 AI 建的任务同步到看板
   window.addEventListener('focus', onFocusReload)
   window.addEventListener('keydown', onGlobalKeydown)
+  // 任务卡右键菜单等组件内直接改库后，经该事件通知主界面静默刷新
+  window.addEventListener('tasks:refresh', onTasksRefresh)
+  // 每日晨报：设置开启且今天未展示过时拉取，排在启动提醒关闭之后展示
+  void prepareBriefing()
+  // 秘书自动档：设置开启且今天未展示过时执行，与晨报同一排队策略（先于晨报）
+  void prepareAutopilot()
   // 开机自启的主窗口：提醒已由独立小窗承载，跳过通知轮询避免重复弹窗
   if (isAutoStartHost) return
   if (window.Notification && Notification.permission === 'default') {
@@ -74,21 +101,45 @@ onMounted(() => {
 function onFocusReload() {
   load(true)
 }
+function onTasksRefresh() {
+  load(true)
+}
 onBeforeUnmount(() => {
   window.removeEventListener('focus', onFocusReload)
   window.removeEventListener('keydown', onGlobalKeydown)
+  window.removeEventListener('tasks:refresh', onTasksRefresh)
 })
 
 const view = ref('board')
+// 功能开关（功能管理面板）：关闭只隐藏入口，数据保留
+const features = ref({ habits: true, journal: true, goals: true, timer: true })
+const featuresOpen = ref(false)
 const tabs = [
   { key: 'board', label: '看板', icon: 'board' },
   { key: 'overview', label: '总览', icon: 'overview' },
   { key: 'calendar', label: '日历', icon: 'calendar' },
   { key: 'timeline', label: '时间轴', icon: 'timeline' },
+  { key: 'habits', label: '习惯', icon: 'check', feature: 'habits' },
+  { key: 'journal', label: '日记', icon: 'file', feature: 'journal' },
+  { key: 'goals', label: '目标', icon: 'flag', feature: 'goals' },
   { key: 'library', label: '资料库', icon: 'library' },
   { key: 'report', label: '日报周报', icon: 'archive' },
   { key: 'trash', label: '回收站', icon: 'trash' },
 ]
+// 可见视图 = 未被功能开关关闭的视图；快捷键/命令面板共用此列表
+const visibleTabs = computed(() => tabs.filter((t) => !t.feature || features.value[t.feature]))
+
+function applyFeatureSettings(s) {
+  features.value = {
+    habits: s.feature_habits_enabled !== 'false',
+    journal: s.feature_journal_enabled !== 'false',
+    goals: s.feature_goals_enabled !== 'false',
+    timer: s.feature_timer_enabled !== 'false',
+  }
+  // 当前视图被关闭时回落到看板
+  const current = tabs.find((t) => t.key === view.value)
+  if (current?.feature && !features.value[current.feature]) view.value = 'board'
+}
 
 // 主题：有手动选择用手动选择；首次启动跟随系统 prefers-color-scheme
 const storedTheme = localStorage.getItem('theme')
@@ -145,8 +196,11 @@ function toggleTheme() {
 
 const modalOpen = ref(false)
 const editing = ref(null)
-function openCreate() {
+// 新建任务的预填数据（目前只有日历月格子双击会传入 due_date）
+const createInitial = ref(null)
+function openCreate(initial = null) {
   editing.value = null
+  createInitial.value = initial
   modalOpen.value = true
 }
 function openEdit(t) {
@@ -156,6 +210,7 @@ function openEdit(t) {
 function closeModal() {
   modalOpen.value = false
   editing.value = null
+  createInitial.value = null
 }
 
 async function onSave(payload) {
@@ -166,9 +221,9 @@ async function onSave(payload) {
   }
   closeModal()
 }
-// 看板右侧栏快速新建：只带标题和目标列，其余走后端默认值
-async function onQuickCreate({ title, status }) {
-  await add({ title, status })
+// 看板右侧栏快速新建：标题已由 BoardView 做自然语言解析，可带日期/时间/优先级/标签
+async function onQuickCreate(payload) {
+  await add(payload)
 }
 async function onDelete(t) {
   const ok = await confirmDialog({
@@ -223,6 +278,11 @@ const toastService = {
   undo: (msg, undoFn) => showToast(msg, { type: 'info', undo: undoFn, duration: 6000 }),
 }
 provide('toast', toastService)
+
+// AI 配置可用性（是否有 enabled 的模型配置）：onMounted 时读一次，
+// provide 给任务/日记等处的内嵌 AI 按钮做禁用态判断
+const aiAvailable = ref(false)
+provide('ai-available', aiAvailable)
 const toastMeta = {
   success: { icon: 'check', tone: 'mint' },
   error: { icon: 'alert', tone: 'coral' },
@@ -241,12 +301,119 @@ async function undoDelete() {
   }
 }
 
+// ---- 每日晨报（幕僚线，默认关闭）----
+// 设置键 proactive_briefing_enabled === 'true' 且 localStorage zs-briefing-shown 非今天时，
+// 启动后拉取今日晨报；与 StartupReminder 同一天各自只弹一次，晨报排在启动提醒关闭之后。
+const BRIEFING_SHOWN_KEY = 'zs-briefing-shown'
+const briefingReport = ref(null)
+let briefingPending = false
+// StartupReminder 的 closed 可能早于本组件 onMounted（当日已节流时同步 emit），
+// 记录已发生的事实，prepare 阶段据此直接展示，避免排队丢失
+let startupReminderDone = false
+
+function todayKey() {
+  const d = new Date()
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+async function prepareBriefing() {
+  if (localStorage.getItem(BRIEFING_SHOWN_KEY) === todayKey()) return
+  try {
+    const s = await getSettings()
+    if (s.proactive_briefing_enabled !== 'true') return
+  } catch {
+    return
+  }
+  briefingPending = true
+  // 自启主窗口不挂载 StartupReminder（或它已 closed），可直接展示；否则等其 closed 事件排队
+  if (isAutoStartHost || startupReminderDone) void showBriefing()
+}
+
+function onStartupReminderClosed() {
+  startupReminderDone = true
+  // 先自动档后晨报；自动档不弹时 showAutopilot 内部会把晨报接上
+  if (autopilotPending) void showAutopilot()
+  else if (briefingPending) void showBriefing()
+}
+
+async function showBriefing() {
+  if (!briefingPending || briefingReport.value) return
+  briefingPending = false
+  try {
+    briefingReport.value = await getTodayBriefing()
+    localStorage.setItem(BRIEFING_SHOWN_KEY, todayKey())
+  } catch {
+    // 接口失败静默不展示；不写日期，下次启动可重试
+  }
+}
+
+// ---- 秘书自动档（默认关闭）----
+// 设置键 feature_autopilot_enabled === 'true' 且 localStorage zs-autopilot-shown 非今天时，
+// 启动后执行当日自动档；有代办成果才弹卡，排在启动提醒关闭之后、晨报之前。
+const AUTOPILOT_SHOWN_KEY = 'zs-autopilot-shown'
+const autopilotResult = ref(null)
+let autopilotPending = false
+
+async function prepareAutopilot() {
+  if (localStorage.getItem(AUTOPILOT_SHOWN_KEY) === todayKey()) return
+  try {
+    const s = await getSettings()
+    if (s.feature_autopilot_enabled !== 'true') return
+  } catch {
+    return
+  }
+  autopilotPending = true
+  // 自启主窗口不挂载 StartupReminder（或它已 closed），可直接展示；否则等其 closed 事件排队
+  if (isAutoStartHost || startupReminderDone) void showAutopilot()
+}
+
+async function showAutopilot() {
+  if (!autopilotPending || autopilotResult.value) return
+  autopilotPending = false
+  try {
+    const result = await runAutopilot()
+    if (result?.ran && result.actions?.length) {
+      autopilotResult.value = result
+      localStorage.setItem(AUTOPILOT_SHOWN_KEY, todayKey())
+      return
+    }
+    // ran:true 但无代办成果：当天已跑过，记录日期避免重复执行
+    if (result?.ran) localStorage.setItem(AUTOPILOT_SHOWN_KEY, todayKey())
+  } catch {
+    // 接口失败静默不弹；不写日期，下次启动可重试
+  }
+  // 无可展示内容：晨报在排队则直接接上
+  if (briefingPending) void showBriefing()
+}
+
+function onAutopilotClosed() {
+  autopilotResult.value = null
+  // 自动档关后再弹晨报，避免两张卡叠在一起
+  if (briefingPending) void showBriefing()
+}
+
+// ---- 命令面板（Ctrl/Cmd+K）----
+const paletteOpen = ref(false)
+
+// 「新建 xxx」快速创建：面板已按可选注入的解析器产出 payload，这里直接落库
+async function onPaletteQuickCreate(payload) {
+  try {
+    await add(payload)
+    toastService.success(`已创建「${payload.title}」`)
+  } catch (e) {
+    toastService.error(`创建失败：${e.message}`)
+  }
+}
+
 // 全局快捷键:? 打开帮助;各视图自己的快捷键(如看板 / 与 N)在视图内注册
 const shortcutsOpen = ref(false)
 const shortcutGroups = [
   {
     name: '全局',
     items: [
+      { keys: ['Ctrl/⌘', 'K'], desc: '命令面板' },
+      { keys: ['1–9'], desc: '切换九个视图' },
       { keys: ['?'], desc: '打开快捷键帮助' },
       { keys: ['Esc'], desc: '关闭弹层' },
     ],
@@ -260,11 +427,26 @@ const shortcutGroups = [
   },
 ]
 function onGlobalKeydown(e) {
+  // Ctrl/Cmd+K 命令面板：输入框聚焦时也要能用，先于输入元素判断
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
+    e.preventDefault()
+    paletteOpen.value = !paletteOpen.value
+    return
+  }
   const tag = e.target?.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return
   if (e.key === '?' || (e.shiftKey && e.key === '/')) {
     e.preventDefault()
     shortcutsOpen.value = !shortcutsOpen.value
+    return
+  }
+  // 数字 1-N 切换视图（不带修饰键、不在输入元素内；N = 可见视图数量）
+  if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key >= '1' && e.key <= String(visibleTabs.value.length)) {
+    const tab = visibleTabs.value[Number(e.key) - 1]
+    if (tab) {
+      e.preventDefault()
+      view.value = tab.key
+    }
   }
 }
 </script>
@@ -272,6 +454,7 @@ function onGlobalKeydown(e) {
 <template>
   <StartupReminder v-if="isReminderWindow" host-window />
   <AssistantFloat v-else-if="isAssistantFloatWindow" />
+  <CaptureView v-else-if="isCaptureWindow" />
   <div v-else class="app">
     <header class="topbar">
       <div class="brand">
@@ -281,7 +464,7 @@ function onGlobalKeydown(e) {
 
       <nav class="tabs">
         <button
-          v-for="tab in tabs"
+          v-for="tab in visibleTabs"
           :key="tab.key"
           :class="['tab', view === tab.key && 'active']"
           :aria-label="tab.label"
@@ -296,12 +479,12 @@ function onGlobalKeydown(e) {
       <div class="topbar-actions">
         <button
           class="ghost icon bell-btn"
-          :class="{ has: count > 0 }"
-          :title="count > 0 ? `有 ${count} 条提醒` : '提醒'"
+          :class="{ has: count > 0 || unreadCount > 0 }"
+          :title="unreadCount > 0 ? `有 ${unreadCount} 条未读通知` : count > 0 ? `有 ${count} 条提醒` : '提醒'"
           @click="panelOpen = true; refreshReminders()"
         >
           <ArtIcon name="bell" tone="aqua" :size="20" label="提醒" />
-          <span v-if="count" class="badge">{{ count > 99 ? '99+' : count }}</span>
+          <span v-if="unreadCount || count" class="badge">{{ (unreadCount || count) > 99 ? '99+' : (unreadCount || count) }}</span>
         </button>
         <button
           class="ghost icon theme-btn"
@@ -314,6 +497,9 @@ function onGlobalKeydown(e) {
             :size="20"
             :label="theme === 'light' ? '切换深色' : '切换浅色'"
           />
+        </button>
+        <button class="ghost icon" @click="featuresOpen = true" title="功能管理">
+          <ArtIcon name="sort" tone="aqua" :size="20" label="功能管理" />
         </button>
         <button class="ghost settings" @click="settingsOpen = true" title="设置">
           <span>设置</span>
@@ -343,8 +529,11 @@ function onGlobalKeydown(e) {
           @quick-create="onQuickCreate"
         />
         <OverviewView v-else-if="view === 'overview'" :tasks="tasks" @open="openEdit" />
-        <CalendarView v-else-if="view === 'calendar'" :tasks="tasks" @open="openEdit" @create="openCreate" />
-        <TimelineView v-else-if="view === 'timeline'" :tasks="tasks" @open="openEdit" @create="openCreate" />
+        <CalendarView v-else-if="view === 'calendar'" :tasks="tasks" @open="openEdit" @create="openCreate" @changed="load" />
+        <TimelineView v-else-if="view === 'timeline'" :tasks="tasks" @open="openEdit" @create="openCreate" @changed="load(true)" />
+        <HabitsView v-else-if="view === 'habits'" />
+        <JournalView v-else-if="view === 'journal'" />
+        <GoalsView v-else-if="view === 'goals'" />
         <ReportView v-else-if="view === 'report'" @changed="load" />
         <TrashView v-else-if="view === 'trash'" @changed="load" />
         <LibraryView v-else />
@@ -356,6 +545,7 @@ function onGlobalKeydown(e) {
     <TaskModal
       :open="modalOpen"
       :task="editing"
+      :initial="createInitial"
       @save="onSave"
       @delete="onDelete"
       @changed="load"
@@ -367,12 +557,27 @@ function onGlobalKeydown(e) {
         v-if="panelOpen"
         :upcoming="upcoming"
         :overdue="overdue"
+        :triggered="triggered"
         @open="(t) => { panelOpen = false; openEdit(t) }"
         @close="panelOpen = false"
       />
     </Transition>
 
     <SettingsPanel :open="settingsOpen" @close="settingsOpen = false" />
+    <FeaturePanel :open="featuresOpen" @close="featuresOpen = false" @changed="applyFeatureSettings" />
+    <FocusTimer v-if="features.timer" />
+
+    <CommandPalette
+      :open="paletteOpen"
+      :tabs="visibleTabs"
+      @close="paletteOpen = false"
+      @navigate="(k) => (view = k)"
+      @open-settings="settingsOpen = true"
+      @toggle-theme="toggleTheme"
+      @open-task="openEdit"
+      @create-task="openCreate"
+      @quick-create="onPaletteQuickCreate"
+    />
 
     <ConfirmDialog
       :open="confirmState.open"
@@ -385,7 +590,19 @@ function onGlobalKeydown(e) {
       @cancel="resolveConfirmDialog(false)"
     />
 
-    <StartupReminder v-if="!isAutoStartHost" @open="openEdit" />
+    <StartupReminder v-if="!isAutoStartHost" @open="openEdit" @closed="onStartupReminderClosed" />
+
+    <AutopilotCard
+      v-if="autopilotResult"
+      :result="autopilotResult"
+      @close="onAutopilotClosed"
+    />
+
+    <BriefingCard
+      v-if="briefingReport"
+      :report="briefingReport"
+      @close="briefingReport = null"
+    />
 
     <Transition name="toast">
       <div v-if="toast" :class="['toast', `toast-${toast.type}`]">

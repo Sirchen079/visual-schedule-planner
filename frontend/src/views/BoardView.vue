@@ -1,16 +1,19 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, inject, onMounted, onUnmounted, ref, watch } from 'vue'
 import draggable from 'vuedraggable'
 import TaskCard from '../components/TaskCard.vue'
 import ArtIcon from '../components/ArtIcon.vue'
 import PageHeader from '../components/ui/PageHeader.vue'
 import { getDueReminders } from '../api/reminders'
+import { updateTask } from '../api/tasks'
 import { useWarmGreeting } from '../composables/useWarmGreeting'
+import { formatQuickHint, parseQuickInput } from '../utils/quickparse'
 
 const props = defineProps({
   tasks: { type: Array, required: true },
 })
 const emit = defineEmits(['open', 'update-status', 'create', 'quick-create'])
+const toast = inject('toast', { success: () => {}, error: () => {}, info: () => {}, undo: () => {} })
 
 const COLUMNS = ['待办', '进行中', '完成']
 const lists = ref({ 待办: [], 进行中: [], 完成: [] })
@@ -55,7 +58,11 @@ const filtered = computed(() => {
   } else if (sortBy.value === 'priority') {
     arr.sort((a, b) => (PRI_WEIGHT[a.priority] ?? 9) - (PRI_WEIGHT[b.priority] ?? 9))
   } else {
-    arr.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    // 默认与后端列表序一致：sort_order 升序，再按创建时间倒序（列内手动排序在此基础上生效）
+    arr.sort((a, b) => {
+      const diff = orderOf(a) - orderOf(b)
+      return diff !== 0 ? diff : new Date(b.created_at) - new Date(a.created_at)
+    })
   }
   return arr
 })
@@ -98,16 +105,24 @@ onUnmounted(() => {
   clearDragMarks()
 })
 
-// 拖拽：仅允许跨列移动（同列排序不持久化、刷新会回弹，禁止以免误导）。
-// 拖动过程中高亮可投放的目标列，同列时给出 not-allowed 光标反馈。
+// 拖拽：跨列移动改状态；同列在「默认排序」下可排序并持久化 sort_order。
+// 其他排序（截止/优先级）下列显示顺序与 sort_order 无关，同列拖了也留不住位置，仍禁止以免误导。
+// 拖动过程中高亮可投放的目标列，不可投放时给出 not-allowed 光标反馈。
+const SORT_EPS = 1e-6 // 相邻 sort_order 差值小于该阈值视为过近，触发整列一次性规整
+
+function orderOf(t) {
+  return typeof t?.sort_order === 'number' ? t.sort_order : 0
+}
+
 function onMove(evt) {
   const crossColumn = evt.from !== evt.to
+  const canDrop = crossColumn || sortBy.value === 'created'
   document
     .querySelectorAll('.col-body.drop-target')
     .forEach((el) => el.classList.remove('drop-target'))
   if (crossColumn && evt.to) evt.to.classList.add('drop-target')
-  document.body.classList.toggle('drag-no-drop', !crossColumn)
-  return crossColumn
+  document.body.classList.toggle('drag-no-drop', !canDrop)
+  return canDrop
 }
 
 function clearDragMarks() {
@@ -117,16 +132,62 @@ function clearDragMarks() {
   document.body.classList.remove('drag-no-drop')
 }
 
-function onEnd(evt, targetStatus) {
+async function onEnd(evt, targetStatus) {
   clearDragMarks()
-  const item = lists.value[targetStatus]?.[evt.newIndex]
-  if (item && item.status !== targetStatus) {
-    emit('update-status', item, targetStatus)
+  const arr = lists.value[targetStatus]
+  const item = arr?.[evt.newIndex]
+  if (!item) return
+  if (evt.from !== evt.to) {
+    // 跨列移动：先按落点写入 sort_order，成功后再改状态（避免状态响应带回旧值覆盖本地顺序）
+    if (item.status !== targetStatus) {
+      const placed = await placeSortOrder(arr, evt.newIndex, item)
+      if (placed) emit('update-status', item, targetStatus)
+    }
+    return
+  }
+  // 同列排序：默认排序下已被 onMove 放行；位置没变则不产生请求
+  if (evt.oldIndex !== evt.newIndex) await placeSortOrder(arr, evt.newIndex, item)
+}
+
+// 按落点计算并持久化 sort_order：两张卡之间取均值、列首取最小值-1、列尾取最大值+1。
+// 本地乐观更新立即生效；失败 toast 并通知主界面刷新回退。
+async function placeSortOrder(arr, index, item) {
+  const prev = arr[index - 1]
+  const next = arr[index + 1]
+  try {
+    if (prev && next) {
+      const lo = orderOf(prev)
+      const hi = orderOf(next)
+      // 相邻值相等或过近：按当前顺序把整列一次性规整为 1..n（仅此时才规整，克制）
+      if (hi - lo < SORT_EPS) return await normalizeColumn(arr)
+      return await applySortOrder(item, (lo + hi) / 2)
+    }
+    if (prev) return await applySortOrder(item, orderOf(prev) + 1)
+    if (next) return await applySortOrder(item, orderOf(next) - 1)
+    return true // 列内仅此一张卡，无需调整
+  } catch {
+    toast.error('排序保存失败，已恢复')
+    window.dispatchEvent(new Event('tasks:refresh'))
+    return false
   }
 }
 
+async function applySortOrder(item, value) {
+  item.sort_order = value // 乐观更新：本地顺序立即生效
+  await updateTask(item.id, { sort_order: value })
+  return true
+}
+
+async function normalizeColumn(arr) {
+  arr.forEach((t, i) => {
+    t.sort_order = i + 1
+  })
+  for (const t of arr) await updateTask(t.id, { sort_order: t.sort_order })
+  return true
+}
+
 // 排序键 → 中文文案（与工具栏下拉选项一致）
-const SORT_LABELS = { created: '最近创建', due: '截止日期', priority: '优先级' }
+const SORT_LABELS = { created: '默认排序', due: '截止日期', priority: '优先级' }
 const sortLabel = computed(() => SORT_LABELS[sortBy.value] || SORT_LABELS.created)
 
 const columnMeta = {
@@ -160,17 +221,29 @@ const visibleTags = computed(() => allTags.value.slice(0, 7))
 const { warm } = useWarmGreeting(() => props.tasks)
 
 // 右侧栏快速新建：回车即建到目标列（默认待办，列头 + 号可切换目标列并聚焦）
+// 标题支持自然语言语法（明天/下午3点/!高/#标签），输入时实时显示解析提示
 const quickTitle = ref('')
 const quickStatus = ref('待办')
 const quickInput = ref(null)
+const quickHints = computed(() => {
+  const text = quickTitle.value.trim()
+  return text ? formatQuickHint(parseQuickInput(text)) : []
+})
 function focusQuick(status) {
   quickStatus.value = status
   quickInput.value?.focus()
 }
 function quickAdd() {
-  const title = quickTitle.value.trim()
-  if (!title) return
-  emit('quick-create', { title, status: quickStatus.value })
+  const text = quickTitle.value.trim()
+  if (!text) return
+  const parsed = parseQuickInput(text)
+  const payload = { title: parsed.title, status: quickStatus.value }
+  // 日期序列化与 TaskForm 保持一致：整天对齐到 23:59:59
+  if (parsed.due_date) payload.due_date = `${parsed.due_date}T23:59:59`
+  if (parsed.due_time) payload.due_time = parsed.due_time
+  if (parsed.priority) payload.priority = parsed.priority
+  if (parsed.tags.length) payload.tags = parsed.tags
+  emit('quick-create', payload)
   quickTitle.value = ''
 }
 
@@ -242,7 +315,7 @@ function fmtDue(d) {
       <div class="ctl">
         <ArtIcon class="ctl-icon" name="sort" tone="sand" :size="18" />
         <select v-model="sortBy">
-          <option value="created">最近创建</option>
+          <option value="created">默认排序</option>
           <option value="due">截止日期</option>
           <option value="priority">优先级</option>
         </select>
@@ -344,6 +417,9 @@ function fmtDue(d) {
             <select v-model="quickStatus" title="新建到哪一列" aria-label="新建到哪一列">
               <option v-for="col in COLUMNS" :key="col" :value="col">{{ col }}</option>
             </select>
+          </div>
+          <div v-if="quickHints.length" class="quick-hints">
+            <span v-for="hint in quickHints" :key="hint" class="quick-hint">{{ hint }}</span>
           </div>
 
           <div class="due-block" v-if="dueItems.length">
@@ -805,6 +881,25 @@ function fmtDue(d) {
   padding: 0 8px;
   font-size: 12px;
   cursor: pointer;
+}
+
+/* 快速新建的解析提示 chips */
+.quick-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.quick-hint {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 9px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 /* 右侧栏：临期/逾期任务块 */

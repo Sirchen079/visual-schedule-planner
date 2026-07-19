@@ -5,7 +5,7 @@
 ; 源：electron-builder 产出的 release/win-unpacked/
 
 #define MyAppName "知时"
-#define MyAppVersion "1.2.3"
+#define MyAppVersion "1.3.0"
 #define MyAppPublisher "知时"
 #define MyAppExeName "知时.exe"
 

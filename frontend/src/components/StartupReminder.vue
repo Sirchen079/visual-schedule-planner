@@ -9,7 +9,9 @@ import { getDaySchedule } from '../api/schedule'
 const props = defineProps({
   hostWindow: { type: Boolean, default: false },
 })
-const emit = defineEmits(['open'])
+// closed：启动提醒不再遮挡界面（已展示被关闭 / 今日已弹过 / 无内容 / 拉取失败），
+// App 借此把每日晨报排队到启动提醒之后展示
+const emit = defineEmits(['open', 'closed'])
 
 const THROTTLE_KEY = 'startup_reminder_last_date'
 const WINDOW_HOURS = 168 // 覆盖未来 7 天的 DDL
@@ -79,7 +81,10 @@ const TIER_LABEL = {
 }
 
 async function check() {
-  if (localStorage.getItem(THROTTLE_KEY) === dateKey()) return
+  if (localStorage.getItem(THROTTLE_KEY) === dateKey()) {
+    emit('closed')
+    return
+  }
   try {
     const [due, schedule] = await Promise.all([
       getDueReminders(WINDOW_HOURS),
@@ -116,10 +121,13 @@ async function check() {
     } else if (props.hostWindow) {
       // 小窗无提醒内容：静默关闭，不打扰
       window.electronAPI?.closeSelf?.()
+    } else {
+      emit('closed')
     }
   } catch {
     // 拉取失败：独立小窗静默关闭避免残留隐藏窗口；主窗口模态无妨
     if (props.hostWindow) window.electronAPI?.closeSelf?.()
+    else emit('closed')
   }
 }
 
@@ -127,6 +135,7 @@ function onKeydown(e) {
   if (visible.value && e.key === 'Escape') close()
 }
 function close() {
+  emit('closed')
   if (props.hostWindow) {
     window.electronAPI?.closeSelf?.()
     return

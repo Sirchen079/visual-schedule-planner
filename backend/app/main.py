@@ -10,7 +10,7 @@ from sqlalchemy import text
 
 from app.database import engine
 from app.models import Base
-from app.routers import ai, files, reminders, schedule, settings, tasks
+from app.routers import ai, ai_actions, files, goals, habits, ical, journal, notifications, reminders, schedule, settings, stats, tasks, timer
 from app.services import backup_service
 
 
@@ -41,10 +41,65 @@ def _migrate() -> None:
         "source_url": "VARCHAR(1000)",
         "resource_type": "VARCHAR(30) DEFAULT 'file'",
     }
+    task_columns = {
+        "completed_at": "DATETIME",
+        "due_time": "VARCHAR(5)",
+        "remind_offsets": "TEXT DEFAULT '[]'",
+        "recur_rule": "VARCHAR(20) DEFAULT 'none'",
+        "recur_interval": "INTEGER DEFAULT 1",
+        "sort_order": "FLOAT DEFAULT 0",
+        "estimated_minutes": "INTEGER",
+    }
+    ai_config_columns.update(
+        {
+            "price_input": "FLOAT DEFAULT 0",
+            "price_output": "FLOAT DEFAULT 0",
+        }
+    )
     with engine.connect() as conn:
         cols = [row[1] for row in conn.execute(text("PRAGMA table_info(subtasks)"))]
         if cols and "completed_at" not in cols:
             conn.execute(text("ALTER TABLE subtasks ADD COLUMN completed_at DATETIME"))
+        task_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(tasks)"))]
+        if task_cols:
+            for name, column_type in task_columns.items():
+                if name not in task_cols:
+                    conn.execute(text(f"ALTER TABLE tasks ADD COLUMN {name} {column_type}"))
+            # 历史已完成任务用 updated_at 近似回填完成时间（与报告口径一致）
+            conn.execute(
+                text(
+                    "UPDATE tasks SET completed_at = updated_at "
+                    "WHERE status = '完成' AND completed_at IS NULL"
+                )
+            )
+        # 时区归一（一次性）：func.now() 历史数据是 UTC，本应用其他时间戳均为本地时间，
+        # 统一转本地，避免按日聚合（统计/用量）在凌晨错位一天。用 app_settings 哨兵保证只跑一次。
+        has_app_settings = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='app_settings'")
+        ).fetchone()
+        if has_app_settings and task_cols:
+            setting_keys = {
+                row[0] for row in conn.execute(text("SELECT key FROM app_settings"))
+            }
+            if "tz_normalized_v1" not in setting_keys:
+                conn.execute(
+                    text(
+                        "UPDATE tasks SET completed_at = datetime(completed_at, 'localtime') "
+                        "WHERE completed_at IS NOT NULL AND completed_at = updated_at"
+                    )
+                )
+                conn.execute(text("UPDATE tasks SET created_at = datetime(created_at, 'localtime')"))
+                conn.execute(text("UPDATE tasks SET updated_at = datetime(updated_at, 'localtime')"))
+                has_usage = conn.execute(
+                    text("SELECT name FROM sqlite_master WHERE type='table' AND name='ai_usage_logs'")
+                ).fetchone()
+                if has_usage:
+                    conn.execute(
+                        text("UPDATE ai_usage_logs SET created_at = datetime(created_at, 'localtime')")
+                    )
+                conn.execute(
+                    text("INSERT INTO app_settings (key, value) VALUES ('tz_normalized_v1', '1')")
+                )
         ai_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(ai_configs)"))]
         if ai_cols:
             for name, column_type in ai_config_columns.items():
@@ -73,6 +128,14 @@ app.include_router(files.router)
 app.include_router(reminders.router)
 app.include_router(schedule.router)
 app.include_router(settings.router)
+app.include_router(stats.router)
+app.include_router(notifications.router)
+app.include_router(habits.router)
+app.include_router(journal.router)
+app.include_router(goals.router)
+app.include_router(timer.router)
+app.include_router(ical.router)
+app.include_router(ai_actions.router)
 app.include_router(ai.router)
 
 

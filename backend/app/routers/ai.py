@@ -18,6 +18,7 @@ from app.schemas import (
     AIChatResponse,
     AIConversationDetailResponse,
     AIConversationMessageResponse,
+    AIConversationRename,
     AIConversationSummaryResponse,
     AIConfigCreate,
     AIConfigResponse,
@@ -42,6 +43,9 @@ from app.services import (
     ai_report_service,
     ai_skill_service,
     ai_tool_service,
+    ai_usage_service,
+    app_setting_service,
+    autopilot_service,
 )
 
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -239,6 +243,7 @@ async def run_agent_loop(
     config: AIConfig,
     messages: list[dict],
     user_text: str,
+    conversation_id: int | None = None,
 ) -> AgentRunResult:
     run_id = uuid4().hex
     started_at = datetime.now()
@@ -256,6 +261,10 @@ async def run_agent_loop(
         req = build_chat_provider_request(db, config, working_messages)
         try:
             raw = await ai_client.call_provider(req)
+            ai_usage_service.log_usage(
+                db, config=config, kind="chat", payload=raw,
+                conversation_id=conversation_id,
+            )
         except Exception as exc:
             if step == 1:
                 raise
@@ -557,6 +566,30 @@ def get_conversation(conversation_id: int, db: Session = Depends(get_db)):
     )
 
 
+@router.patch("/conversations/{conversation_id}", response_model=AIConversationSummaryResponse)
+def rename_conversation(
+    conversation_id: int, payload: AIConversationRename, db: Session = Depends(get_db)
+):
+    conversation = db.get(AIConversation, conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="AI 会话不存在")
+    title = payload.title.strip()
+    if title:
+        conversation.title = title
+        db.commit()
+        db.refresh(conversation)
+    return conversation_summary(conversation)
+
+
+@router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_conversation(conversation_id: int, db: Session = Depends(get_db)):
+    conversation = db.get(AIConversation, conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="AI 会话不存在")
+    db.delete(conversation)
+    db.commit()
+
+
 @router.get("/skills", response_model=list[AISkillResponse])
 def list_skills(db: Session = Depends(get_db)):
     return ai_skill_service.list_skills(db)
@@ -679,7 +712,9 @@ async def chat(payload: AIChatRequest, db: Session = Depends(get_db)):
             "attachments": model_attachments,
         }
     try:
-        agent_run = await run_agent_loop(db, config, messages, user_text)
+        agent_run = await run_agent_loop(
+            db, config, messages, user_text, conversation_id=conversation.id
+        )
     except Exception as exc:
         raise HTTPException(
             status_code=502, detail=provider_failure_detail("模型请求", exc)
@@ -746,7 +781,7 @@ async def chat(payload: AIChatRequest, db: Session = Depends(get_db)):
 
     return AIChatResponse(
         conversation_id=conversation.id,
-        assistant_name=config.assistant_name or "知时助手",
+        assistant_name=ai_prompt_service.resolve_assistant_name(db, config),
         reply=reply,
         tool_results=tool_results,
         pending_actions=[
@@ -771,6 +806,27 @@ async def generate_report(
         raise HTTPException(
             status_code=502, detail=provider_failure_detail("生成报告", exc)
         ) from exc
+
+
+@router.post("/autopilot/run")
+async def autopilot_run(db: Session = Depends(get_db)):
+    """秘书自动档：每天一次，AI 主动排程 + 拆解（需知时代理模式 + 功能管理开启 + AI 配置）。"""
+    if ai_prompt_service.assistant_mode(db) != "agent":
+        raise HTTPException(status_code=403, detail="秘书自动档是「知时代理」专属能力，请在助手中切换到知时代理")
+    if not app_setting_service.feature_enabled(db, "feature_autopilot_enabled"):
+        raise HTTPException(status_code=403, detail="秘书自动档未开启，可在功能管理中开启")
+    config = ai_config_service.get_enabled_config(db)
+    if config is None:
+        return {"ran": False, "reason": "未启用 AI 配置", "actions": [], "message": ""}
+    return await autopilot_service.run_autopilot(db, config)
+
+
+@router.get("/briefing/today", response_model=AIReportResponse)
+async def briefing_today(db: Session = Depends(get_db)):
+    """每日晨报：当天幂等；有 AI 配置用模型生成，否则降级为规则文案。"""
+    config = ai_config_service.get_enabled_config(db)
+    report, _created = await ai_report_service.get_or_create_briefing(db, config)
+    return report
 
 
 @router.get("/reports", response_model=list[AIReportResponse])

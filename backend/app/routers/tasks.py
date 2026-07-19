@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import datetime
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -22,8 +25,28 @@ def create_task(task: TaskCreate, db: Session = Depends(get_db)):
 
 
 @router.get("", response_model=list[TaskResponse])
-def list_tasks(db: Session = Depends(get_db)):
-    return task_service.list_tasks(db)
+def list_tasks(
+    q: Optional[str] = Query(None, description="标题/备注模糊搜索"),
+    task_status: Optional[str] = Query(None, alias="status"),
+    priority: Optional[str] = Query(None),
+    tag: Optional[str] = Query(None, description="按标签名过滤"),
+    due_before: Optional[datetime] = Query(None),
+    due_after: Optional[datetime] = Query(None),
+    sort: str = Query("created_at", pattern="^(created_at|due_date|priority)$"),
+    order: str = Query("desc", pattern="^(asc|desc)$"),
+    db: Session = Depends(get_db),
+):
+    return task_service.list_tasks(
+        db,
+        q=q,
+        status=task_status,
+        priority=priority,
+        tag=tag,
+        due_before=due_before,
+        due_after=due_after,
+        sort=sort,
+        order=order,
+    )
 
 
 # 以下静态路径必须在 /{task_id} 之前注册，否则会被当作 task_id 匹配

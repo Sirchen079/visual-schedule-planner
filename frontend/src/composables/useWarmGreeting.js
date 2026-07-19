@@ -1,5 +1,10 @@
-// 暖心个性化提醒：根据当前时间、任务安排与连续使用时长，生成温和的中文提示。
-// 纯前端派生：任务数据来自看板 props，时长取本次会话连续使用时间（sessionStorage 记录起点），
+// 暖心个性化提醒：根据当前时间、任务安排与真实活跃时长，生成温和的中文提示。
+// 纯前端派生：任务数据来自看板 props；活跃信号源有两条，按可用性自动择优：
+//   1. Electron 系统级空闲时间（powerMonitor.getSystemIdleTime）——桌面应用首选，
+//      用户在任意窗口（IDE/浏览器/Excel…）操作都算活跃，知时在后台也能感知；
+//   2. web 交互事件（鼠标 / 键盘 / 滚动 / 触摸）——开发模式浏览器直连时回退。
+// 空闲超过 IDLE_THRESHOLD_MS 即视为中断——避免「电脑一直开着就被当作一直在工作」，
+// 同时也避免「用户在别的窗口认真工作却被误判为离开」。
 // 每分钟重新评估一次，无需后端配合。
 // 文案采用多句池 + 按天轮换（种子=当天）：同一天内内容稳定不跳动，第二天自动换一批说法。
 import { computed, ref } from 'vue'
@@ -7,7 +12,60 @@ import { computed, ref } from 'vue'
 const now = ref(Date.now())
 setInterval(() => (now.value = Date.now()), 60_000)
 
+// ---- 真实活跃时长：监听用户交互，空闲超阈值则中断当前连续工作段 ----
+const IDLE_THRESHOLD_MS = 5 * 60_000 // 5 分钟内无任何交互，视为「人已离开」
+const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'scroll', 'wheel', 'touchstart']
 const SESSION_KEY = 'zhishi_session_start'
+
+// 模块级单例：多个组件实例共用同一份活跃状态，避免重复绑定监听器
+let lastActiveAt = Date.now()
+let streakStartAt = Date.now()
+let lastMark = 0
+let listenersBound = false
+
+function markActive() {
+  const t = Date.now()
+  // 节流：1 秒内只处理一次（mousemove 高频），降低无谓的计算
+  if (t - lastMark < 1000) return
+  lastMark = t
+  // 离开过一段时间：当前连续工作段到此为止，下次活动重新起算
+  if (t - lastActiveAt > IDLE_THRESHOLD_MS) {
+    streakStartAt = t
+  }
+  lastActiveAt = t
+}
+
+function bindActivityOnce() {
+  if (listenersBound || typeof window === 'undefined') return
+  listenersBound = true
+  for (const evt of ACTIVITY_EVENTS) {
+    // 仅用于感知活跃，不拦截：passive
+    window.addEventListener(evt, markActive, { passive: true })
+  }
+}
+bindActivityOnce()
+
+// Electron 系统级空闲检测：桌面环境下每 15 秒问一次系统空闲秒数，
+// 空闲 < 阈值即视为仍在活跃（覆盖「知时挂在后台、用户在别的窗口工作」的场景）。
+// 非桌面环境（浏览器开发模式）无 electronAPI，自动跳过，回退到上面的 web 事件检测。
+async function pollSystemIdle() {
+  const api = typeof window !== 'undefined' ? window.electronAPI : null
+  if (!api || typeof api.getSystemIdleTime !== 'function') return
+  try {
+    const idleSec = await api.getSystemIdleTime()
+    if (idleSec * 1000 < IDLE_THRESHOLD_MS) markActive()
+  } catch {
+    // IPC 不可用：静默回退到 web 事件检测
+  }
+}
+let idlePollBound = false
+function bindIdlePollOnce() {
+  if (idlePollBound || typeof window === 'undefined') return
+  idlePollBound = true
+  setInterval(pollSystemIdle, 15_000)
+}
+bindIdlePollOnce()
+
 function sessionStart() {
   let ts = Number(sessionStorage.getItem(SESSION_KEY))
   // 没有记录或记录异常（未来/超过 12 小时前）时重置为现在
@@ -16,6 +74,16 @@ function sessionStart() {
     sessionStorage.setItem(SESSION_KEY, String(ts))
   }
   return ts
+}
+
+/**
+ * 当前「连续工作段」的时长（ms）。
+ * 只有用户最近 IDLE_THRESHOLD_MS 内仍在交互时才返回非零；
+ * 离开后再回来，会从重新活动的那一刻起算——电脑空转不再被计入。
+ */
+function activeStreakMs(t = Date.now()) {
+  if (t - lastActiveAt > IDLE_THRESHOLD_MS) return 0
+  return Math.max(0, t - streakStartAt)
 }
 
 function dayRange(offsetDays = 0) {
@@ -37,21 +105,21 @@ function fmtDuration(ms) {
 
 const pick = (arr, seed) => arr[seed % arr.length]
 
-// ---- 文案池 ----
+// ---- 文案池：以意象与留白为骨，保留温度而不堆砌辞藻 ----
 
 // 深夜（23:00–05:00）：主线只谈休息，不制造焦虑
 const LATE_NIGHT = [
-  '夜深了，早点休息，别熬夜。',
-  '这个点了，身体比任务更需要你。去睡吧。',
-  '夜很安静，适合放下，不适合硬撑。晚安。',
+  '夜已深。屏幕的光再亮，也照不亮明天的疲惫——去睡吧。',
+  '万籁俱寂之时，最该放下的，是手里那件没做完的事。',
+  '熬夜换来的进度，常常抵不过一个好觉换来的清醒。',
 ]
 const LATE_NIGHT_DONE = (n) => [
-  `今天已经完成了 ${n} 项任务，带着这份踏实感安心睡吧。`,
-  `今天搞定 ${n} 项任务，很不错了。睡个好觉，明天见。`,
+  `今日已了结 ${n} 件事。把这份心安，一并带进梦里。`,
+  `${n} 件事尘埃落定。今夜，可以踏实合眼了。`,
 ]
 const LATE_NIGHT_TODO = [
-  '还没做完的事先记下来，明天精神饱满地处理，效率会更高。',
-  '把没做完的事交给明天，今晚会睡得更安稳。',
+  '未尽之事，且交给明天的自己——他常比你想象中更能干。',
+  '把没做完的写在纸上，然后关灯。明天自有明天的力气。',
 ]
 
 // 时段暖心句
@@ -59,89 +127,89 @@ const TIME_SLOTS = [
   {
     from: 5, to: 9, title: '早上好', icon: 'sun', tone: 'sand',
     lines: [
-      '一日之计在于晨。趁头脑最清醒，把最重要的事放在前面。',
-      '早安。新的一天，先深呼吸，再想想今天最想完成的三件事。',
-      '清晨的效率是一天里最高的，别辜负了它。',
+      '晨光初破，万物方醒。趁头脑清明，先动手做最难的那件事。',
+      '一日之计在于晨。深吸一口新空气，想清楚今天最值得的三件事。',
+      '清晨的专注最珍贵——别让它碎在第一条消息里。',
     ],
   },
   {
     from: 9, to: 11, title: '上午好', icon: 'sun', tone: 'aqua',
     lines: [
-      '上午正是专注的好时候，适合啃最难的那块骨头。',
-      '趁精力满格，先处理最需要动脑的事。',
-      '上午好。专注一小时，胜过分心一上午。',
+      '日上三竿，正是出活的好时辰。把最硬的骨头挑出来，趁热打铁。',
+      '精力正盛。挑一件最动脑的事，沉进去——一小时的深专注，胜过半日的浅忙碌。',
+      '上午的时光如未落墨的宣纸，先落最重要那一笔。',
     ],
   },
   {
     from: 11, to: 13, title: '中午好', icon: 'sun', tone: 'sand',
     lines: [
-      '忙了一上午，记得按时吃饭、稍微歇一会儿，下午才有精神。',
-      '中午好。先放下手里的事，好好吃顿饭。',
-      '饭后眯十五分钟，下午的效率会翻倍。',
+      '忙了一上午，该把笔搁下了。好好吃顿饭，是对下午最划算的投资。',
+      '正午已至。先放下手头的事——饭菜要趁热，事可以慢慢来。',
+      '饭后小憩十五分钟，下午的清明，会还你一份惊喜。',
     ],
   },
   {
     from: 13, to: 18, title: '下午好', icon: 'sun', tone: 'aqua',
     lines: [
-      '下午容易犯困，泡杯茶站起来走走，节奏缓一点也没关系。',
-      '下午好。离收工不远了，看看今天还能收尾哪一件。',
-      '困了就活动一下肩颈，别硬扛着盯屏幕。',
+      '午后易倦。泡杯茶，起身走走——慢一点，反而走得更远。',
+      '日影西斜，离收工渐近。看看今天，还能顺手了结哪一桩。',
+      '困意上涌时，活动活动肩颈。身体松一分，思路便清一分。',
     ],
   },
   {
     from: 18, to: 23, title: '晚上好', icon: 'moon', tone: 'aqua',
     lines: [
-      '忙了一天辛苦了。晚上的时间，记得留一点给自己。',
-      '晚上好。今天的事尽力就好，剩下的交给明天。',
-      '吃点好的，陪陪家人，或者安静看会儿书——晚上属于你。',
+      '辛苦了一天。夜里的时间，记得留一些给自己——给喜欢的人，给喜欢的书。',
+      '华灯初上。今日尽力便好，余下的，且交给明天。',
+      '晚饭要好好吃，晚风要慢慢吹。这一刻，不属于任何任务。',
     ],
   },
 ]
 
 // 任务情境句（函数接收数量 n）
 const MSG_OVERDUE = (n) => [
-  `有 ${n} 项任务已经逾期。别焦虑，挑最小的一项，现在开始就不晚。`,
-  `${n} 项任务过了期限。没关系，从今天重新开始推进它们。`,
-  `逾期的 ${n} 项任务在等你。先处理拖得最久的那个，会轻松一大截。`,
+  `有 ${n} 件事已逾期。别自责——挑最小的那一件，从现在起，重新出发。`,
+  `${n} 件事过了期。没关系，今天能动手，就不算太晚。`,
+  `逾期的 ${n} 件事在等你。先解开拖得最久的那一个，心里会轻一大截。`,
 ]
 const MSG_DUE_TODAY = (n) => [
-  `今天有 ${n} 项任务到期。优先处理它们，其他的事可以先放一放。`,
-  `${n} 项任务今天截止。集中注意力，一件一件来。`,
-  `今天的截止任务有 ${n} 项，完成后会特别有成就感。`,
+  `今天有 ${n} 件事到期。把它们放在前面，其余的，暂且搁置。`,
+  `${n} 件事今日截止。一件一件来，急不得。`,
+  `今日 ${n} 个截止——做完它们，今晚会格外踏实。`,
 ]
 const MSG_DUE_TOMORROW = (n) => [
-  `明天有 ${n} 项任务到期。今天先铺垫一小步，明天会轻松很多。`,
-  `${n} 项任务明天截止，今天先给它开个头吧。`,
+  `明天有 ${n} 件事到期。今天先起个头，明天就轻松许多。`,
+  `${n} 件事明天截止——今日埋下伏笔，明日水到渠成。`,
 ]
 const MSG_EMPTY = [
-  '新的一天从第一个任务开始——用右侧的快速新建，把脑海里的事先记下来吧。',
-  '看板还是空的。把挂念的事写下来，大脑就轻松了。',
+  '新的一天，从第一件事开始。把脑海里盘旋的念头，先写下来。',
+  '看板尚空。落下一笔，心便有了着落。',
 ]
 const MSG_ALL_CLEAR = [
-  '手头没有待办任务，难得的空档。可以整理资料，或者干脆给自己放个假。',
-  '任务全部完成，干得漂亮。好好享受这份清爽。',
+  '手头暂无挂碍。这难得的空档，可以整理，也可以纯粹地歇一歇。',
+  '任务清零。这份清爽，是你一寸一寸挣来的。',
 ]
 const MSG_DOING = (n) => [
-  `有 ${n} 项任务正在推进。保持节奏，稳扎稳打就很好。`,
-  `${n} 项任务在路上。不着急，持续小步前进就是快。`,
+  `有 ${n} 件事正在路上。不徐不疾，稳稳推进，便已是好的节奏。`,
+  `${n} 件事进行中——慢一点没关系，关键是别停下。`,
 ]
 const MSG_DEFAULT = [
-  '任务都安排妥当了。挑一件最重要的，先从五分钟开始。',
-  '一切尽在掌握。现在，从最重要的一件开始。',
+  '一切都已就绪。挑一件最重要的，从五分钟开始。',
+  '万事俱备。现在，从最重要的那一件，落下第一笔。',
 ]
 
 // 完成肯定 / 休息提醒
 const MSG_PRAISE = (n) => [
-  `今天已完成 ${n} 项任务，这份进展值得肯定。`,
-  `今天已经搞定 ${n} 项了，给自己一个肯定的眼神。`,
+  `今天已完成 ${n} 件事。这份踏实的进展，值得为自己记上一笔。`,
+  `今天搞定 ${n} 件了。给自己一个会心的眼神——你做到了。`,
 ]
 const MSG_BREAK_LONG = (d) => [
-  `已经连续工作 ${d} 了。认真很值得，但休息也是效率的一部分——起来活动五分钟吧。`,
-  `专注 ${d} 了，身体该充电了。站起来倒杯水，看看窗外。`,
+  `已专注 ${d} 了。认真固然可贵，歇息亦是效率的一部分——起来走走，五分钟便好。`,
+  `专注 ${d} 了，身体在悄悄提醒你。倒杯水，看看窗外，让眼睛也歇一歇。`,
 ]
 const MSG_BREAK_SHORT = (d) => [
-  `已经专注 ${d} 了，倒杯水、眺望一下远处吧。`,
-  `工作 ${d} 了，眨眨眼、伸个懒腰再继续。`,
+  `已专注 ${d}。眨眨眼，眺望远处，让目光松一松。`,
+  `专注 ${d} 了，伸个懒腰，再继续也不迟。`,
 ]
 
 /**
@@ -200,10 +268,10 @@ export function useWarmGreeting(getTasks) {
     // 时段暖心句
     lines.push(pick(slot.lines, seed))
 
-    // 副线：休息提醒（健康优先，排在完成肯定之前）
-    const sessionMs = t - sessionStart()
-    if (sessionMs >= 90 * 60_000) lines.push(pick(MSG_BREAK_LONG(fmtDuration(sessionMs)), seed))
-    else if (sessionMs >= 45 * 60_000) lines.push(pick(MSG_BREAK_SHORT(fmtDuration(sessionMs)), seed))
+    // 副线：休息提醒——基于真实活跃段，离开过即归零，不再误报
+    const streakMs = activeStreakMs(t)
+    if (streakMs >= 90 * 60_000) lines.push(pick(MSG_BREAK_LONG(fmtDuration(streakMs)), seed))
+    else if (streakMs >= 45 * 60_000) lines.push(pick(MSG_BREAK_SHORT(fmtDuration(streakMs)), seed))
     if (doneToday.length && !overdue.length) lines.push(pick(MSG_PRAISE(doneToday.length), seed))
 
     return { title: slot.title, icon: slot.icon, tone: slot.tone, mood, lines: lines.slice(0, 3) }

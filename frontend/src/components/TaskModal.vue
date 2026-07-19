@@ -1,16 +1,106 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, inject, onMounted, ref, watch } from 'vue'
 import TaskForm from './TaskForm.vue'
 import ArtIcon from './ArtIcon.vue'
 import BaseModal from './ui/BaseModal.vue'
 import { attachFile, detachFile, getContentUrl, listFiles } from '../api/files'
 import { createSubtask, deleteSubtask, updateSubtask } from '../api/tasks'
+import { startTimer } from '../api/timer'
+import { breakdownSubtasks, scheduleTaskAi } from '../api/ai'
+import { getSettings } from '../api/settings'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
   task: { type: Object, default: null },
+  // 新建时的预填数据（如日历双击格子传入 { due_date }），透传给 TaskForm
+  initial: { type: Object, default: null },
 })
 const emit = defineEmits(['save', 'delete', 'close', 'changed'])
+
+// 全局 toast（App.vue provide）；提供降级以防组件树外调用
+const toast = inject('toast', { success: () => {}, error: () => {}, info: () => {}, undo: () => {} })
+
+// ---- 内嵌 AI 动作（功能面板「内嵌 AI 动作」开关控制渲染；无启用模型配置时禁用）----
+const aiAvailable = inject('ai-available', ref(false))
+const inlineAiEnabled = ref(false)
+const aiBusy = ref(false)
+
+onMounted(async () => {
+  try {
+    const s = await getSettings()
+    inlineAiEnabled.value = s.feature_inline_ai_enabled !== 'false'
+  } catch {
+    // 读取失败按关闭处理，不展示按钮
+  }
+})
+
+const aiDisabledTitle = '需先在助手中启用模型配置'
+// 已有子任务时不可再拆解（后端 409 口径），用禁用态提前说明
+const breakdownDisabled = computed(
+  () => !aiAvailable.value || aiBusy.value || subtasks.value.length > 0
+)
+const breakdownTitle = computed(() => {
+  if (!aiAvailable.value) return aiDisabledTitle
+  if (subtasks.value.length > 0) return '已有子任务，如需重新拆解请先清空'
+  return '让 AI 把任务拆成可执行的小步骤'
+})
+const scheduleDisabled = computed(() => !aiAvailable.value || aiBusy.value)
+const scheduleTitle = computed(() =>
+  aiAvailable.value ? '让 AI 挑一个合适的日子排进日程' : aiDisabledTitle
+)
+
+async function aiBreakdown() {
+  const t = props.task
+  if (!t || breakdownDisabled.value) return
+  aiBusy.value = true
+  try {
+    const res = await breakdownSubtasks(t.id)
+    const created = res?.subtasks || []
+    subtasks.value = [...subtasks.value, ...created]
+    toast.success(`已拆成 ${created.length} 个子任务`)
+    emit('changed')
+  } catch (e) {
+    toast.error(`AI 拆解失败：${e.message}`)
+  } finally {
+    aiBusy.value = false
+  }
+}
+
+async function aiSchedule() {
+  const t = props.task
+  if (!t || scheduleDisabled.value) return
+  aiBusy.value = true
+  try {
+    const res = await scheduleTaskAi(t.id)
+    toast.success(`已安排到 ${scheduleDateLabel(res?.date)}`)
+    emit('changed')
+    window.dispatchEvent(new Event('tasks:refresh'))
+  } catch (e) {
+    toast.error(`AI 排程失败：${e.message}`)
+  } finally {
+    aiBusy.value = false
+  }
+}
+
+function scheduleDateLabel(dateStr) {
+  if (!dateStr) return '日程'
+  const d = new Date(`${dateStr}T00:00:00`)
+  return `${d.getMonth() + 1}月${d.getDate()}日`
+}
+
+// 开始专注：调计时接口并 toast，派 focus:start 事件让 FocusTimer 同步状态，随后关闭弹窗
+async function startFocus() {
+  const t = props.task
+  if (!t) return
+  try {
+    await startTimer(t.id)
+    toast.success(`已开始专注《${t.title}》`)
+    window.dispatchEvent(new CustomEvent('focus:start', { detail: t }))
+    emit('close')
+  } catch (e) {
+    toast.error(`开始专注失败：${e.message}`)
+  }
+}
 
 const allFiles = ref([])
 const selectedFileId = ref('')
@@ -114,7 +204,7 @@ async function removeSub(s) {
         <div class="modal-title">{{ task ? '编辑任务' : '新建任务' }}</div>
       </div>
 
-      <TaskForm :model-value="task" @save="(p) => emit('save', p)" @cancel="emit('close')" />
+      <TaskForm :model-value="task" :initial="initial" @save="(p) => emit('save', p)" @cancel="emit('close')" />
 
       <section v-if="task" class="files-section">
         <h3>
@@ -194,10 +284,40 @@ async function removeSub(s) {
         </div>
       </section>
 
-      <button v-if="task" class="danger icon-text-btn" @click="emit('delete', task)">
-        <ArtIcon name="trash" tone="pearl" :size="18" />
-        <span>删除任务</span>
-      </button>
+      <div v-if="task" class="modal-foot">
+        <div class="foot-left">
+          <button type="button" class="ghost icon-text-btn" @click="startFocus">
+            <ArtIcon name="priority" tone="aqua" :size="18" />
+            <span>开始专注</span>
+          </button>
+          <template v-if="inlineAiEnabled">
+            <button
+              type="button"
+              class="ghost icon-text-btn"
+              :disabled="breakdownDisabled"
+              :title="breakdownTitle"
+              @click="aiBreakdown"
+            >
+              <ArtIcon name="steps" tone="mint" :size="18" />
+              <span>AI 拆解</span>
+            </button>
+            <button
+              type="button"
+              class="ghost icon-text-btn"
+              :disabled="scheduleDisabled"
+              :title="scheduleTitle"
+              @click="aiSchedule"
+            >
+              <ArtIcon name="calendar" tone="aqua" :size="18" />
+              <span>AI 排程</span>
+            </button>
+          </template>
+        </div>
+        <button class="danger icon-text-btn" @click="emit('delete', task)">
+          <ArtIcon name="trash" tone="pearl" :size="18" />
+          <span>删除任务</span>
+        </button>
+      </div>
     </div>
   </BaseModal>
 </template>
@@ -327,8 +447,28 @@ async function removeSub(s) {
   margin-top: 12px;
 }
 
+.modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+
+.foot-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .danger {
   margin-top: 2px;
+}
+
+.modal-foot .danger {
+  margin-top: 0;
 }
 
 .subtasks-section {

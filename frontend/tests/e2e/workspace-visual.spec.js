@@ -5,8 +5,11 @@ const pages = [
   { tab: 1, root: '.overview', name: 'overview' },
   { tab: 2, root: '.calendar-action-center', name: 'calendar' },
   { tab: 3, root: '.timeline', name: 'timeline' },
-  { tab: 4, root: '.library', name: 'library' },
-  { tab: 6, root: '.trash', name: 'trash' },
+  { tab: 4, root: '.habits', name: 'habits' },
+  { tab: 5, root: '.journal', name: 'journal' },
+  { tab: 6, root: '.goals', name: 'goals' },
+  { tab: 7, root: '.library', name: 'library' },
+  { tab: 9, root: '.trash', name: 'trash' },
 ]
 
 function task(id, title, overrides = {}) {
@@ -73,6 +76,12 @@ async function json(route, body) {
 }
 
 async function mockBackend(page) {
+  // 启动提醒弹窗每天只弹一次（localStorage 节流）；预置今天已弹，避免遮挡视图切换
+  await page.addInitScript(() => {
+    const d = new Date()
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    localStorage.setItem('startup_reminder_last_date', key)
+  })
   await page.route(/\/tasks\/trash(?:$|\?)/, (route) => json(route, [tasks[0]]))
   await page.route(/\/tasks\/tags(?:$|\?)/, (route) => json(route, []))
   await page.route(/\/tasks(?:$|\?)/, (route) => json(route, tasks))
@@ -80,6 +89,9 @@ async function mockBackend(page) {
     json(route, [{ ...files[0], deleted_at: '2026-06-28T09:00:00' }])
   )
   await page.route(/\/files(?:$|\?)/, (route) => json(route, files))
+  await page.route(/\/habits(?:$|\?)/, (route) => json(route, []))
+  await page.route(/\/journal(?:$|\?)/, (route) => json(route, []))
+  await page.route(/\/goals(?:$|\?)/, (route) => json(route, []))
   await page.route('**/reminders/due**', (route) => json(route, { upcoming: [], overdue: [] }))
   await page.route('**/ai/configs**', (route) => json(route, []))
   await page.route('**/ai/skills**', (route) => json(route, []))

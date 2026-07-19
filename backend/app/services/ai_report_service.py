@@ -11,7 +11,18 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import AIConfig, AIReport, Task
-from app.services import ai_client, ai_config_service, app_setting_service, task_service
+from app.services import (
+    ai_client,
+    ai_config_service,
+    ai_usage_service,
+    app_setting_service,
+    goal_service,
+    habit_service,
+    insight_service,
+    risk_service,
+    task_service,
+    timer_service,
+)
 
 DONE = "完成"
 IN_PROGRESS = "进行中"
@@ -86,8 +97,9 @@ def collect_report_data(
     for task in tasks:
         item = _task_dict(task)
         is_done = task.status == DONE
-        # 本期完成：状态完成且 updated_at 落在窗口（Task 无 completed_at，近似）
-        if is_done and in_window(task.updated_at):
+        # 本期完成：优先按 completed_at（A1 起打点），旧数据回退 updated_at 近似
+        done_at = task.completed_at or task.updated_at
+        if is_done and in_window(done_at):
             completed.append(item)
         if not is_done:
             if task.status == IN_PROGRESS:
@@ -170,6 +182,21 @@ def build_report_prompt(
     if any(omitted.values()):
         parts = [f"{k} 另有 {v} 项未展示" for k, v in omitted.items() if v]
         omitted_hint = "任务较多已截断，" + "；".join(parts) + "。\n"
+    # 周报附加全域数据（目标/习惯/时间投入/幕僚观察），日报保持精简不加
+    extra = ""
+    if data.get("goals"):
+        extra += "\n目标进度（OKR）：\n" + json.dumps(data["goals"], ensure_ascii=False)
+    if data.get("habits"):
+        extra += "\n习惯打卡：\n" + json.dumps(data["habits"], ensure_ascii=False)
+    if data.get("time"):
+        extra += "\n时间投入：\n" + json.dumps(data["time"], ensure_ascii=False)
+    if data.get("insights"):
+        extra += "\n幕僚观察：\n" + json.dumps(data["insights"], ensure_ascii=False)
+    if extra:
+        extra = (
+            "\n（周报还需覆盖：目标推进是否健康、习惯保持情况、时间分配是否合理，"
+            "并给出下周期建议）" + extra
+        )
     user = (
         f"报告类型：{type_label}\n"
         f"时间窗口：{period}\n"
@@ -180,11 +207,60 @@ def build_report_prompt(
         + json.dumps(
             {k: data[k] for k in detail_keys}, ensure_ascii=False, indent=2
         )
+        + extra
     )
     return system, user
 
 
 # ---- 生成 ----
+def _weekly_extra(db: Session) -> dict:
+    """周报附加全域数据：目标进度、习惯保持、时间投入、幕僚观察（各按功能开关裁剪）。"""
+    extra: dict = {}
+    if app_setting_service.feature_enabled(db, "feature_goals_enabled"):
+        goals = []
+        for goal in goal_service.list_goals(db)[:8]:
+            if goal.status != "active":
+                continue
+            goals.append(
+                {
+                    "title": goal.title,
+                    "progress": goal_service.goal_progress(db, goal),
+                    "krs": [
+                        {
+                            "title": kr.title,
+                            "progress": goal_service.kr_progress(db, kr, goal)[1],
+                        }
+                        for kr in goal.key_results[:5]
+                    ],
+                }
+            )
+        extra["goals"] = goals
+    if app_setting_service.feature_enabled(db, "feature_habits_enabled"):
+        extra["habits"] = [
+            {
+                "name": h.name,
+                "period": h.period,
+                **{
+                    k: v
+                    for k, v in habit_service.habit_status(h).items()
+                    if k in ("period_count", "target_count", "streak")
+                },
+            }
+            for h in habit_service.list_habits(db)[:10]
+        ]
+    if app_setting_service.feature_enabled(db, "feature_timer_enabled"):
+        stats = timer_service.time_stats(db, 7)
+        extra["time"] = {
+            "total_minutes": stats["total_minutes"],
+            "by_tag": stats["by_tag"][:5],
+            "estimates_overrun": [
+                e for e in stats["estimates"] if e["actual_minutes"] > e["estimated_minutes"]
+            ][:3],
+        }
+    extra["insights"] = [item["text"] for item in insight_service.compute_insights(db, 5)]
+    return extra
+
+
 async def generate_report(
     db: Session,
     config: AIConfig,
@@ -197,6 +273,8 @@ async def generate_report(
         task_limit = 50
     task_limit = max(1, task_limit)
     data = collect_report_data(db, report_type, target_date, task_limit=task_limit)
+    if report_type == "weekly":
+        data.update(_weekly_extra(db))
     system, user = build_report_prompt(config, report_type, data)
     req = ai_client.build_provider_request(
         provider=config.provider,
@@ -210,6 +288,7 @@ async def generate_report(
         proxy_url=config.proxy_url,
     )
     raw = await ai_client.call_provider(req)
+    ai_usage_service.log_usage(db, config=config, kind="report", payload=raw)
     content = ai_client.extract_text(config.provider, raw)
     type_label = "日报" if report_type == "daily" else "周报"
     report = AIReport(
@@ -224,6 +303,134 @@ async def generate_report(
     db.commit()
     db.refresh(report)
     return report
+
+
+# ---- 晨报（幕僚线）：当天幂等，AI 生成优先、失败降级为规则文案 ----
+def build_briefing_prompt(config: AIConfig | None, data: dict) -> tuple[str, str]:
+    """晨报 prompt：像了解全局的秘书在早晨简短汇报。返回 (system, user)。"""
+    assistant_name = (config.assistant_name if config else None) or "知时助手"
+    system = (
+        f"你是{assistant_name}，用户的贴身幕僚。根据用户的本地任务数据生成一份晨报。\n"
+        "要求：\n"
+        "- 150~250 字，口吻克制、可执行，像秘书早晨汇报，不要客套话\n"
+        "- 先讲必须处理的（已逾期 + 今日截止），点出最关键的任务名（优先级高者优先）\n"
+        "- 再讲进行中事项的一句话建议，最后给一条今日聚焦建议\n"
+        "- 用 Markdown 短段落或少量列表，不要标题层级，不要罗列全部任务\n"
+    )
+    user = (
+        f"日期：{data['period_start'].isoformat()}\n"
+        f"统计：{json.dumps(data['summary'], ensure_ascii=False)}\n"
+        f"已逾期：{json.dumps(data['overdue'], ensure_ascii=False)}\n"
+        f"今日截止：{json.dumps(data['due_in_window'], ensure_ascii=False)}\n"
+        f"进行中：{json.dumps(data['in_progress'], ensure_ascii=False)}\n"
+        f"明日到期：{json.dumps(data['next'], ensure_ascii=False)}\n"
+        f"风险预警：{json.dumps(data.get('risks', []), ensure_ascii=False, default=str)}\n"
+        f"今日未打卡习惯：{json.dumps(data.get('habits_pending', []), ensure_ascii=False)}\n"
+        f"幕僚观察：{json.dumps(data.get('insights', []), ensure_ascii=False)}"
+    )
+    return system, user
+
+
+def build_rule_briefing(data: dict) -> str:
+    """无 AI 配置（或模型调用失败）时的规则文案晨报。"""
+    s = data["summary"]
+    lines = [f"**{data['period_start'].isoformat()} 晨报**", ""]
+    if s["overdue"]:
+        titles = "、".join(f"「{t['title']}」" for t in data["overdue"][:3])
+        lines.append(f"- {s['overdue']} 项已逾期，建议优先处理：{titles}")
+    if s["due_in_window"]:
+        titles = "、".join(f"「{t['title']}」" for t in data["due_in_window"][:3])
+        lines.append(f"- 今日截止 {s['due_in_window']} 项：{titles}")
+    if s["in_progress"]:
+        lines.append(f"- 进行中 {s['in_progress']} 项，保持推进")
+    if s["next"]:
+        lines.append(f"- 明日到期 {s['next']} 项，可提前安排")
+    risks = data.get("risks") or []
+    if risks:
+        top = risks[0]
+        lines.append(f"- 风险预警：「{top['title']}」（{'；'.join(top['reasons'])}）")
+    habits = data.get("habits_pending") or []
+    if habits:
+        lines.append(f"- 习惯未打卡 {len(habits)} 个：{'、'.join(habits[:3])}")
+    insights = data.get("insights") or []
+    for insight in insights[:2]:
+        lines.append(f"- {insight}")
+    if not any([s["overdue"], s["due_in_window"], s["in_progress"], s["next"], risks, habits, insights]):
+        lines.append("- 今日没有紧迫事项，可以从容规划。")
+    return "\n".join(lines)
+
+
+async def generate_briefing(
+    db: Session, config: AIConfig | None, target_date: date | None = None
+) -> AIReport:
+    """生成晨报并落库。模型调用失败时静默降级为规则文案，绝不打扰用户。"""
+    data = collect_report_data(db, "daily", target_date, task_limit=10)
+    # 幕僚视角补充：风险预测 Top3 与今日未达标习惯（习惯功能关闭则略过）
+    risks = risk_service.compute_risk(db, limit=3)
+    habits_pending = []
+    if app_setting_service.feature_enabled(db, "feature_habits_enabled"):
+        habits_pending = [
+            f"{h.name}（{habit_service.habit_status(h)['period_count']}/{h.target_count}）"
+            for h in habit_service.list_habits(db)
+            if not habit_service.habit_status(h)["done_today"]
+        ]
+    data["risks"] = risks
+    data["habits_pending"] = habits_pending
+    # 幕僚洞察：跨域注意点（断签/KR 落后/预估偏差/计时异常/情绪线索）
+    data["insights"] = [item["text"] for item in insight_service.compute_insights(db, 4)]
+    content: str | None = None
+    model_name = "规则模板"
+    if config is not None:
+        try:
+            system, user = build_briefing_prompt(config, data)
+            req = ai_client.build_provider_request(
+                provider=config.provider,
+                model=config.model,
+                api_key=config.api_key,
+                messages=[{"role": "user", "content": user}],
+                system_prompt=system,
+                extra_headers=ai_config_service.headers_from_json(config.extra_headers),
+                base_url=config.base_url,
+                full_url=config.full_url,
+                proxy_url=config.proxy_url,
+            )
+            raw = await ai_client.call_provider(req)
+            ai_usage_service.log_usage(db, config=config, kind="briefing", payload=raw)
+            content = ai_client.extract_text(config.provider, raw) or None
+            model_name = config.model
+        except Exception:
+            content = None
+    if not content:
+        content = build_rule_briefing(data)
+        model_name = "规则模板"
+    report = AIReport(
+        report_type="briefing",
+        period_start=data["period_start"],
+        period_end=data["period_end"],
+        title=f"{data['period_start'].isoformat()} 晨报",
+        content=content,
+        model_name=model_name,
+    )
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+    return report
+
+
+async def get_or_create_briefing(
+    db: Session, config: AIConfig | None, target_date: date | None = None
+) -> tuple[AIReport, bool]:
+    """当天幂等：已有当天晨报直接返回 (report, False)，否则生成 (report, True)。"""
+    day = target_date or datetime.now().date()
+    stmt = (
+        select(AIReport)
+        .where(AIReport.report_type == "briefing", AIReport.period_start == day)
+        .order_by(AIReport.id.desc())
+    )
+    existing = db.execute(stmt).scalars().first()
+    if existing is not None:
+        return existing, False
+    return await generate_briefing(db, config, day), True
 
 
 # ---- CRUD ----

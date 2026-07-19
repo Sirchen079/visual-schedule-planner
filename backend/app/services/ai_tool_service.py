@@ -9,13 +9,28 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Task
-from app.schemas import ScheduleEntryCreate, ScheduleEntryRead, SubtaskCreate, TaskCreate
+from app.schemas import (
+    GoalCreate,
+    HabitCreate,
+    JournalUpsert,
+    KeyResultCreate,
+    KeyResultUpdate,
+    ScheduleEntryCreate,
+    ScheduleEntryRead,
+    SubtaskCreate,
+    TaskCreate,
+)
 from app.services import (
     ai_attachment_service,
+    app_setting_service,
     file_service,
+    goal_service,
+    habit_service,
+    journal_service,
     schedule_service,
     subtask_service,
     task_service,
+    timer_service,
 )
 
 SAFE_TOOLS = {
@@ -33,11 +48,35 @@ SAFE_TOOLS = {
     "list_day_schedule",
     "list_month_schedule",
     "assign_task_to_day",
+    "list_habits",
+    "create_habit",
+    "check_in_habit",
+    "list_journal_entries",
+    "write_journal",
+    "list_goals",
+    "create_goal",
+    "update_kr_progress",
+    "start_timer",
+    "stop_timer",
 }
 CONFIRMATION_REQUIRED_TOOLS = {
     "update_task",
     "update_file_notes",
     "detach_file_from_task",
+}
+
+# 功能开关门控：功能在「功能管理」里被关闭时，对应工具组整体不可用
+TOOL_FEATURE_FLAGS = {
+    "list_habits": "feature_habits_enabled",
+    "create_habit": "feature_habits_enabled",
+    "check_in_habit": "feature_habits_enabled",
+    "list_journal_entries": "feature_journal_enabled",
+    "write_journal": "feature_journal_enabled",
+    "list_goals": "feature_goals_enabled",
+    "create_goal": "feature_goals_enabled",
+    "update_kr_progress": "feature_goals_enabled",
+    "start_timer": "feature_timer_enabled",
+    "stop_timer": "feature_timer_enabled",
 }
 
 
@@ -46,6 +85,9 @@ def execute_tool(db: Session, name: str, args: dict) -> dict:
         return {"ok": False, "error": f"工具需要待确认操作，不能直接执行: {name}"}
     if name not in SAFE_TOOLS:
         return {"ok": False, "error": f"工具不允许直接执行: {name}"}
+    feature_flag = TOOL_FEATURE_FLAGS.get(name)
+    if feature_flag and not app_setting_service.feature_enabled(db, feature_flag):
+        return {"ok": False, "error": "该功能已被用户关闭（可在功能管理中开启），请改用其他方式协助用户"}
     args = dict(args or {})
     try:
         if name == "list_tasks":
@@ -143,6 +185,98 @@ def execute_tool(db: Session, name: str, args: dict) -> dict:
                 task = task_service.get_task(db, task_id)
                 result["task"] = _task_dict(task)
             return result
+        if name == "list_habits":
+            return {"ok": True, "habits": [_habit_dict(h) for h in habit_service.list_habits(db)]}
+        if name == "create_habit":
+            habit = habit_service.create_habit(
+                db,
+                HabitCreate(
+                    name=str(args.get("name") or "").strip() or "新习惯",
+                    notes=args.get("notes", ""),
+                    period=args.get("period", "daily"),
+                    target_count=_coerce_int(args.get("target_count")) or 1,
+                ),
+            )
+            return {"ok": True, "habit": _habit_dict(habit)}
+        if name == "check_in_habit":
+            day = _parse_iso_date(args.get("date")) if args.get("date") else None
+            habit = habit_service.check_in(db, int(args["habit_id"]), day)
+            if habit is None:
+                return {"ok": False, "error": "习惯不存在"}
+            return {"ok": True, "habit": _habit_dict(habit)}
+        if name == "list_journal_entries":
+            limit = _coerce_int(args.get("limit")) or 10
+            entries = journal_service.list_entries(db, limit)
+            return {
+                "ok": True,
+                "entries": [
+                    {
+                        "date": e.date.isoformat(),
+                        "preview": (e.content or "")[:200],
+                        "mood": e.mood,
+                    }
+                    for e in entries
+                ],
+            }
+        if name == "write_journal":
+            day = _parse_iso_date(args.get("date")) if args.get("date") else date_type.today()
+            content = str(args.get("content") or "")
+            if not content.strip():
+                return {"ok": False, "error": "write_journal 需要 content"}
+            entry = journal_service.upsert_entry(
+                db, day, JournalUpsert(content=content, mood=args.get("mood"))
+            )
+            return {"ok": True, "entry": {"date": entry.date.isoformat(), "mood": entry.mood}}
+        if name == "list_goals":
+            return {"ok": True, "goals": [_goal_dict(db, g) for g in goal_service.list_goals(db)]}
+        if name == "create_goal":
+            krs = [
+                KeyResultCreate(
+                    title=str(kr.get("title") or "").strip() or "关键结果",
+                    kind=kr.get("kind", "manual"),
+                    target_value=float(kr.get("target_value") or 1),
+                    unit=kr.get("unit", ""),
+                    link=kr.get("link", {}) if isinstance(kr.get("link"), dict) else {},
+                )
+                for kr in (args.get("key_results") or [])
+                if isinstance(kr, dict)
+            ]
+            goal = goal_service.create_goal(
+                db,
+                GoalCreate(
+                    title=str(args.get("title") or "").strip() or "新目标",
+                    notes=args.get("notes", ""),
+                    start_date=_parse_iso_date(args.get("start_date")),
+                    end_date=_parse_iso_date(args.get("end_date")),
+                    key_results=krs,
+                ),
+            )
+            return {"ok": True, "goal": _goal_dict(db, goal)}
+        if name == "update_kr_progress":
+            kr = goal_service.update_key_result(
+                db,
+                int(args["kr_id"]),
+                KeyResultUpdate(current_value=float(args["current_value"])),
+            )
+            if kr is None:
+                return {"ok": False, "error": "关键结果不存在"}
+            goal = goal_service.get_goal(db, kr.goal_id)
+            current, progress = goal_service.kr_progress(db, kr, goal)
+            return {
+                "ok": True,
+                "kr": {"id": kr.id, "title": kr.title, "current_value": current, "progress": progress},
+            }
+        if name == "start_timer":
+            task = task_service.get_task(db, int(args["task_id"]))
+            if task is None:
+                return {"ok": False, "error": "任务不存在"}
+            log = timer_service.start_timer(db, task, args.get("kind", "pomodoro"))
+            return {"ok": True, "timer": _timer_dict(log)}
+        if name == "stop_timer":
+            log = timer_service.stop_timer(db)
+            if log is None:
+                return {"ok": False, "error": "没有运行中的计时"}
+            return {"ok": True, "timer": _timer_dict(log)}
     except (ValidationError, KeyError, ValueError) as exc:
         return {"ok": False, "error": str(exc)}
     return {"ok": False, "error": "未处理的工具"}
@@ -313,9 +447,61 @@ def _task_dict(task) -> dict:
         "start_date": task.start_date.isoformat() if task.start_date else None,
         "end_date": task.end_date.isoformat() if task.end_date else None,
         "due_date": task.due_date.isoformat() if task.due_date else None,
+        "due_time": task.due_time,
+        "remind_offsets": task.remind_offsets,
+        "recur_rule": task.recur_rule,
+        "recur_interval": task.recur_interval,
         "tags": [t.name for t in task.tags],
         "files": [_file_dict(f) for f in task.files if f.deleted_at is None],
         "subtasks": [_subtask_dict(s) for s in task.subtasks],
+    }
+
+
+def _habit_dict(habit) -> dict:
+    status = habit_service.habit_status(habit)
+    return {
+        "id": habit.id,
+        "name": habit.name,
+        "notes": habit.notes,
+        "period": habit.period,
+        "target_count": habit.target_count,
+        **status,
+    }
+
+
+def _goal_dict(db: Session, goal) -> dict:
+    krs = []
+    for kr in goal.key_results:
+        current, progress = goal_service.kr_progress(db, kr, goal)
+        krs.append(
+            {
+                "id": kr.id,
+                "title": kr.title,
+                "kind": kr.kind,
+                "target_value": kr.target_value,
+                "current_value": current,
+                "unit": kr.unit,
+                "progress": progress,
+            }
+        )
+    return {
+        "id": goal.id,
+        "title": goal.title,
+        "status": goal.status,
+        "progress": goal_service.goal_progress(db, goal),
+        "key_results": krs,
+    }
+
+
+def _timer_dict(log) -> dict:
+    return {
+        "id": log.id,
+        "task_id": log.task_id,
+        "task_title": log.task_title,
+        "kind": log.kind,
+        "started_at": log.started_at.isoformat(),
+        "ended_at": log.ended_at.isoformat() if log.ended_at else None,
+        "minutes": log.minutes,
     }
 
 

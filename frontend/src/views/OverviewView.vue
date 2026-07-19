@@ -1,8 +1,13 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { getByPriority, getByTag, getDaily, getRisk } from '../api/stats'
+import { getTimeStats } from '../api/timer'
+import { askAssistant } from '../utils/assistant'
 import ArtIcon from '../components/ArtIcon.vue'
+import BaseChart, { cssVar } from '../components/charts/BaseChart.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
 import PageHeader from '../components/ui/PageHeader.vue'
+import { useThemeTick } from '../composables/useThemeTick'
 
 const props = defineProps({
   tasks: { type: Array, required: true },
@@ -99,6 +104,348 @@ const stats = computed(() => [
 function createTask() {
   emit('open', null)
 }
+
+// ---- 生产力分析：进入视图按需加载，任一接口失败只隐藏对应图表卡 ----
+const themeTick = useThemeTick()
+const daily30 = ref(null)
+const daily84 = ref(null)
+const tagStats = ref(null)
+const priorityStats = ref(null)
+// 风险预警：规则打分接口，失败静默隐藏整张卡片
+const riskItems = ref(null)
+// 时间投入统计：/stats/time，失败静默隐藏整张卡
+const timeStats = ref(null)
+
+// 「问助手分析」：让 AI 解读时间投入分布与预估偏差，并给下周时间分配建议
+function reviewTime() {
+  askAssistant(
+    '分析我近 30 天的时间投入：各标签的时间分布是否合理？' +
+      '预估 vs 实际的偏差说明了什么（哪些任务类型我总低估）？' +
+      '请结合我的任务与目标，给出下周的时间分配建议。'
+  )
+}
+
+onMounted(() => {
+  getDaily(30).then((d) => { daily30.value = d.days || [] }).catch(() => {})
+  getDaily(84).then((d) => { daily84.value = d.days || [] }).catch(() => {})
+  getByTag().then((d) => { tagStats.value = d.tags || [] }).catch(() => {})
+  getByPriority().then((d) => { priorityStats.value = d.priorities || [] }).catch(() => {})
+  getRisk().then((d) => { riskItems.value = d.items || [] }).catch(() => {})
+  getTimeStats(30).then((d) => { timeStats.value = d }).catch(() => {})
+})
+
+// 风险行点击：回到主任务列表找完整任务对象，沿用现有 open 通道打开编辑
+function openRiskTask(item) {
+  const t = props.tasks.find((x) => x.id === item.task_id)
+  if (t) emit('open', t)
+}
+
+const PRI_DOT = {
+  高: 'var(--pri-high)',
+  中: 'var(--pri-mid)',
+  低: 'var(--pri-low)',
+}
+function priDotColor(p) {
+  return PRI_DOT[p] || 'var(--pri-mid)'
+}
+
+// 图表配色统一走主题变量（主题切换时 themeTick 触发 option 重建）
+function chartColors() {
+  return {
+    text: cssVar('--text-soft', '#476a7d'),
+    line: cssVar('--border', 'rgba(130, 185, 208, 0.55)'),
+    split: cssVar('--surface-3', 'rgba(214, 236, 245, 0.82)'),
+    accent: cssVar('--accent', '#3b98c6'),
+    accentStrong: cssVar('--accent-strong', '#19698f'),
+    sea: cssVar('--sea-300', '#9ed3e6'),
+    success: cssVar('--success', '#4aaf7c'),
+    warning: cssVar('--warning', '#c58a42'),
+  }
+}
+
+const trendOption = computed(() => {
+  themeTick.value
+  if (!daily30.value?.length) return null
+  const c = chartColors()
+  return {
+    grid: { left: 40, right: 16, top: 32, bottom: 28 },
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['完成', '新增'], textStyle: { color: c.text }, top: 0 },
+    xAxis: {
+      type: 'category',
+      data: daily30.value.map((d) => d.date.slice(5)),
+      axisLabel: { color: c.text },
+      axisLine: { lineStyle: { color: c.line } },
+    },
+    yAxis: {
+      type: 'value',
+      minInterval: 1,
+      axisLabel: { color: c.text },
+      splitLine: { lineStyle: { color: c.split } },
+    },
+    series: [
+      {
+        name: '完成',
+        type: 'line',
+        smooth: true,
+        showSymbol: false,
+        data: daily30.value.map((d) => d.completed),
+        itemStyle: { color: c.success },
+        lineStyle: { color: c.success, width: 2 },
+        areaStyle: { color: c.success, opacity: 0.08 },
+      },
+      {
+        name: '新增',
+        type: 'line',
+        smooth: true,
+        showSymbol: false,
+        data: daily30.value.map((d) => d.created),
+        itemStyle: { color: c.accent },
+        lineStyle: { color: c.accent, width: 2 },
+        areaStyle: { color: c.accent, opacity: 0.08 },
+      },
+    ],
+  }
+})
+
+const heatOption = computed(() => {
+  themeTick.value
+  if (!daily84.value?.length) return null
+  const c = chartColors()
+  const days = daily84.value
+  const max = Math.max(4, ...days.map((d) => d.completed))
+  return {
+    tooltip: {
+      formatter: (p) => `${p.data[0]}：完成 ${p.data[1]} 项`,
+    },
+    visualMap: {
+      min: 0,
+      max,
+      calculable: false,
+      orient: 'horizontal',
+      right: 0,
+      bottom: 0,
+      itemWidth: 12,
+      itemHeight: 80,
+      textStyle: { color: c.text, fontSize: 11 },
+      inRange: {
+        color: [cssVar('--surface-3', '#d6ecf5'), c.sea, c.accent, c.accentStrong],
+      },
+    },
+    calendar: {
+      top: 28,
+      left: 44,
+      right: 12,
+      bottom: 44,
+      range: [days[0].date, days[days.length - 1].date],
+      cellSize: ['auto', 14],
+      splitLine: { show: false },
+      itemStyle: {
+        color: 'transparent',
+        borderColor: cssVar('--surface-solid', '#ffffff'),
+        borderWidth: 2,
+      },
+      dayLabel: { color: c.text, fontSize: 11, nameMap: ['日', '一', '二', '三', '四', '五', '六'] },
+      monthLabel: { color: c.text, fontSize: 11, nameMap: 'cn' },
+      yearLabel: { show: false },
+    },
+    series: [
+      {
+        type: 'heatmap',
+        coordinateSystem: 'calendar',
+        data: days.map((d) => [d.date, d.completed]),
+      },
+    ],
+  }
+})
+
+const tagOption = computed(() => {
+  themeTick.value
+  if (!tagStats.value?.length) return null
+  const c = chartColors()
+  const tags = tagStats.value.slice(0, 8)
+  return {
+    grid: { left: 8, right: 24, top: 32, bottom: 8, containLabel: true },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    legend: { data: ['已完成', '未完成'], textStyle: { color: c.text }, top: 0 },
+    xAxis: {
+      type: 'value',
+      minInterval: 1,
+      axisLabel: { color: c.text },
+      splitLine: { lineStyle: { color: c.split } },
+    },
+    yAxis: {
+      type: 'category',
+      inverse: true,
+      data: tags.map((t) => t.name),
+      axisLabel: { color: c.text },
+      axisLine: { lineStyle: { color: c.line } },
+    },
+    series: [
+      {
+        name: '已完成',
+        type: 'bar',
+        stack: 'tag',
+        barWidth: 14,
+        data: tags.map((t) => ({
+          value: t.completed,
+          itemStyle: { color: t.color || c.accent },
+        })),
+      },
+      {
+        name: '未完成',
+        type: 'bar',
+        stack: 'tag',
+        barWidth: 14,
+        data: tags.map((t) => ({
+          value: Math.max(0, t.total - t.completed),
+          itemStyle: { color: t.color || c.accent, opacity: 0.28, borderRadius: [0, 4, 4, 0] },
+        })),
+      },
+    ],
+  }
+})
+
+const priorityOption = computed(() => {
+  themeTick.value
+  if (!priorityStats.value?.length) return null
+  const c = chartColors()
+  const statuses = [
+    ['待办', c.sea],
+    ['进行中', c.warning],
+    ['完成', c.success],
+  ]
+  return {
+    grid: { left: 40, right: 16, top: 32, bottom: 28 },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    legend: { textStyle: { color: c.text }, top: 0 },
+    xAxis: {
+      type: 'category',
+      data: priorityStats.value.map((p) => p.priority),
+      axisLabel: { color: c.text },
+      axisLine: { lineStyle: { color: c.line } },
+    },
+    yAxis: {
+      type: 'value',
+      minInterval: 1,
+      axisLabel: { color: c.text },
+      splitLine: { lineStyle: { color: c.split } },
+    },
+    series: statuses.map(([name, color]) => ({
+      name,
+      type: 'bar',
+      stack: 'status',
+      barWidth: 36,
+      itemStyle: { color },
+      data: priorityStats.value.map((p) => p.by_status?.[name] || 0),
+    })),
+  }
+})
+
+// ---- 时间投入：每日分钟柱状 + 标签环图 + 预估 vs 实际 ----
+const timeTotalLabel = computed(() => {
+  const m = timeStats.value?.total_minutes || 0
+  const h = Math.floor(m / 60)
+  const mm = Math.round(m % 60)
+  return h > 0 ? `共 ${h} 小时 ${mm} 分钟` : `共 ${mm} 分钟`
+})
+
+function fmtMinutes(m) {
+  if (m === null || m === undefined) return '—'
+  if (m < 60) return `${Math.round(m)} 分钟`
+  const h = Math.floor(m / 60)
+  const mm = Math.round(m % 60)
+  return mm ? `${h} 小时 ${mm} 分钟` : `${h} 小时`
+}
+
+// 偏差百分比：实际/预估；预估为 0 或缺失时无意义
+function deviationPct(e) {
+  if (!e.estimated_minutes) return null
+  return Math.round((e.actual_minutes / e.estimated_minutes) * 100)
+}
+
+const timeDailyOption = computed(() => {
+  themeTick.value
+  const daily = timeStats.value?.daily
+  if (!daily?.length) return null
+  const c = chartColors()
+  return {
+    grid: { left: 40, right: 16, top: 20, bottom: 28 },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: (ps) => `${ps[0].name}：${ps[0].value} 分钟`,
+    },
+    xAxis: {
+      type: 'category',
+      data: daily.map((d) => d.date.slice(5)),
+      axisLabel: { color: c.text },
+      axisLine: { lineStyle: { color: c.line } },
+    },
+    yAxis: {
+      type: 'value',
+      minInterval: 10,
+      axisLabel: { color: c.text },
+      splitLine: { lineStyle: { color: c.split } },
+    },
+    series: [
+      {
+        name: '投入分钟',
+        type: 'bar',
+        barMaxWidth: 18,
+        itemStyle: { color: c.accent, borderRadius: [4, 4, 0, 0] },
+        data: daily.map((d) => d.minutes),
+      },
+    ],
+  }
+})
+
+const timeTagOption = computed(() => {
+  themeTick.value
+  const byTag = timeStats.value?.by_tag
+  if (!byTag?.length) return null
+  const c = chartColors()
+  return {
+    tooltip: {
+      formatter: (p) => `${p.name}：${p.value} 分钟（${p.percent}%）`,
+    },
+    legend: {
+      bottom: 0,
+      textStyle: { color: c.text, fontSize: 11 },
+      itemWidth: 10,
+      itemHeight: 10,
+    },
+    series: [
+      {
+        type: 'pie',
+        radius: ['48%', '72%'],
+        center: ['50%', '44%'],
+        avoidLabelOverlap: true,
+        itemStyle: {
+          borderColor: cssVar('--surface-solid', '#ffffff'),
+          borderWidth: 2,
+          borderRadius: 4,
+        },
+        label: { show: false },
+        data: byTag.map((t) => ({
+          name: t.name,
+          value: t.minutes,
+          itemStyle: t.color ? { color: t.color } : undefined,
+        })),
+      },
+    ],
+  }
+})
+
+const hasTimeContent = computed(
+  () =>
+    (timeStats.value?.total_minutes || 0) > 0 &&
+    (timeDailyOption.value || timeTagOption.value || timeStats.value?.estimates?.length)
+)
+
+const hasAnalytics = computed(
+  () => trendOption.value || heatOption.value || tagOption.value || priorityOption.value
+)
 </script>
 
 <template>
@@ -161,6 +508,24 @@ function createTask() {
         </div>
 
         <div class="sections">
+          <div class="section section-panel risk-section" v-if="riskItems?.length">
+            <h3>
+              <ArtIcon name="alert" tone="coral" :size="30" tile label="风险" />
+              <span>风险预警</span>
+              <span class="risk-note muted">规则评估</span>
+            </h3>
+            <div class="task-list">
+              <button class="li risk-li" v-for="r in riskItems" :key="r.task_id" @click="openRiskTask(r)">
+                <span class="pri-dot" :style="{ background: priDotColor(r.priority) }"></span>
+                <span class="li-title">{{ r.title }}</span>
+                <span class="muted risk-progress">进度 {{ r.progress }}%</span>
+                <span class="risk-reasons">
+                  <span class="reason-chip" v-for="reason in r.reasons" :key="reason">{{ reason }}</span>
+                </span>
+              </button>
+            </div>
+          </div>
+
           <div class="section section-panel" v-if="overdue.length">
             <h3>
               <ArtIcon name="priority" tone="coral" :size="30" tile label="逾期" />
@@ -251,6 +616,84 @@ function createTask() {
         </div>
       </aside>
     </div>
+
+    <section v-if="hasAnalytics" class="analytics section-panel">
+      <h3 class="analytics-title">
+        <ArtIcon name="timeline" tone="aqua" :size="30" tile label="分析" />
+        <span>生产力分析</span>
+      </h3>
+      <div class="analytics-grid">
+        <div v-if="trendOption" class="chart-card chart-card-wide">
+          <h4>近 30 天完成 vs 新增</h4>
+          <BaseChart :option="trendOption" height="260px" />
+        </div>
+        <div v-if="heatOption" class="chart-card chart-card-wide">
+          <h4>近 12 周完成热力</h4>
+          <BaseChart :option="heatOption" height="230px" />
+        </div>
+        <div v-if="tagOption" class="chart-card">
+          <h4>标签分布（前 8）</h4>
+          <BaseChart :option="tagOption" height="280px" />
+        </div>
+        <div v-if="priorityOption" class="chart-card">
+          <h4>优先级 × 状态</h4>
+          <BaseChart :option="priorityOption" height="280px" />
+        </div>
+      </div>
+    </section>
+
+    <section v-if="timeStats" class="analytics section-panel time-panel">
+      <h3 class="analytics-title">
+        <ArtIcon name="timeline" tone="mint" :size="30" tile label="时间投入" />
+        <span>时间投入</span>
+        <span class="time-total muted">{{ timeTotalLabel }} · 近 30 天</span>
+        <button type="button" class="ghost time-ask-btn" @click="reviewTime">问助手分析</button>
+      </h3>
+      <template v-if="hasTimeContent">
+        <div class="analytics-grid">
+          <div v-if="timeDailyOption" class="chart-card chart-card-wide">
+            <h4>每日投入（分钟）</h4>
+            <BaseChart :option="timeDailyOption" height="240px" />
+          </div>
+          <div v-if="timeTagOption" class="chart-card">
+            <h4>标签分布</h4>
+            <BaseChart :option="timeTagOption" height="280px" />
+          </div>
+          <div v-if="timeStats.estimates?.length" class="chart-card">
+            <h4>预估 vs 实际</h4>
+            <table class="estimate-table">
+              <thead>
+                <tr>
+                  <th>任务</th>
+                  <th>预估</th>
+                  <th>实际</th>
+                  <th>偏差</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="e in timeStats.estimates" :key="e.task_id">
+                  <td class="est-title" :title="e.title">{{ e.title }}</td>
+                  <td>{{ fmtMinutes(e.estimated_minutes) }}</td>
+                  <td>{{ fmtMinutes(e.actual_minutes) }}</td>
+                  <td>
+                    <span
+                      v-if="deviationPct(e) !== null"
+                      class="deviation"
+                      :class="{ low: deviationPct(e) > 150 }"
+                    >
+                      {{ deviationPct(e) }}%
+                      <em v-if="deviationPct(e) > 150">低估</em>
+                    </span>
+                    <span v-else class="muted">—</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+      <p v-else class="muted time-empty">还没有计时记录，从任务卡右键「开始专注」试试</p>
+    </section>
   </div>
 </template>
 
@@ -554,6 +997,52 @@ function createTask() {
   padding: 16px;
 }
 
+/* 风险预警卡：头部右侧小字标注评估方式，reasons 用 coral 色 chip */
+.risk-note {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.risk-li {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.pri-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.risk-li .li-title {
+  flex: 1 1 auto;
+}
+
+.risk-progress {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.risk-reasons {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.reason-chip {
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+  color: var(--danger-strong);
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 24%, transparent);
+  border-radius: var(--radius-pill);
+}
+
 .li {
   width: 100%;
   color: var(--text);
@@ -565,5 +1054,119 @@ function createTask() {
   .overview-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* 生产力分析：复用 section-panel 视觉，图表卡走 surface-2 卡片 */
+.analytics {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.analytics-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.chart-card {
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.chart-card-wide {
+  grid-column: 1 / -1;
+}
+
+.chart-card h4 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-soft);
+}
+
+@media (max-width: 900px) {
+  .analytics-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 时间投入：合计小字 + 预估 vs 实际表格 */
+.time-total {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.time-empty {
+  margin: 0;
+  font-size: 13px;
+}
+
+.estimate-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.estimate-table th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-soft);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.estimate-table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.estimate-table tr:last-child td {
+  border-bottom: none;
+}
+
+.estimate-table .est-title {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.deviation {
+  font-weight: 700;
+  color: var(--text-soft);
+}
+
+.deviation.low {
+  color: var(--danger);
+}
+
+.deviation em {
+  font-style: normal;
+  margin-left: 6px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--danger-strong);
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 24%, transparent);
+  border-radius: var(--radius-pill);
 }
 </style>

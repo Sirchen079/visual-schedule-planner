@@ -70,6 +70,8 @@ class Settings(BaseSettings):
     max_ai_attachment_mb: int = 50
     max_ai_inline_image_mb: int = 12
     max_ai_text_chars: int = 120000
+    # iCal 导入上限：日历订阅/全年导出文件可能很大，5MB 过窄，放宽到 50MB
+    max_ical_mb: int = 50
 
     @property
     def db_path(self) -> Path:
@@ -87,6 +89,10 @@ class Settings(BaseSettings):
     @property
     def max_ai_inline_image_bytes(self) -> int:
         return self.max_ai_inline_image_mb * 1024 * 1024
+
+    @property
+    def max_ical_bytes(self) -> int:
+        return self.max_ical_mb * 1024 * 1024
 
 
 settings = Settings()

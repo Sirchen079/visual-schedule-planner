@@ -8,14 +8,16 @@
     "dev": "vite",
     "check:assistant-ui": "node scripts/check-assistant-ui.mjs",
     "check:polish-ui": "node scripts/check-polish-ui.mjs",
+    "check:quickparse": "node scripts/check-quickparse.mjs",
     "check:dist": "node scripts/check-dist-assets.mjs",
-    "check:frontend": "npm run check:assistant-ui && npm run check:polish-ui && npm run build && npm run check:dist",
+    "check:frontend": "npm run check:quickparse && npm run check:assistant-ui && npm run check:polish-ui && npm run build && npm run check:dist",
     "check:frontend:e2e": "npm run check:frontend && npm run test:e2e",
     "build": "node scripts/clean-dist.mjs && vite build",
     "preview": "vite preview",
     "test:e2e": "node scripts/run-e2e.mjs"
   },
   "dependencies": {
+    "echarts": "^5.6.0",
     "vue": "^3.5.34",
     "vuedraggable": "^4.1.0"
   },

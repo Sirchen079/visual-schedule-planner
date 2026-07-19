@@ -1,6 +1,7 @@
 <script setup>
 import { computed, inject, onMounted, ref, watch } from 'vue'
 import { createScheduleEntry, deleteScheduleEntry, getDaySchedule, getMonthSchedule, updateScheduleEntry } from '../api/schedule'
+import { updateTask } from '../api/tasks'
 import ArtIcon from '../components/ArtIcon.vue'
 import AppSpinner from '../components/ui/AppSpinner.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
@@ -11,7 +12,7 @@ const props = defineProps({
   tasks: { type: Array, required: true },
 })
 
-const emit = defineEmits(['open', 'create'])
+const emit = defineEmits(['open', 'create', 'changed'])
 
 const toast = inject('toast', null)
 
@@ -48,6 +49,8 @@ const selectedDate = ref(toISODate(today))
 const cursor = ref(startOfMonth(today))
 const daySchedule = ref(emptyDaySchedule(selectedDate.value))
 const monthSchedule = ref([])
+// 月格子的排期 entry 明细（月接口只返回计数，这里按需补拉，用于拖拽改期）
+const monthEntries = ref(new Map())
 const loadingDay = ref(false)
 const loadingMonth = ref(false)
 const mutating = ref(false)
@@ -330,13 +333,123 @@ async function loadMonthSchedule(currentCursor = cursor.value) {
     })
     if (requestId !== monthRequestId) return
     monthSchedule.value = response.days || []
+    await loadMonthEntries(monthSchedule.value, requestId)
   } catch (err) {
     if (requestId !== monthRequestId) return
     monthSchedule.value = []
+    monthEntries.value = new Map()
     error.value = err?.message || '月度日程加载失败'
   } finally {
     if (requestId === monthRequestId) loadingMonth.value = false
   }
+}
+
+// 月接口只给每日计数；只对「有安排」的日子补拉日视图，收集 entry 明细供月格子拖拽改期
+async function loadMonthEntries(days, requestId) {
+  const dates = days.filter((d) => d.planned_count > 0).map((d) => d.date)
+  if (!dates.length) {
+    monthEntries.value = new Map()
+    return
+  }
+  const results = await Promise.all(
+    dates.map(async (date) => {
+      try {
+        const day = await getDaySchedule(date)
+        const items = (day?.buckets?.planned || []).filter((item) => item.entry?.id)
+        return [date, items]
+      } catch {
+        return [date, []]
+      }
+    })
+  )
+  if (requestId !== monthRequestId) return
+  monthEntries.value = new Map(results)
+}
+
+// 月格子里的可拖拽条目：排期 entry（改 entry.date）+ 仅截止日期的任务（改 task.due_date），
+// 同一任务同一天只出现一次（entry 优先）
+const monthChipMap = computed(() => {
+  const map = new Map()
+  const seen = new Set()
+  const push = (date, chip) => {
+    const dedupeKey = `${date}|${chip.task.id}`
+    if (seen.has(dedupeKey)) return
+    seen.add(dedupeKey)
+    if (!map.has(date)) map.set(date, [])
+    map.get(date).push(chip)
+  }
+  for (const [date, items] of monthEntries.value) {
+    for (const item of items) {
+      push(date, {
+        key: `entry-${item.entry.id}`,
+        type: 'entry',
+        id: item.entry.id,
+        date,
+        task: item.task,
+      })
+    }
+  }
+  for (const task of props.tasks) {
+    if (task.status === '完成' || !task.due_date) continue
+    const date = task.due_date.slice(0, 10)
+    push(date, { key: `task-${task.id}`, type: 'task', id: task.id, date, task })
+  }
+  return map
+})
+
+// 月格子拖拽改期：dragstart 记录 {type, id, date}，目标格子 dragover 高亮，drop 执行
+const dragPayload = ref(null)
+const dropTargetDate = ref('')
+
+function onChipDragStart(event, chip) {
+  dragPayload.value = { type: chip.type, id: chip.id, date: chip.date }
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('text/plain', chip.task.title)
+  event.stopPropagation()
+}
+
+function onChipDragEnd() {
+  dragPayload.value = null
+  dropTargetDate.value = ''
+}
+
+function onCellDragOver(event, date) {
+  if (!dragPayload.value) return
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'move'
+  dropTargetDate.value = date
+}
+
+function onGridDragLeave(event) {
+  if (!event.currentTarget.contains(event.relatedTarget)) dropTargetDate.value = ''
+}
+
+async function onCellDrop(event, date) {
+  event.preventDefault()
+  const payload = dragPayload.value
+  onChipDragEnd()
+  if (!payload || payload.date === date) return
+  mutating.value = true
+  error.value = ''
+  try {
+    if (payload.type === 'entry') {
+      await updateScheduleEntry(payload.id, { date })
+    } else {
+      await updateTask(payload.id, { due_date: `${date}T23:59:59` })
+    }
+    await refreshVisibleSchedule()
+    emit('changed')
+    toast?.success(payload.type === 'entry' ? '已更新安排' : '已改期')
+  } catch (err) {
+    toast?.error(err?.message || '改期失败')
+  } finally {
+    mutating.value = false
+  }
+}
+
+// 双击月格子空白：快速创建并预填该日为截止日期（单击仍是选中日期）
+function onCellDblClick(date) {
+  emit('create', { due_date: date })
 }
 
 async function refreshVisibleSchedule() {
@@ -656,8 +769,8 @@ onMounted(async () => {
           <span v-for="label in WEEK_LABELS" :key="label">{{ label }}</span>
         </div>
 
-        <div class="month-grid">
-          <button
+        <div class="month-grid" @dragleave="onGridDragLeave">
+          <div
             v-for="cell in monthCells"
             :key="cell.date"
             class="month-cell"
@@ -667,13 +780,39 @@ onMounted(async () => {
                 muted: !cell.inMonth,
                 today: cell.isToday,
                 selected: cell.isSelected,
+                'drop-target': dropTargetDate === cell.date && dragPayload?.date !== cell.date,
               },
             ]"
+            role="button"
+            tabindex="0"
+            :title="`${formatShortDate(cell.date)}，双击快速新建`"
             @click="selectDate(cell.date)"
+            @dblclick="onCellDblClick(cell.date)"
+            @keydown.enter="selectDate(cell.date)"
+            @dragover="onCellDragOver($event, cell.date)"
+            @drop="onCellDrop($event, cell.date)"
           >
             <div class="cell-top">
               <span class="cell-date">{{ cell.day.getDate() }}</span>
               <span v-if="cell.summary.total_count" class="cell-total">{{ cell.summary.total_count }}</span>
+            </div>
+            <div v-if="monthChipMap.get(cell.date)?.length" class="cell-tasks">
+              <span
+                v-for="chip in monthChipMap.get(cell.date).slice(0, 3)"
+                :key="chip.key"
+                class="cell-task"
+                :class="{ entry: chip.type === 'entry' }"
+                draggable="true"
+                :title="`${chip.task.title}（可拖拽改期）`"
+                @click.stop="emit('open', chip.task)"
+                @dragstart="onChipDragStart($event, chip)"
+                @dragend="onChipDragEnd"
+              >
+                {{ chip.task.title }}
+              </span>
+              <span v-if="monthChipMap.get(cell.date).length > 3" class="cell-more">
+                +{{ monthChipMap.get(cell.date).length - 3 }}
+              </span>
             </div>
             <div class="cell-signals">
               <span
@@ -685,7 +824,7 @@ onMounted(async () => {
                 {{ signal.label }} {{ signal.count }}
               </span>
             </div>
-          </button>
+          </div>
         </div>
       </section>
 
@@ -1162,6 +1301,7 @@ onMounted(async () => {
   box-shadow: none;
   color: var(--text);
   text-align: left;
+  cursor: pointer;
 }
 
 /* hover 规则写在热力层级之前，让层级色在悬停时保持不丢失 */
@@ -1200,6 +1340,56 @@ onMounted(async () => {
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--accent-strong) 34%, transparent),
     var(--shadow-sm);
+}
+
+/* 拖拽改期：可投放的目标格子高亮 */
+.month-cell.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
+}
+
+/* 格子里的任务条目（可拖拽改期，点击打开编辑） */
+.cell-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cell-task {
+  display: block;
+  max-width: 100%;
+  min-height: 20px;
+  padding: 1px 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-solid) 85%, transparent);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: grab;
+}
+
+.cell-task.entry {
+  border-left: 3px solid var(--accent);
+}
+
+.cell-task:hover {
+  border-color: var(--border-strong);
+}
+
+.cell-task:active {
+  cursor: grabbing;
+}
+
+.cell-more {
+  padding-left: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .cell-top {

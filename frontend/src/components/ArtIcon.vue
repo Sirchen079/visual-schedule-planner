@@ -38,6 +38,7 @@ const ICON_NAMES = [
   'archive',
   'task',
   'steps',
+  'flag',
   'chevron-left',
   'chevron-right',
   'refresh',
@@ -182,6 +183,11 @@ const fileLabel = computed(() => props.labelText.slice(0, 5).toUpperCase())
       <g v-else-if="iconName === 'steps'">
         <path d="M6.4 6.8h4.8v4.8H6.4ZM12.8 12.4h4.8v4.8h-4.8Z" />
         <path d="M11.2 9.2h2.4a2 2 0 0 1 2 2v1.2" />
+      </g>
+      <g v-else-if="iconName === 'flag'">
+        <path d="M6.4 20.2V4.4" />
+        <path d="M6.4 5.2h10.4l-2.6 3.6 2.6 3.6H6.4" />
+        <circle class="pearl" cx="6.4" cy="4.4" r="0.9" />
       </g>
       <g v-else-if="iconName === 'chevron-left'">
         <path d="M14.8 6.8L9.6 12l5.2 5.2" />

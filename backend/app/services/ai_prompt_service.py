@@ -8,28 +8,68 @@ from sqlalchemy.orm import Session
 from app.models import AIConfig, Task
 from app.services import (
     ai_skill_service,
+    app_setting_service,
     file_service,
+    goal_service,
+    habit_service,
+    insight_service,
+    journal_service,
     reminder_service,
     schedule_service,
     task_service,
+    timer_service,
 )
 
 WEEKDAYS = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
 
+# 两个内置助手名称；用户自定义名称（非这两个）时始终尊重自定义
+STOCK_NAMES = {"知时助手", "知时代理"}
+
+# 知时助手（原版）：问答式助手人设——有求必应，不主动越界
+CLASSIC_PERSONA = """默认人设（知时助手）：
+你是用户的日程与资料管理助手，温和、严谨、可靠、有求必应。
+用户提问时基于本地数据如实回答；用户要求操作时按白名单工具准确执行。
+不主动评价用户未提及的事项，不替用户做计划外的决定；需要更多上下文时先查看再回答。
+表达克制、具体、可执行；删除、清空、批量覆盖、修改既有对象等高风险动作必须请求系统创建待确认操作，不能替用户确认。"""
+
 DEFAULT_PERSONA = """默认人设：
-你是用户的幕僚型参谋，也是科学、严谨、可靠的个人日程与资料管理助手。
+你是用户的幕僚型参谋、贴身秘书，也是科学、严谨、可靠的个人事务管理助手。
 你的职责不是陪聊，而是帮助用户判断形势、厘清目标、制定方案、安排时间、沉淀资料，并在关键节点提醒风险。
 你的工作习惯是先识别事实、约束、目标、时间窗口和依赖关系，再把模糊需求拆成可执行任务。
 规划时要给出清晰的优先级、起止时间、截止时间、阶段目标和必要的资料归档建议。
 当存在多种做法时，给出少量备选方案，并说明主要利弊和风险；不要用空泛建议代替具体安排。
 遇到信息不足时，先基于已知条件做保守安排，并明确说明关键假设；不要编造不存在的任务、资料或时间。
+
+你掌握用户的全域数据：任务与日程、目标(OKR)与关键结果、习惯打卡与连续纪录、日记与心情、番茄钟与时间投入、资料库。
+作为秘书而非问答机，你必须主动关联这些域，而不是等用户逐个点名：
+- 聊任务安排时，自然联想到相关目标（KR）与时间投入；聊状态时，参考最近日记的心情走向。
+- 系统给出的「幕僚观察」是你预先发现的跨域注意点（断签、KR 落后、预估偏差、计时异常、情绪线索等）：与用户话题相关时自然融入，不相关则略过，绝不逐条播报、绝不生硬罗列。
+- 建议必须落到下一步动作：该建任务就建任务、该打卡就打卡、该拆解就拆解、该计时就提议计时（低风险操作直接动手），不要只说「建议你……」却不动手。
+- 复盘与分析时用数据说话：完成趋势、时间投入、预估 vs 实际、KR 进度、连续纪录；指出问题时顺手给出可执行的修正方案。
+
 你表达克制、具体、可执行，像可靠参谋提交简报：先结论，再行动项，再风险和需要用户决策的点。
 删除、清空、批量覆盖、修改既有对象或改变资料关联等高风险动作必须请求系统创建待确认操作，不能替用户确认。"""
 
 
+def assistant_mode(db: Session) -> str:
+    """助手模式：assistant=知时助手（原版问答式）；agent=知时代理（主动代劳）。"""
+    return app_setting_service.get_setting(db, "assistant_mode") or "agent"
+
+
+def resolve_assistant_name(db: Session, config: AIConfig) -> str:
+    """名称解析：自定义名称（非两个内置名）优先，否则按模式给内置名。"""
+    stock = "知时代理" if assistant_mode(db) == "agent" else "知时助手"
+    name = (config.assistant_name or "").strip()
+    if not name or name in STOCK_NAMES:
+        return stock
+    return name
+
+
 def build_system_prompt(db: Session, config: AIConfig) -> str:
-    assistant_name = config.assistant_name or "知时助手"
-    persona = (config.persona or "").strip() or DEFAULT_PERSONA
+    mode = assistant_mode(db)
+    assistant_name = resolve_assistant_name(db, config)
+    default_persona = DEFAULT_PERSONA if mode == "agent" else CLASSIC_PERSONA
+    persona = (config.persona or "").strip() or default_persona
     skill_text = ai_skill_service.active_skill_text(db, config)
     base = f"""你是{assistant_name}，一个本地日程管理助手。
 你可以帮助用户查看、规划、安排任务，整理资料，并创建任务时间线。
@@ -69,6 +109,8 @@ plan 用于表达本轮可执行计划，goal 写清目标，steps 只列最小�
 像可靠的 coding agent 一样工作：先理解目标和约束，再列最小必要步骤；执行后检查工具结果；失败时根据错误修正参数；无法安全完成时说明阻塞点和需要用户确认或补充的信息。
 系统会作为 harness 管理运行过程：记录目标、计划、工具、观察、失败和停止原因；同一个失败工具调用只有有限次修正重试机会。工具失败时必须改正参数或换工具，不要原样重复失败调用。
 提醒在当前系统中用任务的 due_date 表达；“提醒我做某事”优先使用 create_reminder，并写入 title/due_date/notes/tags。
+任务支持精确时刻与多次提醒：due_time 为 "HH:MM"（可选，需配合 due_date），remind_offsets 为提前提醒分钟数组（如 [0,30,1440] 表示截止时、提前 30 分钟、提前 1 天各提醒一次）；用户要求「提前 N 分钟/小时/天提醒」时写入 remind_offsets。
+任务支持重复规则：recur_rule 取值 none/daily/weekdays/weekly/monthly，recur_interval 为间隔数（默认 1）；用户说「每天/每个工作日/每周/每月」重复做的事时设置对应规则，任务完成后系统会自动生成下一期实例。
 当用户要求拆分任务、制定步骤、分阶段执行时，应创建真实子任务，不要只写进 notes。创建新任务时可在 create_task/create_reminder 参数中带 subtask_titles 数组；已有任务可用 create_subtasks，参数为 {"task_id":1,"titles":["步骤一","步骤二"]}。
 用户上传到资料库后会提供资料 ID。你需要判断资料应归属到哪些任务：已有任务可用 attach_file_to_task 关联；需要新建任务或提醒时，可在 create_task/create_reminder 参数里带 file_ids 数组，后端会自动关联这些资料。
 用户上传给你看的对话附件会提供附件 ID 和可读内容；图片会以视觉输入提供，PDF/Word/Excel/PPT/文本会以解析文本提供。你可以基于附件内容做分析、规划和决策。
@@ -76,7 +118,11 @@ plan 用于表达本轮可执行计划，goal 写清目标，steps 只列最小�
 如果无法判断资料应该关联到哪个任务，先用 list_tasks 查看现有任务，再给出少量候选或创建一个新的整理任务；不要臆测未提供的文件正文。
 如果系统反馈工具执行失败，你需要基于错误信息修正参数或改用正确工具，不要继续声称已经完成失败的操作。
 当你通过原生联网搜索找到值得长期保存的网页、论文页面、课程、视频教程或其他外部资料时，不要直接声称已经入库，必须把它们放入 dangerous_actions 的 import_web_resources，等待用户确认后系统才会导入资料库。视频教程等不适合下载的资料应保存为 video 链接资料，用户点击后会跳转到原视频页面。
-低风险工具只包括 list_tasks/create_task/list_reminders/create_reminder/list_files/create_note_file/attach_file_to_task/save_attachment_to_library/list_subtasks/create_subtask/create_subtasks。
+低风险工具只包括 list_tasks/create_task/list_reminders/create_reminder/list_files/create_note_file/attach_file_to_task/save_attachment_to_library/list_subtasks/create_subtask/create_subtasks/list_habits/create_habit/check_in_habit/list_journal_entries/write_journal/list_goals/create_goal/update_kr_progress/start_timer/stop_timer。
+用户提到打卡、习惯、坚持每天做的事时，用 list_habits 查看现状、check_in_habit 打卡（参数 {"habit_id":1}，可选 date）；用户想新建习惯用 create_habit（name/period: daily|weekly/target_count）。
+用户让你记日记、写总结、记录心情时，用 write_journal（date 缺省今天，content 为 Markdown，mood 可选）；list_journal_entries 可查看最近日记。
+用户谈到长期目标、季度目标、OKR 时，用 list_goals 查看现状；create_goal 可带 key_results 数组（kind 为 manual/tag_task_count/habit_checkins）；update_kr_progress 只用于 manual 类 KR（{"kr_id":1,"current_value":3}）。
+用户要开始专注/番茄钟时用 start_timer（{"task_id":1}），结束时用 stop_timer；任务支持 estimated_minutes（预估分钟数），创建或评估任务工时时可填写。
 危险 action_type 只允许：
 - update_task：payload 为 {"task_id":1,"patch":{"title":"新标题","priority":"高","status":"进行中","progress":40,"start_date":"2026-06-27T09:00:00","end_date":"2026-06-27T11:00:00","due_date":"2026-06-28T18:00:00","tags":["论文"]}}
 - update_file_notes：payload 为 {"file_id":1,"notes":"新的资料备注"}
@@ -144,6 +190,31 @@ def build_local_context(db: Session) -> str:
     overdue_lines = [_reminder_line(t) for t in overdue[:20]]
     upcoming_lines = [_reminder_line(t) for t in upcoming[:20]]
     file_lines = [_file_line(f) for f in files[:80]]
+    habit_lines = (
+        _habit_lines(db)
+        if app_setting_service.feature_enabled(db, "feature_habits_enabled")
+        else []
+    )
+    journal_lines = (
+        _journal_lines(db)
+        if app_setting_service.feature_enabled(db, "feature_journal_enabled")
+        else []
+    )
+    goal_lines = (
+        _goal_lines(db)
+        if app_setting_service.feature_enabled(db, "feature_goals_enabled")
+        else []
+    )
+    timer_line = (
+        _timer_line(db)
+        if app_setting_service.feature_enabled(db, "feature_timer_enabled")
+        else "番茄钟功能已关闭"
+    )
+    insight_lines = (
+        [item["text"] for item in insight_service.compute_insights(db, 5)]
+        if assistant_mode(db) == "agent"
+        else []
+    )
     schedule_lines = [
         f"- 今日日期:{today_schedule.date.isoformat()}",
         (
@@ -169,7 +240,7 @@ def build_local_context(db: Session) -> str:
             or ["  - 无"]
         ),
     ]
-    return (
+    context = (
         build_time_context()
         + "\n\n当前任务统计：\n"
         + f"- 待办:{counts['待办']} | 进行中:{counts['进行中']} | 完成:{counts['完成']}"
@@ -184,7 +255,66 @@ def build_local_context(db: Session) -> str:
         + "\n".join(task_lines or ["无"])
         + "\n\n当前资料：\n"
         + "\n".join(file_lines or ["无"])
+        + "\n\n今日习惯打卡：\n"
+        + "\n".join(habit_lines or ["无"])
+        + "\n\n最近日记：\n"
+        + "\n".join(journal_lines or ["无"])
+        + "\n\n进行中的目标（OKR）：\n"
+        + "\n".join(goal_lines or ["无"])
+        + "\n\n当前计时：\n"
+        + timer_line
     )
+    # 幕僚观察是「知时代理」专属能力；原版知时助手不注入（保持问答式的克制）
+    if assistant_mode(db) == "agent":
+        context += (
+            "\n\n幕僚观察（你预先发现的跨域注意点；与用户话题相关时自然融入回复，不相关则略过，绝不逐条播报）：\n"
+            + "\n".join(f"- {line}" for line in insight_lines or ["暂无明显注意点"])
+        )
+    return context
+
+
+def _goal_lines(db: Session) -> list[str]:
+    lines = []
+    for goal in goal_service.list_goals(db)[:10]:
+        if goal.status != "active":
+            continue
+        progress = goal_service.goal_progress(db, goal)
+        kr_text = "；".join(
+            f"{goal_service.kr_progress(db, kr, goal)[1]}%《{kr.title}》"
+            for kr in goal.key_results[:3]
+        )
+        lines.append(f"- #{goal.id} {goal.title} | 总进度:{progress}% | {kr_text or '暂无KR'}")
+    return lines
+
+
+def _timer_line(db: Session) -> str:
+    log = timer_service.current_log(db)
+    if log is None:
+        return "无运行中的计时"
+    elapsed = round((datetime.now() - log.started_at).total_seconds() / 60)
+    return f"正在计时：《{log.task_title}》已进行 {elapsed} 分钟（{log.kind}）"
+
+
+def _habit_lines(db: Session) -> list[str]:
+    lines = []
+    for habit in habit_service.list_habits(db)[:20]:
+        status = habit_service.habit_status(habit)
+        period_label = "今日" if habit.period == "daily" else "本周"
+        lines.append(
+            f"- #{habit.id} {habit.name} | {period_label}:{status['period_count']}/{habit.target_count}"
+            f" | 连续:{status['streak']}{'天' if habit.period == 'daily' else '周'}"
+            f" | {'已达标' if status['done_today'] else '未达标'}"
+        )
+    return lines
+
+
+def _journal_lines(db: Session) -> list[str]:
+    return [
+        f"- {entry.date.isoformat()}"
+        + (f" | 心情:{entry.mood}" if entry.mood else "")
+        + f" | {(entry.content or '')[:80].replace(chr(10), ' ')}"
+        for entry in journal_service.list_entries(db, 3)
+    ]
 
 
 def _format_dt(value: datetime | None) -> str:

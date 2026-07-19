@@ -14,6 +14,21 @@ export function listTasks() {
   return fetch(BASE).then(parse)
 }
 
+// 任务搜索：params 全部可选（q/status/priority/tag/due_before/due_after/sort/order），
+// 空值参数自动省略；无参时等同 listTasks（全部按创建倒序）
+export function searchTasks(params = {}) {
+  const qs = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') qs.set(key, value)
+  }
+  const query = qs.toString()
+  return fetch(query ? `${BASE}?${query}` : BASE).then(parse)
+}
+
+export function getTask(id) {
+  return fetch(`${BASE}/${id}`).then(parse)
+}
+
 export function createTask(task) {
   return fetch(BASE, {
     method: 'POST',

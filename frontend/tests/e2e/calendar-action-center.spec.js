@@ -169,6 +169,12 @@ async function json(route, body, status = 200) {
 }
 
 async function mockBackend(page) {
+  // 启动提醒弹窗每天只弹一次（localStorage 节流）；预置今天已弹，避免遮挡视图切换
+  await page.addInitScript(() => {
+    const d = new Date()
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    localStorage.setItem('startup_reminder_last_date', key)
+  })
   await page.route(/\/tasks(?:$|\/|\?)/, async (route) => {
     if (route.request().method() === 'GET') return json(route, [])
     return json(route, {})

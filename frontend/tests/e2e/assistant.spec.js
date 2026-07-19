@@ -98,7 +98,7 @@ test('desktop floating chat keeps long assistant replies readable and scrollable
   await mockBackend(page)
   await page.goto('/')
 
-  await page.getByRole('button', { name: /知时助手/ }).click()
+  await page.getByRole('button', { name: /知时(助手|代理)/ }).click()
 
   const shell = page.locator('.assistant-shell')
   await expect(shell).toHaveAttribute('role', 'region')
@@ -136,7 +136,7 @@ test('settings remain reachable from the floating assistant', async ({ page }) =
   await mockBackend(page)
   await page.goto('/')
 
-  await page.getByRole('button', { name: /知时助手/ }).click()
+  await page.getByRole('button', { name: /知时(助手|代理)/ }).click()
   await page.getByRole('tab', { name: '设置' }).click()
 
   // 设置区为手风琴分组:摘要行全部可见,默认展开「模型配置」
@@ -153,7 +153,7 @@ test('desktop floating assistant can be dragged and stays in view', async ({ pag
   await mockBackend(page)
   await page.goto('/')
 
-  await page.getByRole('button', { name: /知时助手/ }).click()
+  await page.getByRole('button', { name: /知时(助手|代理)/ }).click()
 
   const shell = page.locator('.assistant-shell')
   const dragHandle = page.locator('.head-copy')
@@ -192,7 +192,7 @@ test('failed chat send restores input and redacts provider error details', async
   })
   await page.goto('/')
 
-  await page.getByRole('button', { name: /知时助手/ }).click()
+  await page.getByRole('button', { name: /知时(助手|代理)/ }).click()
   const input = page.getByPlaceholder(/帮我把本周论文阅读/)
   await input.fill('这条消息应该失败后恢复')
   await page.getByRole('button', { name: '发送' }).click()
@@ -208,7 +208,7 @@ test('dangerous action cards show server generated preview lines', async ({ page
   await mockBackend(page, { chatBody: pendingActionChatBody() })
   await page.goto('/')
 
-  await page.getByRole('button', { name: /知时助手/ }).click()
+  await page.getByRole('button', { name: /知时(助手|代理)/ }).click()
   await page.getByPlaceholder(/帮我把本周论文阅读/).fill('删除两个任务')
   await page.getByRole('button', { name: '发送' }).click()
 
@@ -223,7 +223,7 @@ test('mobile opens the assistant in fullscreen mode with settings available', as
   await mockBackend(page)
   await page.goto('/')
 
-  await page.getByRole('button', { name: /知时助手/ }).click()
+  await page.getByRole('button', { name: /知时(助手|代理)/ }).click()
 
   const shell = page.locator('.assistant-shell')
   await expect(shell).toHaveClass(/fullscreen/)

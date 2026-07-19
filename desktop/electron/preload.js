@@ -32,4 +32,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 悬浮窗拖动（按钮态前端区分点击/拖动后触发，主进程按光标位置移动窗口）
   floatDragStart: () => ipcRenderer.send('float:drag-start'),
   floatDragMove: () => ipcRenderer.send('float:drag-move'),
+  // 全局快速捕获小窗：请求隐藏自身
+  captureClose: () => ipcRenderer.send('capture:close'),
+  // 系统级空闲秒数（任意窗口操作都算活跃，覆盖后台工作场景）
+  getSystemIdleTime: () => ipcRenderer.invoke('system:idle'),
 })

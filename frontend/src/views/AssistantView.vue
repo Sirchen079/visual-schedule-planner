@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   confirmAiAction,
   createAiConfig,
@@ -13,17 +13,21 @@ import {
   listAiConversations,
   listAiModels,
   listAiSkills,
+  renameConversation,
+  deleteConversation,
   sendAiChat,
   testAiConfig,
   updateAiConfig,
   updateAiSkill,
   uploadAiAttachment,
 } from '../api/ai'
+import { getSettings, updateSettings } from '../api/settings'
 import { uploadFile } from '../api/files'
 import ArtIcon from '../components/ArtIcon.vue'
 import AssistantChat from './assistant/AssistantChat.vue'
 import AssistantHistory from './assistant/AssistantHistory.vue'
 import AssistantSettings from './assistant/AssistantSettings.vue'
+import SegmentedControl from '../components/ui/SegmentedControl.vue'
 
 const props = defineProps({
   floatMode: { type: Boolean, default: false },
@@ -71,8 +75,22 @@ const FAB_DRAG_THRESHOLD = 4
 const previousFocus = ref(null)
 const chatAbortController = ref(null)
 
-const assistantName = computed(
-  () => activeConfig.value?.assistant_name || configForm.value.assistant_name || '知时助手'
+// 助手模式：assistant=知时助手（原版问答式）/ agent=知时代理（主动代劳的秘书）
+const STOCK_NAMES = ['知时助手', '知时代理']
+const assistantModeType = ref('agent')
+const assistantModeOptions = [
+  { value: 'assistant', label: '知时助手' },
+  { value: 'agent', label: '知时代理' },
+]
+const assistantName = computed(() => {
+  const custom = (activeConfig.value?.assistant_name || configForm.value.assistant_name || '').trim()
+  if (custom && !STOCK_NAMES.includes(custom)) return custom
+  return assistantModeType.value === 'agent' ? '知时代理' : '知时助手'
+})
+const modeSubtitle = computed(() =>
+  assistantModeType.value === 'agent'
+    ? '你的贴身秘书：主动办妥事务，事事有回应。'
+    : '安静地整理日程、资料和下一步行动。'
 )
 const hasConfig = computed(() => Boolean(activeConfig.value))
 const hasEnabledConfig = computed(() => Boolean(activeConfig.value?.enabled))
@@ -151,6 +169,8 @@ function defaultConfig() {
     native_web_search_enabled: false,
     native_web_search_options_text: '{}',
     search_enhancement_enabled: false,
+    price_input: '',
+    price_output: '',
   }
 }
 
@@ -173,6 +193,8 @@ function configToForm(config) {
     native_web_search_enabled: Boolean(config.native_web_search_enabled),
     native_web_search_options_text: JSON.stringify(config.native_web_search_options || {}, null, 2),
     search_enhancement_enabled: Boolean(config.search_enhancement_enabled),
+    price_input: Number(config.price_input) > 0 ? String(config.price_input) : '',
+    price_output: Number(config.price_output) > 0 ? String(config.price_output) : '',
   }
 }
 
@@ -196,6 +218,12 @@ function parseNativeWebSearchOptions() {
   return parsed
 }
 
+// 价目输入：留空/非法/负数都归一为 0（后端约定 0 = 未设置，不参与成本估算）
+function priceValue(value) {
+  const n = parseFloat(value)
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
+
 function configPayload({ includeConfigId = false } = {}) {
   const payload = {
     name: configForm.value.name.trim(),
@@ -210,6 +238,8 @@ function configPayload({ includeConfigId = false } = {}) {
     native_web_search_enabled: configForm.value.native_web_search_enabled,
     native_web_search_options: parseNativeWebSearchOptions(),
     search_enhancement_enabled: configForm.value.search_enhancement_enabled,
+    price_input: priceValue(configForm.value.price_input),
+    price_output: priceValue(configForm.value.price_output),
     active_skill_id: activeSkillId.value || null,
   }
   if (configForm.value.api_key.trim()) payload.api_key = configForm.value.api_key.trim()
@@ -557,6 +587,42 @@ async function openConversation(row) {
   }
 }
 
+// 历史会话管理：重命名 / 删除（删除当前会话则回到新聊天）
+const confirmDialog = inject('confirm-dialog', null)
+
+async function renameConversationById(row, title) {
+  const next = (title || '').trim()
+  if (!next || next === row.title) return
+  try {
+    const updated = await renameConversation(row.id, next)
+    const idx = conversations.value.findIndex((c) => c.id === row.id)
+    if (idx !== -1) conversations.value[idx] = { ...conversations.value[idx], ...updated }
+    notice.value = '已重命名'
+  } catch (err) {
+    error.value = apiMessage(err)
+  }
+}
+
+async function deleteConversationById(row) {
+  const ok = confirmDialog
+    ? await confirmDialog({
+        title: '删除会话',
+        message: `确定删除「${row.title || '新的会话'}」吗？该会话的全部消息将一并删除，且不可恢复。`,
+        confirmText: '删除',
+        danger: true,
+      })
+    : true
+  if (!ok) return
+  try {
+    await deleteConversation(row.id)
+    conversations.value = conversations.value.filter((c) => c.id !== row.id)
+    if (conversationId.value === row.id) startNewChat()
+    notice.value = '已删除会话'
+  } catch (err) {
+    error.value = apiMessage(err)
+  }
+}
+
 function refreshActiveView() {
   if (assistantMode.value === 'history') {
     loadConversations()
@@ -899,6 +965,10 @@ async function secondConfirm(action) {
 
 onMounted(() => {
   load()
+  // 读取助手模式（知时助手/知时代理），失败按默认 agent 处理
+  getSettings()
+    .then((s) => { assistantModeType.value = s.assistant_mode === 'assistant' ? 'assistant' : 'agent' })
+    .catch(() => {})
   window.addEventListener('resize', keepWindowInView)
   window.addEventListener('assistant:prompt', handleAssistantPrompt)
   // 悬浮窗：主窗口打开时主进程发 float:collapse，收起为按钮态
@@ -906,6 +976,19 @@ onMounted(() => {
     window.electronAPI?.onFloatCollapse?.(() => emit('collapse'))
   }
 })
+
+// 切换助手模式：写入后端设置，名称/人设/能力门限即时随模式切换
+async function changeAssistantMode(mode) {
+  const prev = assistantModeType.value
+  assistantModeType.value = mode // 乐观更新
+  try {
+    await updateSettings({ assistant_mode: mode })
+    notice.value = mode === 'agent' ? '已切换到知时代理：我会更主动地为你办妥事务' : '已切换到知时助手：有求必应，不多打扰'
+  } catch (err) {
+    assistantModeType.value = prev
+    error.value = apiMessage(err)
+  }
+}
 
 watch(assistantMode, (mode) => {
   if (mode === 'chat') scrollMessagesToBottom()
@@ -963,15 +1046,41 @@ onBeforeUnmount(() => {
     >
   <div class="assistant">
     <header class="assistant-head" @pointerdown="startDrag">
-      <div class="head-copy">
-        <h2 class="page-title">
-          <ArtIcon name="assistant" tone="aqua" :size="36" tile :label="assistantName" />
-          <span>{{ assistantName }}</span>
-        </h2>
-        <p class="muted">安静地整理日程、资料和下一步行动。</p>
+      <div class="head-main">
+        <div class="head-copy">
+          <h2 class="page-title">
+            <ArtIcon name="assistant" tone="aqua" :size="36" tile :label="assistantName" />
+            <span>{{ assistantName }}</span>
+          </h2>
+        </div>
+        <div class="head-actions">
+          <button class="ghost compact new-chat-action" :disabled="busy || uploadingFiles || attachingFiles" @click="startNewChat">
+            <ArtIcon name="plus" tone="aqua" :size="16" />
+            <span>新聊天</span>
+          </button>
+          <button class="ghost compact refresh-action" :disabled="loading || historyLoading || busy" @click="refreshActiveView">
+            <ArtIcon name="refresh" tone="aqua" :size="16" />
+            <span>刷新</span>
+          </button>
+          <button class="ghost compact fullscreen-action" @click="toggleFullscreen">
+            <ArtIcon name="expand" tone="pearl" :size="16" />
+            <span>{{ fullscreen ? '退出全屏' : '全屏' }}</span>
+          </button>
+          <button class="ghost compact close-action" @click="closeAssistant">
+            <ArtIcon name="close" tone="pearl" :size="16" />
+            <span>收起</span>
+          </button>
+        </div>
       </div>
-      <div class="head-actions">
-        <div class="mode-switch compact-mode-switch" role="tablist" aria-label="助手视图">
+      <div class="head-switches">
+        <SegmentedControl
+          :model-value="assistantModeType"
+          :options="assistantModeOptions"
+          size="sm"
+          aria-label="助手模式"
+          @update:model-value="changeAssistantMode"
+        />
+        <div class="mode-switch" role="tablist" aria-label="助手视图">
           <button
             class="ghost compact"
             :class="{ active: assistantMode === 'chat' }"
@@ -1000,23 +1109,8 @@ onBeforeUnmount(() => {
             设置
           </button>
         </div>
-        <button class="ghost compact new-chat-action" :disabled="busy || uploadingFiles || attachingFiles" @click="startNewChat">
-          <ArtIcon name="plus" tone="aqua" :size="16" />
-          <span>新聊天</span>
-        </button>
-        <button class="ghost compact refresh-action" :disabled="loading || historyLoading || busy" @click="refreshActiveView">
-          <ArtIcon name="refresh" tone="aqua" :size="16" />
-          <span>刷新</span>
-        </button>
-        <button class="ghost compact fullscreen-action" @click="toggleFullscreen">
-          <ArtIcon name="expand" tone="pearl" :size="16" />
-          <span>{{ fullscreen ? '退出全屏' : '全屏' }}</span>
-        </button>
-        <button class="ghost compact close-action" @click="closeAssistant">
-          <ArtIcon name="close" tone="pearl" :size="16" />
-          <span>收起</span>
-        </button>
       </div>
+      <p class="muted head-subtitle">{{ modeSubtitle }}</p>
     </header>
 
     <div v-if="error" class="card alert-line" role="alert">
@@ -1069,6 +1163,8 @@ onBeforeUnmount(() => {
         :interaction-busy="busy || uploadingFiles || attachingFiles"
         @open="openConversation"
         @new-chat="startNewChat"
+        @rename="renameConversationById"
+        @delete="deleteConversationById"
       />
 
       <AssistantChat
@@ -1207,28 +1303,44 @@ onBeforeUnmount(() => {
   margin: 0;
 }
 
-.assistant-head,
-.head-actions {
+.head-main,
+.head-actions,
+.head-switches {
   display: flex;
   gap: 12px;
 }
 
 .assistant-head {
-  align-items: center;
-  justify-content: space-between;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   cursor: grab;
   touch-action: none;
-  gap: 10px;
   padding: 2px 2px 12px;
   border-bottom: 1px solid var(--border);
 }
 
-.assistant-shell:not(.fullscreen) .assistant-head .muted {
-  display: none;
+.head-main {
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
 }
 
-.assistant-shell:not(.fullscreen) .assistant-head {
+.head-switches {
   align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.head-subtitle {
+  margin: 0;
+  font-size: 12px;
+}
+
+.assistant-shell:not(.fullscreen) .assistant-head .muted {
+  display: none;
 }
 
 .assistant-shell:not(.fullscreen) .page-title {
@@ -1433,7 +1545,8 @@ onBeforeUnmount(() => {
 .assistant-shell.float-mode .assistant-head h2 {
   font-size: 15px;
 }
-.assistant-shell.float-mode .head-actions {
+.assistant-shell.float-mode .head-actions,
+.assistant-shell.float-mode .head-switches {
   -webkit-app-region: no-drag;
   gap: 4px;
 }

@@ -1,5 +1,6 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, inject, ref } from 'vue'
+import { updateTask } from '../api/tasks'
 import ArtIcon from '../components/ArtIcon.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
 import PageHeader from '../components/ui/PageHeader.vue'
@@ -7,7 +8,9 @@ import PageHeader from '../components/ui/PageHeader.vue'
 const props = defineProps({
   tasks: { type: Array, required: true },
 })
-const emit = defineEmits(['open', 'create'])
+const emit = defineEmits(['open', 'create', 'changed'])
+
+const toast = inject('toast', null)
 
 const DAY = 86_400_000
 
@@ -68,6 +71,12 @@ const range = computed(() => {
 const totalMs = computed(() => Math.max(range.value.end - range.value.start, DAY))
 const totalDays = computed(() => Math.ceil(totalMs.value / DAY))
 
+// 今天标线位置（百分比）；今天不在可视范围时返回 null 不渲染
+const todayPct = computed(() => {
+  const pct = ((Date.now() - range.value.start) / totalMs.value) * 100
+  return pct >= 0 && pct <= 100 ? pct : null
+})
+
 const tickEvery = computed(() => {
   const d = totalDays.value
   if (d <= 14) return 1
@@ -86,8 +95,21 @@ const ticks = computed(() => {
   return arr
 })
 
+// 按整天平移用 setDate 而非毫秒加法：跨夏令时也能保持当天原时刻
+function shiftDays(date, days) {
+  const d = new Date(date.getTime())
+  d.setDate(d.getDate() + days)
+  return d
+}
+
+// 提交用本地时区 ISO（不带 Z），与 TaskForm 的拼接法同理，避免 toISOString 的 UTC 偏移
+function toLocalISO(d) {
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
 function posOf(t) {
-  const { start, end } = span(t)
+  const { start, end } = previewSpan(t)
   const left = ((start - range.value.start) / totalMs.value) * 100
   const width = Math.max(((end - start) / totalMs.value) * 100, 1.4)
   return { left, width }
@@ -95,6 +117,111 @@ function posOf(t) {
 
 function fillOf(t, p) {
   return p.width * ((t.progress || 0) / 100)
+}
+
+// ---- 拖拽编辑（Pointer Events，不用 HTML5 DnD 以保证像素级精度）----
+// { id, mode: 'move'|'start'|'end', pointerId, startX, pxPerDay, deltaDays, moved, task, origStart, origEnd }
+const drag = ref(null)
+
+// 拖拽中的临时跨度（仅本地预览，松手才提交）；无拖拽时回退到任务原始跨度
+function previewSpan(t) {
+  const d = drag.value
+  if (!d || d.id !== t.id || !d.moved) return span(t)
+  return spanForDrag(d)
+}
+
+// 由拖拽状态算出临时跨度；拉伸越过另一端时钳制到重合（保证 start <= end）
+function spanForDrag(d) {
+  if (d.mode === 'move') {
+    return { start: shiftDays(d.origStart, d.deltaDays), end: shiftDays(d.origEnd, d.deltaDays) }
+  }
+  if (d.mode === 'start') {
+    const start = shiftDays(d.origStart, d.deltaDays)
+    return { start: start > d.origEnd ? d.origEnd : start, end: d.origEnd }
+  }
+  const end = shiftDays(d.origEnd, d.deltaDays)
+  return { start: d.origStart, end: end < d.origStart ? d.origStart : end }
+}
+
+function beginDrag(e, t, mode) {
+  if (drag.value || e.button !== 0) return
+  const track = e.currentTarget.closest('.track')
+  if (!track) return
+  const { start, end } = span(t)
+  drag.value = {
+    id: t.id,
+    mode,
+    pointerId: e.pointerId,
+    startX: e.clientX,
+    pxPerDay: track.getBoundingClientRect().width / (totalMs.value / DAY),
+    deltaDays: 0,
+    moved: false,
+    task: t,
+    origStart: start,
+    origEnd: end,
+  }
+  e.currentTarget.setPointerCapture(e.pointerId)
+  e.preventDefault()
+}
+
+function onDragMove(e) {
+  const d = drag.value
+  if (!d || e.pointerId !== d.pointerId) return
+  const dx = e.clientX - d.startX
+  if (!d.moved && Math.abs(dx) < 4) return // 位移 <4px 仍视为点击
+  d.moved = true
+  d.deltaDays = Math.round(dx / d.pxPerDay)
+  // 复用悬浮提示卡，实时展示拖拽后的起止日期
+  const s = previewSpan(d.task)
+  tip.value = {
+    title: d.task.title,
+    priority: d.task.priority,
+    progress: d.task.progress || 0,
+    startText: fmtDate(s.start),
+    endText: fmtDate(s.end),
+    x: e.clientX,
+    y: e.clientY,
+  }
+}
+
+async function onDragEnd(e) {
+  const d = drag.value
+  if (!d || e.pointerId !== d.pointerId) return
+  drag.value = null
+  hideTip()
+  if (!d.moved) {
+    emit('open', d.task) // 位移 <4px：维持原有点击打开编辑
+    return
+  }
+  if (!d.deltaDays) return
+  const next = spanForDrag(d)
+  // move 平移两个字段；拉伸只提交被拖的那一端，其余字段一律不动
+  const patch = {}
+  if (d.mode !== 'end') {
+    const v = toLocalISO(next.start)
+    if (v !== toLocalISO(d.origStart)) patch.start_date = v
+  }
+  if (d.mode !== 'start') {
+    const v = toLocalISO(next.end)
+    if (v !== toLocalISO(d.origEnd)) patch.end_date = v
+  }
+  if (!Object.keys(patch).length) return
+  try {
+    await updateTask(d.id, patch)
+    emit('changed') // App 重新加载任务，bar 落到新位置
+    toast?.success('已改期')
+  } catch (err) {
+    // 预览只存在于 drag 状态，props 未动，失败即天然回滚
+    toast?.error(err?.message || '改期失败')
+  }
+}
+
+// 触控板/触屏手势被浏览器接管时取消拖拽，不提交、不报错
+function onDragCancel(e) {
+  const d = drag.value
+  if (!d || e.pointerId !== d.pointerId) return
+  drag.value = null
+  hideTip()
 }
 
 function fmt(d) {
@@ -108,6 +235,7 @@ function fmtDate(d) {
 // bar 悬浮提示：跟随鼠标的玻璃卡，pointer-events:none 不遮挡拖拽/点击
 const tip = ref(null) // { title, priority, progress, startText, endText, x, y }
 function showTip(e, t) {
+  if (drag.value) return // 拖拽中的日期提示由 onDragMove 维护
   const { start, end } = span(t)
   tip.value = {
     title: t.title,
@@ -210,6 +338,9 @@ function hideTip() {
             >
               <span>{{ fmt(tk.date) }}</span>
             </div>
+            <div v-if="todayPct !== null" class="today-line" :style="{ left: todayPct + '%' }">
+              <span class="today-tag">今天</span>
+            </div>
           </div>
         </div>
 
@@ -219,14 +350,19 @@ function hideTip() {
             <div class="row-sub muted">{{ t.priority }} · {{ t.progress || 0 }}%</div>
           </div>
           <div class="track">
+            <div v-if="todayPct !== null" class="today-line" :style="{ left: todayPct + '%' }"></div>
             <div
               class="bar"
+              :class="{ dragging: drag?.id === t.id && drag.moved }"
               :style="{
                 left: posOf(t).left + '%',
                 width: posOf(t).width + '%',
                 background: priMeta(t.priority).color,
               }"
-              @click="emit('open', t)"
+              @pointerdown="beginDrag($event, t, 'move')"
+              @pointermove="onDragMove"
+              @pointerup="onDragEnd"
+              @pointercancel="onDragCancel"
               @mouseenter="showTip($event, t)"
               @mousemove="moveTip"
               @mouseleave="hideTip"
@@ -235,18 +371,40 @@ function hideTip() {
             </div>
             <div
               class="fill"
+              :class="{ dragging: drag?.id === t.id && drag.moved }"
               :style="{
                 left: posOf(t).left + '%',
                 width: fillOf(t, posOf(t)) + '%',
                 background: priMeta(t.priority).color,
               }"
-              @click="emit('open', t)"
+              @pointerdown="beginDrag($event, t, 'move')"
+              @pointermove="onDragMove"
+              @pointerup="onDragEnd"
+              @pointercancel="onDragCancel"
               @mouseenter="showTip($event, t)"
               @mousemove="moveTip"
               @mouseleave="hideTip"
             >
               <span class="bar-text">{{ t.progress || 0 }}%</span>
             </div>
+            <span
+              class="edge edge-start"
+              :style="{ left: `calc(${posOf(t).left}% - 5px)` }"
+              title="拖动调整开始日期"
+              @pointerdown.stop="beginDrag($event, t, 'start')"
+              @pointermove="onDragMove"
+              @pointerup="onDragEnd"
+              @pointercancel="onDragCancel"
+            ></span>
+            <span
+              class="edge edge-end"
+              :style="{ left: `calc(${posOf(t).left + posOf(t).width}% - 5px)` }"
+              title="拖动调整结束日期"
+              @pointerdown.stop="beginDrag($event, t, 'end')"
+              @pointermove="onDragMove"
+              @pointerup="onDragEnd"
+              @pointercancel="onDragCancel"
+            ></span>
           </div>
         </div>
       </div>
@@ -476,13 +634,64 @@ function hideTip() {
   top: 4px;
   height: 24px;
   border-radius: var(--radius-pill);
-  cursor: pointer;
+  cursor: grab;
   display: flex;
   align-items: center;
   padding: 0 12px;
   overflow: hidden;
   container-type: inline-size;
   transition: transform 0.2s ease, filter 0.2s ease;
+  touch-action: pan-y;
+  user-select: none;
+}
+
+.bar.dragging,
+.fill.dragging {
+  opacity: 0.65;
+  cursor: grabbing;
+  filter: brightness(1.05);
+}
+
+/* 拖拽把手：bar 两端各 10px 热区，改变开始/结束日期 */
+.edge {
+  position: absolute;
+  top: 0;
+  width: 10px;
+  height: 100%;
+  cursor: ew-resize;
+  z-index: 4;
+  border-radius: var(--radius-pill);
+  touch-action: pan-y;
+}
+
+.edge:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* 今天标线：accent 虚线贯穿刻度与各行 */
+.today-line {
+  position: absolute;
+  top: -5px;
+  bottom: -5px;
+  width: 0;
+  border-left: 2px dashed var(--accent);
+  opacity: 0.65;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.scale .today-line {
+  top: -14px;
+}
+
+.today-tag {
+  position: absolute;
+  top: -1px;
+  left: -13px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
 }
 
 .bar {
