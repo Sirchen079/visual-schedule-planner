@@ -1538,6 +1538,10 @@ onBeforeUnmount(() => {
   -webkit-app-region: drag;
   padding: 2px 2px 8px;
   gap: 8px;
+  /* 强制纵向：覆盖 @media(max-width:980px) 把 header 改成 row 的规则——
+     悬浮窗 400px 会误触发该 media，使「标题/收起」行与「助手模式切换」行
+     挤在同一水平行而重叠 */
+  flex-direction: column;
 }
 .assistant-shell.float-mode .assistant-head .page-title .art-icon {
   display: none;
