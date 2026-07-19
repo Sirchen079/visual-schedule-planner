@@ -1563,6 +1563,16 @@ onBeforeUnmount(() => {
 .assistant-shell.float-mode .fullscreen-action {
   display: none;
 }
+
+/* 悬浮窗窄窗：双助手切换与视图 tab 并排均分宽度，避免一个偏大、被 space-between 拉向两端而错位 */
+.assistant-shell.float-mode .head-switches {
+  flex-wrap: nowrap;
+}
+
+.assistant-shell.float-mode .head-switches .mode-switch {
+  flex: 1 1 0;
+  min-width: 0;
+}
 </style>
 
 <!-- 对话/历史/设置子组件复用同名 class，样式集中在壳层维护。
@@ -2181,5 +2191,18 @@ onBeforeUnmount(() => {
   .assistant-shell .message {
     width: fit-content;
   }
+}
+
+/* 悬浮窗窄窗：双助手分段控件拉满并均分两项，与右侧视图 tab 等宽对齐 */
+.assistant-shell.float-mode .head-switches .seg-control {
+  flex: 1 1 0;
+  display: flex;
+  min-width: 0;
+}
+
+.assistant-shell.float-mode .head-switches .seg-item {
+  flex: 1 1 0;
+  justify-content: center;
+  padding: 5px 6px;
 }
 </style>
