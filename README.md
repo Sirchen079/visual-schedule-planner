@@ -268,3 +268,7 @@ Agent 工作模式：
 ## 许可证
 
 本项目基于 [MIT License](LICENSE) 发布。
+
+---
+
+📖 [AI 接入新手指南](docs/ai-api-guide.md) —— 从零理解 API、API Key、URL 与三种接口格式，手把手在知时里配置你的第一个模型。
