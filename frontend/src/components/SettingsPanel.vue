@@ -23,6 +23,16 @@ const autostartSupported = isDesktop && isPackaged && isWin
 // 悬浮窗与关闭行为在桌面应用内有效（含开发模式 npm start）；浏览器访问时禁用
 const desktopSupported = isDesktop
 
+// 主题模式（由 App.vue provide）：auto 跟随系统 / light / dark
+const { themeMode, setThemeMode } = inject('theme-mode', {
+  themeMode: ref('auto'),
+  setThemeMode: () => {},
+})
+const THEME_OPTIONS = [
+  { value: 'auto', label: '跟随系统' },
+  { value: 'light', label: '浅色' },
+  { value: 'dark', label: '深色' },
+]
 const openAtLogin = ref(false)
 const floatEnabled = ref(false)
 const closeBehavior = ref('minimize') // minimize | quit | ask
@@ -205,6 +215,29 @@ async function onIcsPicked(event) {
           </button>
         </div>
       </div>
+
+      <section class="row col-row">
+        <div class="group-title">外观</div>
+        <div class="sub-row">
+          <div class="row-main">
+            <div class="row-title">主题</div>
+            <div class="row-desc">跟随系统时随 Windows 深浅色自动切换（含隔夜变化）；手动选择后将固定为主题</div>
+          </div>
+          <div class="segmented" role="radiogroup" aria-label="主题">
+            <button
+              v-for="opt in THEME_OPTIONS"
+              :key="opt.value"
+              class="seg-btn"
+              role="radio"
+              :aria-checked="themeMode === opt.value ? 'true' : 'false'"
+              :class="{ active: themeMode === opt.value }"
+              @click="setThemeMode(opt.value)"
+            >
+              {{ opt.label }}
+            </button>
+          </div>
+        </div>
+      </section>
 
       <section class="row" :class="{ disabled: !autostartSupported }">
         <div class="row-main">

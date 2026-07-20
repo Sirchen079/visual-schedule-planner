@@ -108,6 +108,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('focus', onFocusReload)
   window.removeEventListener('keydown', onGlobalKeydown)
   window.removeEventListener('tasks:refresh', onTasksRefresh)
+  colorSchemeMql?.removeEventListener?.('change', onColorSchemeChange)
 })
 
 const view = ref('board')
@@ -141,12 +142,39 @@ function applyFeatureSettings(s) {
   if (current?.feature && !features.value[current.feature]) view.value = 'board'
 }
 
-// 主题：有手动选择用手动选择；首次启动跟随系统 prefers-color-scheme
-const storedTheme = localStorage.getItem('theme')
-const theme = ref(
-  storedTheme ||
-    (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+// 主题模式：auto（跟随系统 prefers-color-scheme）/ light / dark。
+// 默认 auto——首次启动与隔夜系统切换深浅色时都能自动跟随；用户手动选择后
+// 转为显式 light/dark，不再被系统覆盖。
+// localStorage.theme 兼容旧值：'light'/'dark' 视为显式选择，缺失或异常回落 auto。
+const THEME_KEY = 'theme'
+const VALID_THEME_MODES = ['auto', 'light', 'dark']
+const colorSchemeMql = window.matchMedia?.('(prefers-color-scheme: dark)')
+function readThemeMode() {
+  const v = localStorage.getItem(THEME_KEY)
+  return VALID_THEME_MODES.includes(v) ? v : 'auto'
+}
+const themeMode = ref(readThemeMode())
+// 实际渲染的主题：auto 解析为当前系统值；显式模式直接用其值
+const resolvedTheme = computed(
+  () => (themeMode.value === 'auto' ? (colorSchemeMql?.matches ? 'dark' : 'light') : themeMode.value)
 )
+function applyTheme() {
+  document.documentElement.setAttribute('data-theme', resolvedTheme.value)
+  localStorage.setItem(THEME_KEY, themeMode.value)
+}
+function setThemeMode(mode) {
+  if (!VALID_THEME_MODES.includes(mode)) return
+  themeMode.value = mode
+  applyTheme()
+}
+function onColorSchemeChange() {
+  // 仅 auto 模式跟随系统；显式 light/dark 不被系统覆盖
+  if (themeMode.value === 'auto') applyTheme()
+}
+applyTheme()
+colorSchemeMql?.addEventListener?.('change', onColorSchemeChange)
+// 供设置面板「外观」section 切换主题模式（含回到「跟随系统」）
+provide('theme-mode', { themeMode, setThemeMode })
 const shuttingDown = ref(false)
 const settingsOpen = ref(false)
 
@@ -184,14 +212,9 @@ function resolveConfirmDialog(value) {
 }
 provide('confirm-dialog', confirmDialog)
 
-function applyTheme() {
-  document.documentElement.setAttribute('data-theme', theme.value)
-  localStorage.setItem('theme', theme.value)
-}
-applyTheme()
 function toggleTheme() {
-  theme.value = theme.value === 'light' ? 'dark' : 'light'
-  applyTheme()
+  // 顶栏按钮：在浅/深色之间切换；点击即退出「跟随系统」，转为显式选择
+  setThemeMode(resolvedTheme.value === 'light' ? 'dark' : 'light')
 }
 
 const modalOpen = ref(false)
@@ -489,13 +512,13 @@ function onGlobalKeydown(e) {
         <button
           class="ghost icon theme-btn"
           @click="toggleTheme"
-          :title="theme === 'light' ? '切换深色' : '切换浅色'"
+          :title="resolvedTheme === 'light' ? '切换深色' : '切换浅色'"
         >
           <ArtIcon
-            :name="theme === 'light' ? 'moon' : 'sun'"
+            :name="resolvedTheme === 'light' ? 'moon' : 'sun'"
             tone="aqua"
             :size="20"
-            :label="theme === 'light' ? '切换深色' : '切换浅色'"
+            :label="resolvedTheme === 'light' ? '切换深色' : '切换浅色'"
           />
         </button>
         <button class="ghost icon" @click="featuresOpen = true" title="功能管理">

@@ -11,6 +11,17 @@ import { computed, ref } from 'vue'
 
 const now = ref(Date.now())
 setInterval(() => (now.value = Date.now()), 60_000)
+// 窗口从后台恢复或重新获焦时立即刷新时钟：覆盖电脑睡眠唤醒、最小化到托盘等
+// 场景——setInterval 在后台被节流且不补发错过的回调，隔夜恢复后若仅靠 60s
+// 轮询，暖心提示会延迟最多一分钟才对齐当前时段。
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) now.value = Date.now()
+  })
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('focus', () => (now.value = Date.now()))
+}
 
 // ---- 真实活跃时长：监听用户交互，空闲超阈值则中断当前连续工作段 ----
 const IDLE_THRESHOLD_MS = 5 * 60_000 // 5 分钟内无任何交互，视为「人已离开」

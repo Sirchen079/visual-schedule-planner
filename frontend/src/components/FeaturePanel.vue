@@ -9,12 +9,12 @@
 //                          'true'/'false' 快照（形如 { feature_habits_enabled: 'true', ... }），
 //                          App 可据此即时隐藏 tab/快捷键等入口
 // 开关样式与「已保存」闪烁提示复用 SettingsPanel 的结构。
-import { inject, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { inject, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import ArtIcon from './ArtIcon.vue'
 import BaseModal from './ui/BaseModal.vue'
 import { getSettings, updateSettings } from '../api/settings'
 
-defineProps({
+const props = defineProps({
   open: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close', 'changed'])
@@ -93,7 +93,7 @@ const loading = ref(true)
 const saved = ref(false)
 let savedTimer = null
 
-onMounted(async () => {
+async function loadSettings() {
   try {
     const s = await getSettings()
     for (const m of MODULES) values[m.key] = (s[m.key] ?? DEFAULTS[m.key]) === 'true'
@@ -104,6 +104,12 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+}
+onMounted(loadSettings)
+// 助手模式可能在 AssistantView 里随时切换，组件又是常驻挂载、onMounted 只读一次；
+// 每次打开面板时重读最新设置，让「秘书自动档」「伴随联动」等代理专属开关的可选性随模式同步
+watch(() => props.open, (open) => {
+  if (open) loadSettings()
 })
 onBeforeUnmount(() => clearTimeout(savedTimer))
 
