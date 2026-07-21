@@ -15,7 +15,7 @@
 
 - Python 3.11+（后端 venv）
 - Node.js 18+（前端构建与 Electron 打包）
-- Inno Setup 6（编译安装包，默认路径 `D:\Inno Setup 6\ISCC.exe`）
+- Inno Setup 6（编译安装包；由 `scripts\build-installer.bat` 自动探测安装路径）
 
 ## 一键打包
 
@@ -37,8 +37,8 @@ node scripts\build-backend.js
 npm install
 npm run dist
 
-# 5. 编译安装包（需 Inno Setup 6）
-"D:\Inno Setup 6\ISCC.exe" installer\zhishi.iss
+# 5. 编译安装包（脚本自动探测 Inno Setup 6 位置）
+scripts\build-installer.bat
 ```
 
 产物：`desktop\release-inno\知时 Setup.exe`（解压即用版：`desktop\release\win-unpacked\知时.exe`）
