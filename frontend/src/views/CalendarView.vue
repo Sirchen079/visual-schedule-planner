@@ -5,6 +5,7 @@ import { updateTask } from '../api/tasks'
 import ArtIcon from '../components/ArtIcon.vue'
 import AppSpinner from '../components/ui/AppSpinner.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
+import FirstRunTip from '../components/ui/FirstRunTip.vue'
 import PageHeader from '../components/ui/PageHeader.vue'
 import SegmentedControl from '../components/ui/SegmentedControl.vue'
 
@@ -617,6 +618,12 @@ onMounted(async () => {
         </div>
       </template>
     </PageHeader>
+
+    <FirstRunTip
+      tip-key="zs-tip-calendar"
+      icon="calendar"
+      text="双击空白格按该日期快速创建，拖拽条目可直接改期"
+    />
 
     <div class="signal-grid">
       <article v-for="signal in actionSignals" :key="signal.key" class="metric-tile signal-card">

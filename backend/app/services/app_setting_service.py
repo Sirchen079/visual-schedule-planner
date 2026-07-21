@@ -26,6 +26,8 @@ DEFAULTS: dict[str, str] = {
     "proactive_briefing_enabled": "false",
     # 助手模式：assistant=知时助手（原版问答式）；agent=知时代理（主动代劳的秘书）
     "assistant_mode": "agent",
+    # 首次启动引导：0=未完成（全新用户启动时弹欢迎页），1=已完成或已跳过
+    "onboarding_done": "0",
 }
 
 

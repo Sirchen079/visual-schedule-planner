@@ -3,6 +3,7 @@ import { computed, inject, ref } from 'vue'
 import { updateTask } from '../api/tasks'
 import ArtIcon from '../components/ArtIcon.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
+import FirstRunTip from '../components/ui/FirstRunTip.vue'
 import PageHeader from '../components/ui/PageHeader.vue'
 
 const props = defineProps({
@@ -271,6 +272,12 @@ function hideTip() {
         </button>
       </template>
     </PageHeader>
+
+    <FirstRunTip
+      tip-key="zs-tip-timeline"
+      icon="timeline"
+      text="拖动条目整体平移起止日期，拖动左右边缘调整开始/结束"
+    />
 
     <div class="timeline-metrics">
       <article class="metric-tile">

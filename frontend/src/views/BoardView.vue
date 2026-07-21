@@ -4,6 +4,7 @@ import draggable from 'vuedraggable'
 import TaskCard from '../components/TaskCard.vue'
 import ArtIcon from '../components/ArtIcon.vue'
 import PageHeader from '../components/ui/PageHeader.vue'
+import EmptyState from '../components/ui/EmptyState.vue'
 import { getDueReminders } from '../api/reminders'
 import { updateTask } from '../api/tasks'
 import { useWarmGreeting } from '../composables/useWarmGreeting'
@@ -233,6 +234,16 @@ function focusQuick(status) {
   quickStatus.value = status
   quickInput.value?.focus()
 }
+
+// 整板无任何任务（不含筛选导致的空）：列区域上叠加居中的新手引导空状态
+const boardEmpty = computed(() => !props.tasks.length)
+
+// 空状态引导的次按钮：把自然语言示例填入快速新建框并聚焦，回车即可体验解析
+function tryQuickCreate() {
+  quickStatus.value = '待办'
+  quickTitle.value = '明天下午3点写周报 #工作 !高'
+  quickInput.value?.focus()
+}
 function quickAdd() {
   const text = quickTitle.value.trim()
   if (!text) return
@@ -333,7 +344,7 @@ function fmtDue(d) {
     </div>
 
     <div class="board-workspace">
-      <div class="columns">
+      <div class="columns" :class="{ 'all-empty': boardEmpty }">
         <div
           class="column"
           v-for="(col, index) in COLUMNS"
@@ -386,6 +397,18 @@ function fmtDue(d) {
           </draggable>
 
           <div class="col-foot" :style="{ background: columnMeta[col].accent }"></div>
+        </div>
+
+        <!-- 整板空状态：叠加在列区域上方的新手引导，列结构保留在底层 -->
+        <div v-if="boardEmpty" class="board-empty-overlay">
+          <EmptyState
+            icon="board"
+            title="从第一件事开始"
+            hint="知时支持自然语言创建：时间、优先级、标签写在标题里就能自动识别。"
+          >
+            <button type="button" @click="emit('create')">创建第一个任务</button>
+            <button class="ghost" type="button" @click="tryQuickCreate">试试自然语言创建</button>
+          </EmptyState>
         </div>
       </div>
 
@@ -578,6 +601,32 @@ function fmtDue(d) {
   gap: 14px;
   flex: 1;
   min-height: 0;
+  position: relative;
+}
+
+/* 整板空状态覆盖层：半透明虚化底层空列，居中承载引导卡 */
+.board-empty-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 66%, transparent);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+.board-empty-overlay :deep(.empty-state) {
+  width: min(440px, 100%);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.columns.all-empty .column {
+  opacity: 0.55;
 }
 
 .board-insight {

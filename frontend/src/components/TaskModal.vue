@@ -8,6 +8,7 @@ import { createSubtask, deleteSubtask, updateSubtask } from '../api/tasks'
 import { startTimer } from '../api/timer'
 import { breakdownSubtasks, scheduleTaskAi } from '../api/ai'
 import { getSettings } from '../api/settings'
+import { withErrorToast } from '../utils/withErrorToast'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -156,15 +157,19 @@ function fileSubtitle(file) {
 
 async function doAttach() {
   if (!props.task || !selectedFileId.value) return
-  await attachFile(props.task.id, selectedFileId.value)
-  selectedFileId.value = ''
-  emit('changed')
+  await withErrorToast(toast, '关联资料失败', async () => {
+    await attachFile(props.task.id, selectedFileId.value)
+    selectedFileId.value = ''
+    emit('changed')
+  })
 }
 
 async function doDetach(file) {
   if (!props.task) return
-  await detachFile(props.task.id, file.id)
-  emit('changed')
+  await withErrorToast(toast, '移除关联资料失败', async () => {
+    await detachFile(props.task.id, file.id)
+    emit('changed')
+  })
 }
 
 // 子任务：本地维护列表，增删/勾选后通知父组件刷新（进度由后端按完成率联动）
@@ -179,21 +184,27 @@ const subPct = computed(() =>
 
 async function addSub() {
   if (!props.task || !newSub.value.trim()) return
-  const s = await createSubtask(props.task.id, newSub.value.trim())
-  subtasks.value.push(s)
-  newSub.value = ''
-  emit('changed')
+  await withErrorToast(toast, '添加子任务失败', async () => {
+    const s = await createSubtask(props.task.id, newSub.value.trim())
+    subtasks.value.push(s)
+    newSub.value = ''
+    emit('changed')
+  })
 }
 async function toggleSub(s) {
-  const updated = await updateSubtask(props.task.id, s.id, { done: !s.done })
-  const i = subtasks.value.findIndex((x) => x.id === s.id)
-  if (i !== -1) subtasks.value[i] = updated
-  emit('changed')
+  await withErrorToast(toast, '更新子任务失败', async () => {
+    const updated = await updateSubtask(props.task.id, s.id, { done: !s.done })
+    const i = subtasks.value.findIndex((x) => x.id === s.id)
+    if (i !== -1) subtasks.value[i] = updated
+    emit('changed')
+  })
 }
 async function removeSub(s) {
-  await deleteSubtask(props.task.id, s.id)
-  subtasks.value = subtasks.value.filter((x) => x.id !== s.id)
-  emit('changed')
+  await withErrorToast(toast, '删除子任务失败', async () => {
+    await deleteSubtask(props.task.id, s.id)
+    subtasks.value = subtasks.value.filter((x) => x.id !== s.id)
+    emit('changed')
+  })
 }
 </script>
 

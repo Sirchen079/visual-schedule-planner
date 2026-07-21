@@ -89,6 +89,7 @@ async function toggleAutostart() {
     flashSaved()
   } catch {
     openAtLogin.value = !next // 写失败回滚
+    toast.error('保存失败，已恢复原设置')
   } finally {
     loading.value = false
   }
@@ -106,6 +107,7 @@ async function toggleFloat() {
     flashSaved()
   } catch {
     floatEnabled.value = !next
+    toast.error('保存失败，已恢复原设置')
   }
 }
 
@@ -120,6 +122,7 @@ async function selectCloseBehavior(value) {
     flashSaved()
   } catch {
     closeBehavior.value = prev
+    toast.error('保存失败，已恢复原设置')
   }
 }
 
@@ -131,7 +134,7 @@ async function saveReportNumber(key, refObj, min) {
     await updateSettings({ [key]: String(v) })
     flashSaved()
   } catch {
-    /* 保存失败静默，下次打开重新读取 */
+    toast.error('保存失败，请稍后重试')
   }
 }
 function changeReportTaskLimit() {
@@ -148,6 +151,7 @@ async function toggleReportHistoryFilter() {
     flashSaved()
   } catch {
     reportHistoryFilter.value = !next
+    toast.error('保存失败，已恢复原设置')
   }
 }
 
@@ -193,6 +197,25 @@ async function onIcsPicked(event) {
     toast.error(`导入失败：${e.message}`)
   } finally {
     importing.value = false
+  }
+}
+
+// ---- 新手引导与提示重置 ----
+// 清除所有 zs-tip-* 一次性提示键及 zs-onboarding 相关键，并把后端
+// onboarding_done 重置为 0：下次启动（且任务为空）会重新显示欢迎引导。
+async function resetOnboarding() {
+  try {
+    Object.keys(localStorage)
+      .filter((k) => k.startsWith('zs-tip-') || k.startsWith('zs-onboarding'))
+      .forEach((k) => localStorage.removeItem(k))
+  } catch {
+    // localStorage 不可用时仍尝试重置后端标记
+  }
+  try {
+    await updateSettings({ onboarding_done: '0' })
+    toast.success('已重置，下次启动将重新显示引导')
+  } catch (e) {
+    toast.error(`重置失败：${e.message}`)
   }
 }
 </script>
@@ -375,6 +398,14 @@ async function onIcsPicked(event) {
           class="ics-input"
           @change="onIcsPicked"
         />
+      </section>
+
+      <section class="row">
+        <div class="row-main">
+          <div class="row-title">新手引导与提示</div>
+          <div class="row-desc">清除已读的一次性提示与欢迎引导标记，下次启动将重新显示引导</div>
+        </div>
+        <button class="ghost ics-btn" @click="resetOnboarding">重置新手提示</button>
       </section>
 
       <section

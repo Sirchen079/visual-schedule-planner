@@ -29,6 +29,7 @@ import StartupReminder from './components/StartupReminder.vue'
 import BriefingCard from './components/BriefingCard.vue'
 import AutopilotCard from './components/AutopilotCard.vue'
 import CommandPalette from './components/CommandPalette.vue'
+import WelcomeModal from './components/WelcomeModal.vue'
 import BaseModal from './components/ui/BaseModal.vue'
 import AppSpinner from './components/ui/AppSpinner.vue'
 
@@ -55,7 +56,7 @@ onMounted(() => {
     }
     return
   }
-  load()
+  load().then(maybeShowWelcome)
   // 功能开关：读取一次，控制导航/计时器等入口可见性
   getSettings().then(applyFeatureSettings).catch(() => {})
   // AI 配置可用性：启动读一次 provide 给各内嵌 AI 按钮（变动不频繁，不订阅更新）
@@ -100,6 +101,18 @@ onMounted(() => {
 
 function onFocusReload() {
   load(true)
+}
+
+// 首次启动引导：任务加载完成后判断，onboarding_done 未完成且任务为空
+// （全新用户）才显示欢迎页；老用户升级后已有数据，不打扰。
+const welcomeOpen = ref(false)
+async function maybeShowWelcome() {
+  try {
+    const s = await getSettings()
+    if (s.onboarding_done !== '1' && !tasks.value.length) welcomeOpen.value = true
+  } catch {
+    // 设置读取失败不弹引导，不影响主流程
+  }
 }
 function onTasksRefresh() {
   load(true)
@@ -237,16 +250,25 @@ function closeModal() {
 }
 
 async function onSave(payload) {
-  if (editing.value) {
-    await update(editing.value.id, payload)
-  } else {
-    await add(payload)
+  try {
+    if (editing.value) {
+      await update(editing.value.id, payload)
+    } else {
+      await add(payload)
+    }
+    closeModal()
+  } catch (e) {
+    // 保存失败保持 TaskModal 打开，避免用户误以为已保存
+    toastService.error(`保存失败：${e.message}`)
   }
-  closeModal()
 }
 // 看板右侧栏快速新建：标题已由 BoardView 做自然语言解析，可带日期/时间/优先级/标签
 async function onQuickCreate(payload) {
-  await add(payload)
+  try {
+    await add(payload)
+  } catch (e) {
+    toastService.error(`创建失败：${e.message}`)
+  }
 }
 async function onDelete(t) {
   const ok = await confirmDialog({
@@ -263,7 +285,11 @@ async function onDelete(t) {
   })
 }
 async function onStatusChange(task, status) {
-  await update(task.id, { status })
+  try {
+    await update(task.id, { status })
+  } catch (e) {
+    toastService.error(`状态更新失败：${e.message}`)
+  }
 }
 
 async function shutdownService() {
@@ -587,6 +613,7 @@ function onGlobalKeydown(e) {
     </Transition>
 
     <SettingsPanel :open="settingsOpen" @close="settingsOpen = false" />
+    <WelcomeModal :open="welcomeOpen" @done="welcomeOpen = false" />
     <FeaturePanel :open="featuresOpen" @close="featuresOpen = false" @changed="applyFeatureSettings" />
     <FocusTimer v-if="features.timer" />
 

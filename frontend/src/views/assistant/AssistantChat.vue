@@ -1,7 +1,7 @@
 <script setup>
 // 对话区：消息列表（AssistantMessage）+ 输入区。消息、附件、发送状态全部由
 // AssistantView 持有并通过 props 下发，本组件只负责渲染与转发交互事件。
-import { computed, ref } from 'vue'
+import { computed, inject, ref } from 'vue'
 import ArtIcon from '../../components/ArtIcon.vue'
 import AssistantMessage from './AssistantMessage.vue'
 
@@ -28,6 +28,10 @@ defineEmits([
 ])
 
 const input = defineModel({ type: String, default: '' })
+
+// AI 配置可用性（App.vue provide）：空对话且未配置模型时显示配置引导卡。
+// 降级默认 true（不显示引导卡），防止组件树外使用时误导。
+const aiAvailable = inject('ai-available', ref(true))
 
 const messagesRef = ref(null)
 const composerInput = ref(null)
@@ -72,8 +76,18 @@ defineExpose({ scrollToBottom, focusComposer })
 
     <div ref="messagesRef" class="messages" role="log" aria-live="polite" :aria-busy="busy">
       <div v-if="!messages.length" class="empty-chat">
-        <div class="empty-title">从一个想法开始</div>
-        <div>告诉{{ assistantName }}你要安排什么，或让它整理刚上传的资料。</div>
+        <template v-if="!aiAvailable">
+          <div class="empty-title">需要先配置模型才能开始对话</div>
+          <div>在「配置」里接入一个模型接口后，{{ assistantName }}就能帮你拆任务、排日程了。</div>
+          <button type="button" class="config-guide-btn" @click="$emit('open-settings')">
+            <ArtIcon name="assistant" tone="on-accent" :size="16" />
+            <span>去配置</span>
+          </button>
+        </template>
+        <template v-else>
+          <div class="empty-title">从一个想法开始</div>
+          <div>告诉{{ assistantName }}你要安排什么，或让它整理刚上传的资料。</div>
+        </template>
       </div>
 
       <AssistantMessage
@@ -171,5 +185,17 @@ defineExpose({ scrollToBottom, focusComposer })
 
 .failed-dismiss {
   flex-shrink: 0;
+}
+
+/* 空对话且未配置模型时的引导卡按钮 */
+.config-guide-btn {
+  margin-top: 12px;
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 20px;
+  font-size: 13px;
+  font-weight: 700;
 }
 </style>
