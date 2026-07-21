@@ -39,7 +39,11 @@ desktop/tools/
 backend/dist/
 backend/build/
 
+# 内部设计文档（本地保留，不入库）
+docs/superpowers/
+
 # 测试与工具临时产物
+.pytest_cache/
 .pytest-tmp/
 .superpowers/
 
