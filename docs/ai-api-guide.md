@@ -87,3 +87,25 @@ URL（统一资源定位符）就是请求要发往的网络地址，对应服�
 - [Hoper-J/AI-Guide-and-Demos-zh_CN](https://github.com/Hoper-J/AI-Guide-and-Demos-zh_CN)（3.6k★）—— 系统的中文 AI / LLM 入门教程，从 API 调用讲起，包含 OpenAI SDK 用法，并演示 DeepSeek、通义等国内服务的 Key 获取流程。
 - [Anthropic 官方文档（中文）](https://platform.claude.com/docs/zh-CN/build-with-claude/working-with-messages) —— Claude Messages API 的权威说明。
 - [OpenAI API 参考](https://developers.openai.com/api/reference/chat-completions/overview/) —— Chat Completions 与 Responses 的官方规范。
+
+---
+
+## 六、聊天流式接口事件（/ai/chat/stream 与 /ai/chat/resume）
+
+前端通过 SSE 消费以下事件（每帧 `event` 为事件名、`data` 为 JSON）。协议只增不改，新增事件需同步本表。
+
+| 事件 | 时机 | data 关键字段 |
+| --- | --- | --- |
+| meta | 流开始 | conversation_id、run_id |
+| text_delta | 正文增量 | delta |
+| reasoning_delta | 思维链增量（需配置开启 show_reasoning） | delta |
+| tool_call_start | 工具调用开始（同一 call_id 可能先 name 后 args 两帧） | call_id、name、args |
+| tool_result | 工具执行结束 | call_id、name、ok、skipped、pending、error、preview |
+| pending_confirmation | 危险操作等待用户确认 | step、actions[{action_type, summary}] |
+| usage | 每个 agent 步骤后（累计值，provider 不回则为 0） | prompt_tokens、completion_tokens、total_tokens、calls、step |
+| step_finish | 一个 agent 步骤结束 | step |
+| error | 出错 | message、fatal |
+| done | 流结束（权威收敛帧） | reply、tool_results、pending_actions、usage、elapsed_ms、reasoning |
+
+消息的 usage / elapsed_ms / reasoning 同时会写入 `AIMessage.meta`，会话详情接口
+（GET /ai/conversations/{id}）通过消息的 `meta` 字段白名单透出这三个键，供历史消息展示。

@@ -123,9 +123,11 @@ def to_response(config: AIConfig) -> AIConfigResponse:
             options_from_json(config.native_web_search_options)
         ),
         search_enhancement_enabled=bool(config.search_enhancement_enabled),
+        tool_calling_mode=str(config.tool_calling_mode or "native"),
         enabled=config.enabled,
         price_input=float(config.price_input or 0),
         price_output=float(config.price_output or 0),
+        show_reasoning=bool(config.show_reasoning if config.show_reasoning is not None else True),
         active_skill_id=config.active_skill_id,
         created_at=config.created_at,
         updated_at=config.updated_at,

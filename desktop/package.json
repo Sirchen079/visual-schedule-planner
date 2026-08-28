@@ -8,9 +8,9 @@
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "set \"ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/\" && set \"ELECTRON_BUILDER_BIN_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/\" && electron-builder --win",
+    "dist": "set \"ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/\" && set \"ELECTRON_BUILDER_BIN_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/\" && npm run build:icon && electron-builder --win",
     "build:backend": "node scripts/build-backend.js",
-    "build:icon": "python scripts/build-icon.py"
+    "build:icon": "python scripts\\build-icon.py"
   },
   "devDependencies": {
     "electron": "^31.7.7",

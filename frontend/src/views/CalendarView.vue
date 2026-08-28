@@ -297,12 +297,13 @@ function monthIntensityClass(summary) {
   return 'level-1'
 }
 
+// 顺序：最重要的信号在最左（压力 > 到期 > 推进 > 安排），被裁剪时先丢不重要的
 function monthSignals(summary) {
   return [
-    { key: 'due', label: '到期', count: summary.due_count, tone: 'coral' },
-    { key: 'planned', label: '安排', count: summary.planned_count, tone: 'aqua' },
-    { key: 'progress', label: '推进', count: summary.in_progress_count, tone: 'mint' },
     { key: 'overdue', label: '压力', count: summary.overdue_count, tone: 'sand' },
+    { key: 'due', label: '到期', count: summary.due_count, tone: 'coral' },
+    { key: 'progress', label: '推进', count: summary.in_progress_count, tone: 'mint' },
+    { key: 'planned', label: '安排', count: summary.planned_count, tone: 'aqua' },
   ].filter((item) => item.count)
 }
 
@@ -387,6 +388,7 @@ const monthChipMap = computed(() => {
         id: item.entry.id,
         date,
         task: item.task,
+        entry: item.entry,
       })
     }
   }
@@ -401,6 +403,15 @@ const monthChipMap = computed(() => {
 // 月格子拖拽改期：dragstart 记录 {type, id, date}，目标格子 dragover 高亮，drop 执行
 const dragPayload = ref(null)
 const dropTargetDate = ref('')
+
+// 月视图 chip 的悬浮提示：排程条目有时段时拼上「HH:MM-HH:MM」
+function chipTitle(chip) {
+  const span =
+    chip.entry?.start_time
+      ? ` ${chip.entry.start_time}${chip.entry?.end_time ? `-${chip.entry.end_time}` : ''}`
+      : ''
+  return `${chip.task.title}${span}（可拖拽改期）`
+}
 
 function onChipDragStart(event, chip) {
   dragPayload.value = { type: chip.type, id: chip.id, date: chip.date }
@@ -717,6 +728,7 @@ onMounted(async () => {
                   <span class="task-pill">{{ formatStatus(item.task) }}</span>
                   <span v-if="item.task.due_date" class="task-pill">截止 {{ formatShortDate(item.task.due_date.slice(0, 10)) }}</span>
                   <span v-if="item.entry?.source" class="task-pill">来源 {{ item.entry.source }}</span>
+                  <span v-if="item.entry?.start_time" class="task-pill">{{ item.entry.start_time }}<template v-if="item.entry?.end_time">-{{ item.entry.end_time }}</template></span>
                   <span v-if="item.entry?.note" class="task-pill note-pill">{{ item.entry.note }}</span>
                   <span v-if="item.task.subtasks?.length" class="task-pill">子任务 {{ item.task.subtasks.filter((subtask) => subtask.done).length }}/{{ item.task.subtasks.length }}</span>
                   <span v-if="item.task.files?.length" class="task-pill">资料 {{ item.task.files.length }}</span>
@@ -805,31 +817,30 @@ onMounted(async () => {
             </div>
             <div v-if="monthChipMap.get(cell.date)?.length" class="cell-tasks">
               <span
-                v-for="chip in monthChipMap.get(cell.date).slice(0, 3)"
+                v-for="chip in monthChipMap.get(cell.date).slice(0, 2)"
                 :key="chip.key"
                 class="cell-task"
                 :class="{ entry: chip.type === 'entry' }"
                 draggable="true"
-                :title="`${chip.task.title}（可拖拽改期）`"
+                :title="chipTitle(chip)"
                 @click.stop="emit('open', chip.task)"
                 @dragstart="onChipDragStart($event, chip)"
                 @dragend="onChipDragEnd"
               >
                 {{ chip.task.title }}
               </span>
-              <span v-if="monthChipMap.get(cell.date).length > 3" class="cell-more">
-                +{{ monthChipMap.get(cell.date).length - 3 }}
+              <span v-if="monthChipMap.get(cell.date).length > 2" class="cell-more">
+                +{{ monthChipMap.get(cell.date).length - 2 }}
               </span>
             </div>
-            <div class="cell-signals">
+            <div v-if="monthSignals(cell.summary).length" class="cell-signals">
               <span
                 v-for="signal in monthSignals(cell.summary)"
                 :key="`${cell.date}-${signal.key}`"
-                class="signal-chip"
+                class="sig"
                 :data-tone="signal.tone"
-              >
-                {{ signal.label }} {{ signal.count }}
-              </span>
+                :title="`${signal.label} ${signal.count}`"
+              >●{{ signal.count }}</span>
             </div>
           </div>
         </div>
@@ -1294,14 +1305,20 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 8px;
+  /* 行高基线 + 1fr 增量：所有行取同一 minmax(108px, 1fr)，
+     每行至少 108px，最忙的行撑高时其余行同步拉齐到同一高度，消除「周与周行高不齐」。
+     配合格子 overflow:hidden，任何密度下都不越界。 */
+  grid-auto-rows: minmax(108px, 1fr);
 }
 
 .month-cell {
-  display: grid;
-  align-content: start;
-  gap: 8px;
-  min-height: 108px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  height: 100%;
   padding: 10px;
+  overflow: hidden;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--surface-2);
@@ -1317,29 +1334,51 @@ onMounted(async () => {
   border-color: var(--border-strong);
 }
 
+/* 热力底色降噪：改为左侧 3px 色条，格子底色统一 surface-2，版面立刻干净。
+   drop-target/today/selected 用 box-shadow 表达（避免 overflow:hidden 裁掉 outline）。 */
 .month-cell.level-1 {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .month-cell.level-2 {
-  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 60%, transparent);
 }
 
 .month-cell.level-3 {
-  background: color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 85%, transparent);
 }
 
 .month-cell.level-4 {
-  background: color-mix(in srgb, var(--accent) 65%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
+/* 邻月 muted：只降文字与 chip 透明度，不降边框背景，避免整格发灰导致的视觉断层 */
 .month-cell.muted {
-  opacity: 0.46;
+  opacity: 1;
+}
+
+.month-cell.muted .cell-date {
+  color: var(--text-muted);
+}
+
+.month-cell.muted .cell-tasks,
+.month-cell.muted .cell-signals {
+  opacity: 0.35;
 }
 
 .month-cell.today {
   border-color: var(--accent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* today/selected 与热力色条共存：合并 box-shadow */
+.month-cell.today.level-1,
+.month-cell.today.level-2,
+.month-cell.today.level-3,
+.month-cell.today.level-4 {
+  box-shadow:
+    inset 3px 0 0 var(--accent),
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .month-cell.selected {
@@ -1349,18 +1388,20 @@ onMounted(async () => {
     var(--shadow-sm);
 }
 
-/* 拖拽改期：可投放的目标格子高亮 */
+/* 拖拽改期：可投放的目标格子高亮（用 inset box-shadow 替代 outline，避免被 overflow:hidden 裁掉） */
 .month-cell.drop-target {
-  outline: 2px dashed var(--accent);
-  outline-offset: -2px;
   background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
-/* 格子里的任务条目（可拖拽改期，点击打开编辑） */
+/* 格子里的任务条目（可拖拽改期，点击打开编辑）。flex:1 吃掉格子剩余高度，超出直接裁剪绝不越界 */
 .cell-tasks {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .cell-task {
@@ -1413,41 +1454,51 @@ onMounted(async () => {
 }
 
 .cell-total {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
   color: var(--accent-strong);
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
 }
 
+/* 信号区：单行内联圆点指示（无边框无背景），固定在格子底部 */
 .cell-signals {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+  flex-wrap: nowrap;
+  align-items: center;
+  margin-top: auto;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 10px;
+  line-height: 1;
 }
 
-.signal-chip {
-  justify-content: flex-start;
-  padding-inline: 8px;
-  min-height: 22px;
-  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
-  border: 1px solid var(--border);
+.cell-signals .sig {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
   color: var(--text-soft);
 }
 
-.signal-chip[data-tone='coral'] {
-  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+.cell-signals .sig[data-tone='coral'] {
   color: var(--danger);
 }
 
-.signal-chip[data-tone='aqua'] {
-  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+.cell-signals .sig[data-tone='aqua'] {
   color: var(--accent-strong);
 }
 
-.signal-chip[data-tone='mint'] {
-  border-color: color-mix(in srgb, var(--success) 30%, transparent);
+.cell-signals .sig[data-tone='mint'] {
   color: var(--success);
 }
 
-.signal-chip[data-tone='sand'] {
-  border-color: color-mix(in srgb, var(--warning) 30%, transparent);
+.cell-signals .sig[data-tone='sand'] {
   color: var(--warning);
 }
 
@@ -1618,7 +1669,6 @@ onMounted(async () => {
   }
 
   .month-cell {
-    min-height: 92px;
     padding: 8px;
   }
 }

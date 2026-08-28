@@ -47,7 +47,32 @@ async function json(route, body, status = 200) {
   })
 }
 
-async function mockBackend(page, { chatStatus = 200, chatBody } = {}) {
+// SSE 帧格式与 consumeSseStream（frontend/src/api/ai.js:293）对齐：
+// 每帧 "event: <名>\ndata: <json>\n\n"。mockChatStream 把一组 [event, data] 序列编为 SSE body。
+function sseBody(events) {
+  return events.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join('')
+}
+
+// 主流是 SSE 流式（streamAiChat → POST /ai/chat/stream）。mock 该端点返回事件序列。
+// events 形如 [['meta', {...}], ['text_delta', {delta:'...'}], ['done', {...}]]。
+async function mockChatStream(page, events, { status = 400, errorBody } = {}) {
+  await page.route('**/ai/chat/stream', async (route) => {
+    if (status >= 400) {
+      return route.fulfill({
+        status,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify(errorBody ?? {}),
+      })
+    }
+    return route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
+      body: sseBody(events),
+    })
+  })
+}
+
+async function mockBackend(page, { chatStatus = 200, chatBody, streamEvents, errorBody } = {}) {
   await page.route('**/tasks', async (route) => {
     if (route.request().method() === 'GET') return json(route, [])
     return json(route, {})
@@ -59,6 +84,20 @@ async function mockBackend(page, { chatStatus = 200, chatBody } = {}) {
     return json(route, activeConfig)
   })
   await page.route('**/ai/skills', async (route) => json(route, []))
+  await page.route('**/settings', async (route) => json(route, { onboarding_done: '1', agent_autonomy: 'standard' }))
+  // 阶段 D1：grants 端点 mock（默认空列表）
+  const grants = []
+  await page.route('**/ai/grants', async (route) => {
+    if (route.request().method() === 'GET') return json(route, grants)
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON()
+      grants.push({ id: grants.length + 1, tool_name: body.tool_name, arg_pattern: body.arg_pattern || '', created_at: '2026-07-24T10:00:00' })
+      return json(route, grants[grants.length - 1], 201)
+    }
+    return json(route, {})
+  })
+  page._e2eGrants = grants
+  // 兼容旧非流式端点（应用发送走 stream 路径，但保留以防个别分支）
   await page.route('**/ai/chat', async (route) => {
     if (chatStatus >= 400) return json(route, chatBody, chatStatus)
     return json(route, chatBody || {
@@ -68,6 +107,26 @@ async function mockBackend(page, { chatStatus = 200, chatBody } = {}) {
       pending_actions: [],
     })
   })
+  // 默认流式序列：meta → 长文本增量 → done。各用例可覆盖。
+  // 错误路径（chatStatus>=400）：流端点返回 errorBody，streamEvents 保持 undefined 不发事件序列。
+  if (streamEvents === undefined && chatStatus < 400) {
+    streamEvents = [
+      ['meta', { conversation_id: 'e2e-conversation', assistant_name: '知时助手', run_id: 'e2e-run', resumed: false }],
+      ['text_delta', { step: 1, delta: longReply }],
+      ['done', {
+        reply: longReply,
+        tool_results: [],
+        pending_actions: [],
+        reached_limit: false,
+        cancelled: false,
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30, calls: 1 },
+        elapsed_ms: 123,
+        reasoning: '',
+      }],
+    ]
+  }
+  // 流端点必须始终被 mock：错误态返回 errorBody JSON；正常态返回 SSE 事件序列。
+  await mockChatStream(page, streamEvents || [], { status: chatStatus, errorBody })
 }
 
 function pendingActionChatBody() {
@@ -143,7 +202,9 @@ test('settings remain reachable from the floating assistant', async ({ page }) =
   await expect(page.getByText('模型配置', { exact: true })).toBeVisible()
   await expect(page.getByText('人设', { exact: true })).toBeVisible()
   await expect(page.getByText('Skill 规则', { exact: true })).toBeVisible()
-  await expect(page.getByLabel('Provider')).toHaveValue('claude_messages')
+  // Provider 下拉：用相邻 span 文本定位 select（label 非显式关联，getByLabel 会误匹配思维链复选框）
+  const providerSelect = page.locator('label:has(span:has-text("Provider")) select').first()
+  await expect(providerSelect).toHaveValue('claude_messages')
   // HTTP Proxy 在折叠的「高级选项」组内,展开后可见
   await page.getByText('高级选项', { exact: true }).click()
   await expect(page.getByLabel('HTTP Proxy')).toHaveValue('http://127.0.0.1:7890')
@@ -184,9 +245,11 @@ test('desktop floating assistant can be dragged and stays in view', async ({ pag
 })
 
 test('failed chat send restores input and redacts provider error details', async ({ page }) => {
+  // 流式路径的错误脱敏：streamAiChat 收到 !res.ok 时走 compactErrorMessage（api.js:259），
+  // 与非流式同一函数，行为一致——密钥串被替换为「已隐藏」。
   await mockBackend(page, {
     chatStatus: 500,
-    chatBody: {
+    errorBody: {
       detail: 'Authorization: Bearer sk-12345678901234567890 token=supersecretsecret provider failed',
     },
   })
@@ -205,7 +268,29 @@ test('failed chat send restores input and redacts provider error details', async
 })
 
 test('dangerous action cards show server generated preview lines', async ({ page }) => {
-  await mockBackend(page, { chatBody: pendingActionChatBody() })
+  // 危险操作：流式发 pending_confirmation 事件 + done 帧携带 pending_actions（含 preview）。
+  const pendingAction = pendingActionChatBody().pending_actions[0]
+  await mockBackend(page, {
+    streamEvents: [
+      ['meta', { conversation_id: 'e2e-conversation', assistant_name: '知时助手', run_id: 'e2e-run', resumed: false }],
+      ['text_delta', { step: 1, delta: '这个操作需要确认。' }],
+      ['pending_confirmation', {
+        step: 1,
+        actions: [{ action_type: 'bulk_delete_tasks', summary: '模型摘要可能不完整' }],
+      }],
+      ['step_finish', { step: 1 }],
+      ['done', {
+        reply: '这个操作需要确认。',
+        tool_results: [],
+        pending_actions: [pendingAction],
+        reached_limit: false,
+        cancelled: false,
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30, calls: 1 },
+        elapsed_ms: 123,
+        reasoning: '',
+      }],
+    ],
+  })
   await page.goto('/')
 
   await page.getByRole('button', { name: /知时(助手|代理)/ }).click()
@@ -216,6 +301,37 @@ test('dangerous action cards show server generated preview lines', async ({ page
   await expect(page.getByText('操作: 批量将 2 个任务移入回收站')).toBeVisible()
   await expect(page.getByText('任务: #1 真实任务一')).toBeVisible()
   await expect(page.getByRole('button', { name: '第一次确认' })).toBeVisible()
+})
+
+test('grant toggle on confirm card creates an always-allow rule', async ({ page }) => {
+  // 阶段 D1：确认卡片「以后都允许」勾选 → 点首次确认 → 创建 grant，同类操作以后免确认。
+  const pendingAction = pendingActionChatBody().pending_actions[0]
+  await mockBackend(page, {
+    streamEvents: [
+      ['meta', { conversation_id: 'e2e-conversation', assistant_name: '知时助手', run_id: 'e2e-run', resumed: false }],
+      ['text_delta', { step: 1, delta: '需要确认。' }],
+      ['pending_confirmation', { step: 1, actions: [{ action_type: 'bulk_delete_tasks', summary: '模型摘要' }] }],
+      ['done', {
+        reply: '需要确认。', tool_results: [],
+        pending_actions: [pendingAction], reached_limit: false, cancelled: false,
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2, calls: 1 }, elapsed_ms: 1, reasoning: '',
+      }],
+    ],
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: /知时(助手|代理)/ }).click()
+  await page.getByPlaceholder(/帮我把本周论文阅读/).fill('删除任务')
+  await page.getByRole('button', { name: '发送' }).click()
+
+  // 勾选「以后都允许」
+  const grantToggle = page.locator('.grant-toggle input[type="checkbox"]').first()
+  await grantToggle.check()
+  await expect(grantToggle).toBeChecked()
+
+  // 点首次确认 → 应触发 grant 创建（POST /ai/grants）
+  await page.getByRole('button', { name: '第一次确认' }).click()
+  await expect.poll(() => page._e2eGrants.length).toBe(1)
+  expect(page._e2eGrants[0].tool_name).toBe('bulk_delete_tasks')
 })
 
 test('mobile opens the assistant in fullscreen mode with settings available', async ({ page }) => {
@@ -233,4 +349,38 @@ test('mobile opens the assistant in fullscreen mode with settings available', as
 
   await page.getByRole('tab', { name: '设置' }).click()
   await expect(page.getByText('模型配置', { exact: true })).toBeVisible()
+})
+
+test('empty chat hides config guide card when an enabled model config exists', async ({ page }) => {
+  // 回归：已配置并启用模型时，空对话不应显示「需要先配置模型才能开始对话」引导卡。
+  // 此前 AssistantChat 依赖 App.vue 注入的 ai-available（仅主窗口 onMounted 读一次），
+  // 悬浮窗路径下该注入恒为 false，导致已配置模型仍误显示引导卡。
+  await mockBackend(page)
+  await page.goto('/')
+
+  await page.getByRole('button', { name: /知时(助手|代理)/ }).click()
+
+  // 空对话应显示正常引导文案，而非配置引导卡
+  await expect(page.getByText('从一个想法开始')).toBeVisible()
+  await expect(page.getByText('需要先配置模型才能开始对话')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '去配置' })).toHaveCount(0)
+})
+
+test('empty chat shows config guide card when no enabled model config exists', async ({ page }) => {
+  // 反向用例：无已启用配置时，空对话应显示配置引导卡并提供「去配置」入口。
+  await mockBackend(page)
+  // 覆盖 /ai/configs：返回一个未启用的配置
+  await page.route('**/ai/configs', async (route) => {
+    if (route.request().method() === 'GET') {
+      return json(route, [{ ...activeConfig, enabled: false }])
+    }
+    return json(route, { ...activeConfig, enabled: false })
+  })
+  await page.goto('/')
+
+  await page.getByRole('button', { name: /知时(助手|代理)/ }).click()
+
+  await expect(page.getByText('需要先配置模型才能开始对话')).toBeVisible()
+  await expect(page.getByRole('button', { name: '去配置' })).toBeVisible()
+  await expect(page.getByText('从一个想法开始')).toHaveCount(0)
 })

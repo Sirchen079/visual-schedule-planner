@@ -2,6 +2,7 @@
 import { computed, onMounted, onBeforeUnmount, provide, ref } from 'vue'
 import { useTasks } from './composables/useTasks'
 import { useReminders } from './composables/useReminders'
+import { useOnboarding } from './composables/useOnboarding'
 import { restoreTask } from './api/tasks'
 import { getTodayBriefing, listAiConfigs, runAutopilot } from './api/ai'
 import { getSettings } from './api/settings'
@@ -35,6 +36,7 @@ import AppSpinner from './components/ui/AppSpinner.vue'
 
 const { tasks, loading, error, load, add, update, remove } = useTasks()
 const { upcoming, overdue, triggered, count, panelOpen, unreadCount, start: startReminders, refresh: refreshReminders } = useReminders()
+const { onboardingDone, hydrate: hydrateOnboarding } = useOnboarding()
 
 // 独立提醒小窗：?view=reminder 时只渲染提醒组件（frameless 小窗专用）
 // 悬浮窗：?view=assistant 时只渲染助手悬浮组件
@@ -56,9 +58,25 @@ onMounted(() => {
     }
     return
   }
-  load().then(maybeShowWelcome)
-  // 功能开关：读取一次，控制导航/计时器等入口可见性
-  getSettings().then(applyFeatureSettings).catch(() => {})
+  // 功能开关 + 新手引导状态：共用一次 getSettings 拉取，避免重复请求
+  const settingsP = getSettings()
+    .then((s) => {
+      // 两者各自独立 try：任一抛错不应跳过另一个（否则 applyFeatureSettings 异常会让引导永不弹出）
+      try {
+        applyFeatureSettings(s)
+      } catch (e) {
+        console.warn('applyFeatureSettings failed', e)
+      }
+      try {
+        hydrateOnboarding(s)
+      } catch (e) {
+        console.warn('hydrateOnboarding failed', e)
+      }
+    })
+    .catch(() => {
+      // 设置读取失败：保持默认（功能全开、引导不弹），不阻断主流程
+    })
+  load().then(() => maybeShowWelcome(settingsP))
   // AI 配置可用性：启动读一次 provide 给各内嵌 AI 按钮（变动不频繁，不订阅更新）
   listAiConfigs()
     .then((configs) => {
@@ -106,16 +124,29 @@ function onFocusReload() {
 // 首次启动引导：任务加载完成后判断，onboarding_done 未完成且任务为空
 // （全新用户）才显示欢迎页；老用户升级后已有数据，不打扰。
 const welcomeOpen = ref(false)
-async function maybeShowWelcome() {
-  try {
-    const s = await getSettings()
-    if (s.onboarding_done !== '1' && !tasks.value.length) welcomeOpen.value = true
-  } catch {
-    // 设置读取失败不弹引导，不影响主流程
-  }
+async function maybeShowWelcome(settingsP) {
+  // 等待与功能开关共用的设置拉取完成（onboardingDone 已由此同步为真实值）
+  await settingsP
+  if (!onboardingDone.value && !tasks.value.length) welcomeOpen.value = true
 }
 function onTasksRefresh() {
   load(true)
+}
+
+// 助手变更按域刷新：domains 含 'tasks' 时只刷任务列表（最高频），其余域或缺省走全量。
+// 本期精确处理 tasks，其它域（files/habits/journal 等）目前由各自视图自行加载，
+// fallthrough 全量 load 保证不漏。
+function onAssistantChanged(domains) {
+  if (!domains || !Array.isArray(domains) || domains.length === 0) {
+    load()
+    return
+  }
+  if (domains.includes('tasks') || domains.includes('schedule')) {
+    load(true)
+    return
+  }
+  // 其余域（files/habits/journal 等）：全量刷新兜底，避免看板不更新
+  load()
 }
 onBeforeUnmount(() => {
   window.removeEventListener('focus', onFocusReload)
@@ -420,17 +451,30 @@ async function prepareAutopilot() {
 async function showAutopilot() {
   if (!autopilotPending || autopilotResult.value) return
   autopilotPending = false
+  // 进度反馈：autopilot 最多 3 次串行模型调用（排程 + 最多 2 次拆解），耗时可达 1-2 分钟。
+  // 期间常驻一条可关闭的进度提示，避免"点了只能干等"；完成/失败/超时自动替换。
+  toastService.info('秘书正在规划今日安排，可能需要 1 分钟…', { duration: 150000 })
+  let result = null
   try {
-    const result = await runAutopilot()
-    if (result?.ran && result.actions?.length) {
-      autopilotResult.value = result
-      localStorage.setItem(AUTOPILOT_SHOWN_KEY, todayKey())
-      return
-    }
-    // ran:true 但无代办成果：当天已跑过，记录日期避免重复执行
-    if (result?.ran) localStorage.setItem(AUTOPILOT_SHOWN_KEY, todayKey())
-  } catch {
-    // 接口失败静默不弹；不写日期，下次启动可重试
+    result = await runAutopilot()
+  } catch (e) {
+    // silent catch → 失败提示（含错误摘要，不再静默）；不写日期，下次启动可重试
+    toastService.error(`秘书规划失败：${e?.message || '请稍后重试或检查模型配置'}`)
+    if (briefingPending) void showBriefing()
+    return
+  }
+  if (result?.ran && result.actions?.length) {
+    autopilotResult.value = result
+    localStorage.setItem(AUTOPILOT_SHOWN_KEY, todayKey())
+    toastService.success('秘书已规划好今日安排')
+    return
+  }
+  // ran:true 但无代办成果：当天已跑过，记录日期避免重复执行
+  if (result?.ran) {
+    localStorage.setItem(AUTOPILOT_SHOWN_KEY, todayKey())
+    toastService.info('今日暂无需要秘书代办的事项')
+  } else {
+    toastService.info('秘书今日无代办成果')
   }
   // 无可展示内容：晨报在排队则直接接上
   if (briefingPending) void showBriefing()
@@ -589,7 +633,7 @@ function onGlobalKeydown(e) {
       </Transition>
     </main>
 
-    <AssistantView @changed="load" />
+    <AssistantView @changed="onAssistantChanged" />
 
     <TaskModal
       :open="modalOpen"

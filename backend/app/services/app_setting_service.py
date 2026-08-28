@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -28,6 +30,10 @@ DEFAULTS: dict[str, str] = {
     "assistant_mode": "agent",
     # 首次启动引导：0=未完成（全新用户启动时弹欢迎页），1=已完成或已跳过
     "onboarding_done": "0",
+    # AI 排程偏好：工作时间与每日深度工作容量（分钟）
+    "working_hours_start": "09:00",
+    "working_hours_end": "18:00",
+    "daily_capacity_minutes": "240",
 }
 
 
@@ -74,3 +80,24 @@ def _upsert(db: Session, key: str, value: str) -> None:
         db.add(AppSetting(key=key, value=value))
     else:
         row.value = value
+
+
+def daily_capacity_minutes(db: Session, default: int = 240) -> int:
+    """每日深度工作容量（分钟）：设置缺失或脏值（非数字）时回退 default，避免脏值注入提示词。"""
+    raw = get_setting(db, "daily_capacity_minutes")
+    if raw and raw.strip().isdigit():
+        return int(raw.strip())
+    return default
+
+
+_HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def working_hours(db: Session) -> tuple[str, str]:
+    """用户工作时段 (start, end)：设置缺失或格式非法时回退 09:00-18:00。"""
+    start = (get_setting(db, "working_hours_start") or "").strip()
+    end = (get_setting(db, "working_hours_end") or "").strip()
+    return (
+        start if _HHMM_RE.match(start) else "09:00",
+        end if _HHMM_RE.match(end) else "18:00",
+    )

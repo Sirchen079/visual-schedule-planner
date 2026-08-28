@@ -61,17 +61,25 @@ class Settings(BaseSettings):
     files_dir: Path = _DATA_ROOT / "files"
     ai_attachments_dir: Path = _DATA_ROOT / "ai_attachments"
     backup_dir: Path = _DATA_ROOT / "backup"
+    # 日志目录：跟随数据根（安装目录/data/logs），避开 C 盘；排查"永远思考"等问题所需
+    logs_dir: Path = _DATA_ROOT / "logs"
     host: str = "127.0.0.1"
     port: int = 18731
     # 数据安全感：自动备份保留份数、回收站保留天数、单文件上传上限
     backup_keep: int = 7
     trash_retain_days: int = 30
+    # 日志保留天数：超过则启动时自动清理（按天滚动文件）
+    log_retain_days: int = 3
     max_upload_mb: int = 100
     max_ai_attachment_mb: int = 50
     max_ai_inline_image_mb: int = 12
     max_ai_text_chars: int = 120000
     # iCal 导入上限：日历订阅/全年导出文件可能很大，5MB 过窄，放宽到 50MB
     max_ical_mb: int = 50
+    # Agent 连续工作步数预算上限（每轮可调用的工具轮次）。默认 15：
+    # 既给多步任务（调研→计划→执行→复核）留足空间，又避免失控死循环。
+    # env APP_AGENT_MAX_STEPS 可覆盖；前端设置面板也可逐实例调整（范围 3-30）。
+    agent_max_steps: int = 15
 
     @property
     def db_path(self) -> Path:

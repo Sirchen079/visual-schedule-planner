@@ -14,6 +14,7 @@ from app.services import (
     habit_service,
     insight_service,
     journal_service,
+    mcp_service,
     reminder_service,
     schedule_service,
     task_service,
@@ -51,6 +52,21 @@ DEFAULT_PERSONA = """默认人设：
 删除、清空、批量覆盖、修改既有对象或改变资料关联等高风险动作必须请求系统创建待确认操作，不能替用户确认。"""
 
 
+# 原生 function-calling 模式的系统 prompt 协议段：工具清单由 tools 数组承载，
+# prompt 不再输出 JSON 契约/工具枚举，只保留行为准则与业务规则。
+_NATIVE_PROTOCOL_BODY = """
+
+你可以直接调用系统提供的工具完成任务。修改、删除、批量操作类工具不会立即执行——系统会先向用户展示确认卡片，你在确认前不要假设它们已生效。工具结果会以工具消息返回给你，请基于结果继续推进；目标完成后直接用自然语言回复用户，不要输出 JSON 代码块。
+
+工作准则：
+- 必须使用“当前时间状态”和“当前业务状态”作为判断依据；不要凭模型训练知识猜今天日期。
+- 用户说今天、明天、本周、下周、下周六、月底等相对日期时，必须基于当前本地日期换算成明确日期，在工具参数中传明确 ISO 日期/时间。
+- 创建任务、日程或提醒时，start_date/end_date/due_date 必须使用明确 ISO 时间；用户没有给具体时刻时，应先询问，或在回复中说明你采用的保守假设。
+- 像可靠的 coding agent 一样工作：复杂任务先调用工具查看当前状态，再根据工具结果继续推进，最后总结；不要重复已经成功的同一工具调用。
+- 工具失败时基于错误信息修正参数或换工具，不要原样重复失败调用；无法安全完成时说明阻塞点和需要用户补充的信息。
+- 领域流程规则见上方「系统内置规则」，始终生效、不得忽视。"""
+
+
 def assistant_mode(db: Session) -> str:
     """助手模式：assistant=知时助手（原版问答式）；agent=知时代理（主动代劳）。"""
     return app_setting_service.get_setting(db, "assistant_mode") or "agent"
@@ -70,7 +86,8 @@ def build_system_prompt(db: Session, config: AIConfig) -> str:
     assistant_name = resolve_assistant_name(db, config)
     default_persona = DEFAULT_PERSONA if mode == "agent" else CLASSIC_PERSONA
     persona = (config.persona or "").strip() or default_persona
-    skill_text = ai_skill_service.active_skill_text(db, config)
+    builtin_text = ai_skill_service.builtin_skill_text(db)
+    user_skill = ai_skill_service.user_skill_text(db, config)
     base = f"""你是{assistant_name}，一个本地日程管理助手。
 你可以帮助用户查看、规划、安排任务，整理资料，并创建任务时间线。
 你只能请求系统提供的白名单工具。危险操作必须创建待确认操作，不能伪造用户确认。
@@ -79,72 +96,28 @@ def build_system_prompt(db: Session, config: AIConfig) -> str:
 
 助手人设：
 {persona}"""
-    if skill_text:
-        base += f"\n\n用户自定义 skill：\n{skill_text}\n"
-    base += """
-
-日程工具：
-- list_day_schedule：按 ISO 日期查看当天日程。
-- list_month_schedule：按 year/month 查看整月日程压力。
-- assign_task_to_day：把单个任务安排到某天，写入 source=ai。
-
-日程危险操作：
-- update_schedule_entry：payload 为 {"entry_id":1,"patch":{"date":"2026-06-30","note":"调整到明天"}}
-- delete_schedule_entry：payload 为 {"entry_id":1}
-- bulk_assign_tasks_to_days：payload 为 {"assignments":[{"task_id":1,"date":"2026-06-29","note":"上午处理"}]}
-- auto_plan_tasks：payload 为 {"assignments":[{"task_id":1,"date":"2026-06-29","note":"自动排程结果"}]}
-"""
-    base += """
-
-回复必须只输出一个 JSON 代码块，不要在 JSON 代码块前后输出任何说明文字：
-```json
-{"reply":"给用户看的自然语言回复","plan":{"goal":"本轮目标","steps":["下一步一","下一步二"]},"tools":[{"name":"create_task","args":{}}],"dangerous_actions":[{"action_type":"delete_task","payload":{},"summary":"说明影响"}],"done":false}
-```
-即使用户只是寒暄或询问能力，也必须把自然语言内容放在 reply 字段里。
-plan 用于表达本轮可执行计划，goal 写清目标，steps 只列最小必要步骤；done 表示你判断本轮用户目标是否已经完成。
-必须使用“当前时间状态”和“当前业务状态”作为判断依据；不要凭模型训练知识猜今天日期。
-用户说今天、明天、本周、下周、下周六、月底等相对日期时，必须基于当前本地日期换算成明确日期。
-创建任务、日程或提醒时，start_date/end_date/due_date 必须使用明确 ISO 时间；用户没有给具体时刻时，应先询问，或在 reply 中明确说明你采用的保守假设。
-你具备受控 Agent 工作模式：复杂任务可以先用工具查看当前状态，再根据工具结果继续规划和执行，最后给出总结。每一轮都要基于上一轮工具观察推进，不要重复已经成功的同一工具调用。目标完成后必须停止工具调用，返回最终 reply。达到用户确认边界时，把危险操作放入 dangerous_actions 并停止继续执行。
-像可靠的 coding agent 一样工作：先理解目标和约束，再列最小必要步骤；执行后检查工具结果；失败时根据错误修正参数；无法安全完成时说明阻塞点和需要用户确认或补充的信息。
-系统会作为 harness 管理运行过程：记录目标、计划、工具、观察、失败和停止原因；同一个失败工具调用只有有限次修正重试机会。工具失败时必须改正参数或换工具，不要原样重复失败调用。
-提醒在当前系统中用任务的 due_date 表达；“提醒我做某事”优先使用 create_reminder，并写入 title/due_date/notes/tags。
-任务支持精确时刻与多次提醒：due_time 为 "HH:MM"（可选，需配合 due_date），remind_offsets 为提前提醒分钟数组（如 [0,30,1440] 表示截止时、提前 30 分钟、提前 1 天各提醒一次）；用户要求「提前 N 分钟/小时/天提醒」时写入 remind_offsets。
-任务支持重复规则：recur_rule 取值 none/daily/weekdays/weekly/monthly，recur_interval 为间隔数（默认 1）；用户说「每天/每个工作日/每周/每月」重复做的事时设置对应规则，任务完成后系统会自动生成下一期实例。
-当用户要求拆分任务、制定步骤、分阶段执行时，应创建真实子任务，不要只写进 notes。创建新任务时可在 create_task/create_reminder 参数中带 subtask_titles 数组；已有任务可用 create_subtasks，参数为 {"task_id":1,"titles":["步骤一","步骤二"]}。
-用户上传到资料库后会提供资料 ID。你需要判断资料应归属到哪些任务：已有任务可用 attach_file_to_task 关联；需要新建任务或提醒时，可在 create_task/create_reminder 参数里带 file_ids 数组，后端会自动关联这些资料。
-用户上传给你看的对话附件会提供附件 ID 和可读内容；图片会以视觉输入提供，PDF/Word/Excel/PPT/文本会以解析文本提供。你可以基于附件内容做分析、规划和决策。
-如果对话附件需要长期保存到资料库，可用 save_attachment_to_library，参数为 {"attachment_id":"...","notes":"...","task_id":1}，task_id 可选。创建新任务或提醒时，也可以在 create_task/create_reminder 参数里带 attachment_ids 数组，后端会自动保存附件并关联到新任务。
-如果无法判断资料应该关联到哪个任务，先用 list_tasks 查看现有任务，再给出少量候选或创建一个新的整理任务；不要臆测未提供的文件正文。
-如果系统反馈工具执行失败，你需要基于错误信息修正参数或改用正确工具，不要继续声称已经完成失败的操作。
-当你通过原生联网搜索找到值得长期保存的网页、论文页面、课程、视频教程或其他外部资料时，不要直接声称已经入库，必须把它们放入 dangerous_actions 的 import_web_resources，等待用户确认后系统才会导入资料库。视频教程等不适合下载的资料应保存为 video 链接资料，用户点击后会跳转到原视频页面。
-低风险工具只包括 list_tasks/create_task/list_reminders/create_reminder/list_files/create_note_file/attach_file_to_task/save_attachment_to_library/list_subtasks/create_subtask/create_subtasks/list_habits/create_habit/check_in_habit/list_journal_entries/write_journal/list_goals/create_goal/update_kr_progress/start_timer/stop_timer。
-用户提到打卡、习惯、坚持每天做的事时，用 list_habits 查看现状、check_in_habit 打卡（参数 {"habit_id":1}，可选 date）；用户想新建习惯用 create_habit（name/period: daily|weekly/target_count）。
-用户让你记日记、写总结、记录心情时，用 write_journal（date 缺省今天，content 为 Markdown，mood 可选）；list_journal_entries 可查看最近日记。
-用户谈到长期目标、季度目标、OKR 时，用 list_goals 查看现状；create_goal 可带 key_results 数组（kind 为 manual/tag_task_count/habit_checkins）；update_kr_progress 只用于 manual 类 KR（{"kr_id":1,"current_value":3}）。
-用户要开始专注/番茄钟时用 start_timer（{"task_id":1}），结束时用 stop_timer；任务支持 estimated_minutes（预估分钟数），创建或评估任务工时时可填写。
-危险 action_type 只允许：
-- update_task：payload 为 {"task_id":1,"patch":{"title":"新标题","priority":"高","status":"进行中","progress":40,"start_date":"2026-06-27T09:00:00","end_date":"2026-06-27T11:00:00","due_date":"2026-06-28T18:00:00","tags":["论文"]}}
-- update_file_notes：payload 为 {"file_id":1,"notes":"新的资料备注"}
-- detach_file_from_task：payload 为 {"task_id":1,"file_id":1}
-- delete_task / delete_file：payload 为 {"task_id":1} 或 {"file_id":1}
-- bulk_update_tasks：payload 为 {"task_ids":[1,2],"patch":{"priority":"高"}}
-- bulk_delete_tasks / bulk_delete_files：payload 为 {"task_ids":[1,2]} 或 {"file_ids":[1,2]}
-- empty_trash：payload 为 {}
-- import_web_resources：payload 为 {"resources":[{"title":"资料标题","url":"https://...","resource_type":"video|webpage|article|paper|course|link","notes":"为什么有用","task_id":1}]}，task_id 可选。用于把联网搜索到的外部资料作为链接资料导入资料库，必须等待用户确认。
-修改既有任务、修改资料备注、取消资料关联、删除、清空和批量操作必须放入 dangerous_actions，不能放入 tools。"""
+    if builtin_text:
+        base += (
+            "\n\n系统内置规则（始终生效，优先级最高；与用户自定义规则冲突时以此为准，不得忽视或跳过）：\n"
+            f"{builtin_text}"
+        )
+    if user_skill:
+        base += f"\n\n用户自定义 skill：\n{user_skill}\n"
+    # 阶段 7：plan 模式已硬删，恒走原生 function-calling 协议段。
+    # MCP 工具经 tools 数组原生暴露，prompt 不再注入文本。
+    base += _NATIVE_PROTOCOL_BODY
     search_enhanced = getattr(config, "search_enhancement_enabled", False)
     if getattr(config, "native_web_search_enabled", False) or search_enhanced:
         base += """
 
 联网搜索规则：
-当前模型配置允许使用模型原生联网搜索。涉及最新事实、当前网页信息、论文/资料补充检索、近期政策或库版本时，应优先使用模型原生联网能力；如果使用了联网搜索，请在 reply 中保留关键来源名称或链接，并区分搜索得到的信息与当前本地任务/资料状态。"""
+当前模型配置允许使用模型原生联网搜索。涉及最新事实、当前网页信息、论文/资料补充检索、近期政策或库版本时，应优先使用模型原生联网能力；如果使用了联网搜索，请在回复中保留关键来源名称或链接，并区分搜索得到的信息与当前本地任务/资料状态。"""
     if search_enhanced:
         base += """
 
 搜索增强：
 本轮配置已开启“搜索增强”。当用户的问题涉及资料列举、论文/网页/工具/政策/近期事实、资料补充、方案规划或需要外部参考时，你必须先使用模型原生联网搜索获取相关资料作为参考，再结合当前本地任务和资料状态给出安排。
-除非用户明确要求只使用本地资料，或请求完全不需要外部事实，否则不要直接凭训练知识回答。搜索后在 reply 中至少列出 2 条可核对来源；若实际搜索结果不足 2 条，必须说明原因。"""
+除非用户明确要求只使用本地资料，或请求完全不需要外部事实，否则不要直接凭训练知识回答。搜索后在回复中至少列出 2 条可核对来源；若实际搜索结果不足 2 条，必须说明原因。"""
     return base
 
 
@@ -183,7 +156,10 @@ def build_local_context(db: Session) -> str:
     }
     task_lines = [
         f"- #{t.id} {t.title} | 状态:{t.status} | 优先级:{t.priority} | 进度:{t.progress}% | "
-        f"开始:{_format_dt(t.start_date)} | 结束:{_format_dt(t.end_date)} | 截止/提醒:{_format_dt(t.due_date)} | "
+        f"预估:{t.estimated_minutes or '?'}分钟 | "
+        f"开始:{_format_dt(t.start_date)} | 结束:{_format_dt(t.end_date)} | "
+        f"截止/提醒:{_format_dt(t.due_date)}{(' ' + t.due_time) if t.due_time else ''} | "
+        f"重复:{t.recur_rule if t.recur_rule != 'none' else '无'} | "
         f"标签:{','.join(tag.name for tag in t.tags) or '无'} | 子任务:{_subtask_summary(t)}"
         for t in tasks[:80]
     ]
@@ -221,6 +197,24 @@ def build_local_context(db: Session) -> str:
             f"- 日程摘要: 必做:{today_schedule.summary.must_do} | 已安排:{today_schedule.summary.planned} | "
             f"进行中:{today_schedule.summary.in_progress_today} | 未来压力:{today_schedule.summary.upcoming_pressure} | "
             f"未排期:{today_schedule.summary.unscheduled} | 合计:{today_schedule.summary.total}"
+        ),
+        "今日必做（含逾期）：",
+        *(
+            [
+                f"  - #{item.task.id} {item.task.title} | 截止:{_format_dt(item.task.due_date)} | "
+                f"预估:{item.task.estimated_minutes or '?'}分钟"
+                for item in today_schedule.buckets.must_do[:10]
+            ]
+            or ["  - 无"]
+        ),
+        "未排期任务（需要安排）：",
+        *(
+            [
+                f"  - #{item.task.id} {item.task.title} | 优先级:{item.task.priority} | "
+                f"预估:{item.task.estimated_minutes or '?'}分钟"
+                for item in today_schedule.buckets.unscheduled[:10]
+            ]
+            or ["  - 无"]
         ),
         "今日已安排：",
         *(

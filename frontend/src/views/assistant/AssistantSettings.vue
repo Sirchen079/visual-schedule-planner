@@ -4,10 +4,14 @@
 // 所有保存/启用/导入等动作一律 emit 给 AssistantView 执行。
 import ArtIcon from '../../components/ArtIcon.vue'
 import TokenUsagePanel from './TokenUsagePanel.vue'
+import McpServersPanel from './McpServersPanel.vue'
+import GrantsPanel from './GrantsPanel.vue'
 import { ref } from 'vue'
 
-// 「用量」分组懒加载：展开后才挂载面板并请求统计接口
+// 「用量」「MCP 服务器」「自动授权」分组懒加载：展开后才挂载面板并请求接口
 const usageOpen = ref(false)
+const mcpOpen = ref(false)
+const grantsOpen = ref(false)
 
 defineProps({
   configs: { type: Array, default: () => [] },
@@ -35,6 +39,7 @@ defineEmits([
   'select-skill',
   'save-skill',
   'enable-skill',
+  'disable-skills',
   'import-skill',
 ])
 </script>
@@ -170,6 +175,14 @@ defineEmits([
 
         <div v-if="skills.length" class="pill-list">
           <button
+            class="ghost pill"
+            :class="{ active: !activeSkillId }"
+            title="停用全部用户 skill（内置规则仍生效）"
+            @click="$emit('disable-skills')"
+          >
+            不使用 skill
+          </button>
+          <button
             v-for="skill in skills"
             :key="skill.id"
             class="ghost pill"
@@ -257,6 +270,13 @@ defineEmits([
               <small>要求助手先用原生联网搜索查找参考资料，再结合本地任务和资料进行规划。</small>
             </span>
           </label>
+          <label class="check-field">
+            <input v-model="configForm.show_reasoning" type="checkbox" />
+            <span class="check-copy">
+              <strong>展示思维链</strong>
+              <small>模型输出的推理过程（DeepSeek-R1 类的 reasoning_content、Claude 的 thinking）以可折叠块展示。仅捕获 provider 已给出的，不主动请求 thinking。</small>
+            </span>
+          </label>
           <label
             v-if="configForm.native_web_search_enabled || configForm.search_enhancement_enabled"
             class="wide-field"
@@ -286,6 +306,32 @@ defineEmits([
       </summary>
       <div class="group-body">
         <TokenUsagePanel v-if="usageOpen" />
+      </div>
+    </details>
+
+    <details class="card settings-group" @toggle="grantsOpen = $event.target.open">
+      <summary>
+        <span class="group-copy">
+          <span class="group-title">自动授权</span>
+          <span class="group-hint muted">「以后都允许」规则与权限档位（谨慎 / 标准 / 自主）。</span>
+        </span>
+        <ArtIcon name="chevron-right" tone="pearl" :size="16" class="group-chevron" />
+      </summary>
+      <div class="group-body">
+        <GrantsPanel v-if="grantsOpen" />
+      </div>
+    </details>
+
+    <details class="card settings-group" @toggle="mcpOpen = $event.target.open">
+      <summary>
+        <span class="group-copy">
+          <span class="group-title">MCP 服务器</span>
+          <span class="group-hint muted">为助手接入外部工具服务器（文件系统、网页抓取等 MCP 能力）。</span>
+        </span>
+        <ArtIcon name="chevron-right" tone="pearl" :size="16" class="group-chevron" />
+      </summary>
+      <div class="group-body">
+        <McpServersPanel v-if="mcpOpen" />
       </div>
     </details>
   </div>

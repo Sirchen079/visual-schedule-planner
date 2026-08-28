@@ -35,9 +35,23 @@ async def test_breakdown_subtasks_creates_from_ai(client, monkeypatch):
     task_after = client.get(f"/tasks/{task['id']}").json()
     assert len(task_after["subtasks"]) == 3
 
-    # 已有子任务的任务拒绝重复拆解
+    # 已有子任务时支持增量拆解：返回 200，且只补不重复的新步骤
+    async def fake_provider_overlap(_req):
+        return {"output_text": '{"subtasks": ["写讲稿", "彩排", "邀媒体", "订盒饭"]}'}
+
+    monkeypatch.setattr("app.services.ai_client.call_provider", fake_provider_overlap)
     resp = client.post("/ai/actions/breakdown-subtasks", json={"task_id": task["id"]})
-    assert resp.status_code == 409
+    assert resp.status_code == 200
+    new_titles = [s["title"] for s in resp.json()["subtasks"]]
+    # "定场地"已在已有子任务中，应被跳过；"写讲稿"/"彩排"重复也应跳过，仅补"邀媒体""订盒饭"
+    assert "邀媒体" in new_titles
+    assert "订盒饭" in new_titles
+    assert "定场地" not in new_titles
+    task_after2 = client.get(f"/tasks/{task['id']}").json()
+    # 全量子任务仍只有唯一项，不产生重复
+    all_titles = [s["title"] for s in task_after2["subtasks"]]
+    assert all_titles.count("写讲稿") == 1
+    assert all_titles.count("彩排") == 1
 
 
 def test_breakdown_requires_config_and_feature(client):
@@ -60,16 +74,44 @@ def test_schedule_task_with_explicit_date_needs_no_ai(client):
 @pytest.mark.anyio
 async def test_schedule_task_ai_picks_date(client, monkeypatch):
     _enable_config(client)
-    task = client.post("/tasks", json={"title": "智能排程", "due_date": "2026-07-25T18:00:00"}).json()
+    from datetime import date, timedelta
+    pick = (date.today() + timedelta(days=2)).isoformat()
+    due = (date.today() + timedelta(days=5)).isoformat() + "T18:00:00"
+    task = client.post("/tasks", json={"title": "智能排程", "due_date": due}).json()
 
     async def fake_provider(_req):
-        return {"output_text": '{"date": "2026-07-24", "reason": "截止前一天负载最低"}'}
+        return {"output_text": f'{{"date": "{pick}", "reason": "截止前一天负载最低"}}'}
 
     monkeypatch.setattr("app.services.ai_client.call_provider", fake_provider)
     resp = client.post("/ai/actions/schedule-task", json={"task_id": task["id"]})
     assert resp.status_code == 200
-    assert resp.json()["date"] == "2026-07-24"
+    assert resp.json()["date"] == pick
     assert "负载最低" in resp.json()["note"]
+
+
+@pytest.mark.anyio
+async def test_schedule_task_repairs_malformed_json_then_retries(client, monkeypatch):
+    """generate_json 首次返回非法 JSON 时回喂修复重问一次。"""
+    _enable_config(client)
+    from datetime import date, timedelta
+    pick = (date.today() + timedelta(days=2)).isoformat()
+    due = (date.today() + timedelta(days=5)).isoformat() + "T18:00:00"
+    task = client.post("/tasks", json={"title": "修复重问", "due_date": due}).json()
+
+    calls = {"n": 0}
+
+    async def fake_provider(_req):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"output_text": "这不是JSON"}
+        return {"output_text": f'{{"date": "{pick}", "reason": "修复后给出"}}'}
+
+    monkeypatch.setattr("app.services.ai_client.call_provider", fake_provider)
+    resp = client.post("/ai/actions/schedule-task", json={"task_id": task["id"]})
+    assert resp.status_code == 200
+    assert resp.json()["date"] == pick
+    assert "修复后给出" in resp.json()["note"]
+    assert calls["n"] == 2  # 第一次畸形、第二次修复，共调用两次 provider
 
 
 def test_journal_draft_rule_fallback_without_config(client):

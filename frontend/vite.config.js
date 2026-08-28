@@ -20,6 +20,7 @@ export default defineConfig({
       '/settings': backend,
       '/files': backend,
       '/ai': backend,
+      '/mcp': backend,
       '/schedule': backend,
       '/export': backend,
       '/import': backend,

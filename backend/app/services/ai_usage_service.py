@@ -49,22 +49,26 @@ def log_usage(
     kind: str,
     payload: dict[str, Any],
     conversation_id: Optional[int] = None,
-) -> None:
-    """记录一次模型调用的 token 用量。
+) -> dict[str, int] | None:
+    """记录一次模型调用的 token 用量，并返回解析出的用量 dict（供调用方累加到 run 级统计）。
 
     用量统计是附属能力：任何异常都静默回滚，绝不影响对话/报告主流程。
+    返回值：成功时为 {prompt_tokens, completion_tokens, total_tokens}；异常时为 None。
     """
     try:
         provider = config.provider if config else ""
+        usage = extract_usage(provider, payload)
         entry = AIUsageLog(
             config_id=config.id if config else None,
             conversation_id=conversation_id,
             kind=kind,
             provider=provider,
             model=config.model if config else "",
-            **extract_usage(provider, payload),
+            **usage,
         )
         db.add(entry)
         db.commit()
+        return usage
     except Exception:
         db.rollback()
+        return None

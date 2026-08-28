@@ -39,18 +39,8 @@ async def generate_text(
     return (ai_client.extract_text(config.provider, raw) or "").strip()
 
 
-async def generate_json(
-    db: Session,
-    config: AIConfig,
-    system: str,
-    user: str,
-    *,
-    kind: str,
-) -> dict[str, Any] | None:
-    """单次 JSON 生成：要求模型只输出一个 JSON 对象，宽松提取；失败返回 None。"""
-    text = await generate_text(
-        db, config, system, user + "\n\n只输出一个 JSON 对象，不要输出任何其他文字。", kind=kind
-    )
+def _parse_first_json_object(text: str) -> dict[str, Any] | None:
+    """从文本宽松提取第一个可解析的顶层 JSON 对象。"""
     for candidate in ai_client._extract_json_objects(text):
         try:
             value = json.loads(candidate)
@@ -59,3 +49,26 @@ async def generate_json(
         if isinstance(value, dict):
             return value
     return None
+
+
+async def generate_json(
+    db: Session,
+    config: AIConfig,
+    system: str,
+    user: str,
+    *,
+    kind: str,
+) -> dict[str, Any] | None:
+    """单次 JSON 生成；首次解析失败时把畸形输出回喂修复重问一次，仍失败返回 None。"""
+    text = await generate_text(
+        db, config, system, user + "\n\n只输出一个 JSON 对象，不要输出任何其他文字。", kind=kind
+    )
+    value = _parse_first_json_object(text)
+    if value is not None:
+        return value
+    repair_user = (
+        f"你刚才的输出不是合法的 JSON 对象：\n{text[:2000]}\n\n"
+        "请只输出修正后的那一个 JSON 对象，不要输出任何其他文字。"
+    )
+    text = await generate_text(db, config, system, repair_user, kind=kind)
+    return _parse_first_json_object(text)

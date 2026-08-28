@@ -20,7 +20,7 @@ const themeSource = read('../src/styles/theme.css')
 const checks = [
   {
     name: 'compact assistant keeps settings control visible',
-    pass: source.includes('compact-mode-switch') && source.includes("@click=\"assistantMode = 'settings'\""),
+    pass: source.includes('mode-switch') && source.includes("@click=\"assistantMode = 'settings'\""),
   },
   {
     name: 'message bubbles contain long assistant replies',

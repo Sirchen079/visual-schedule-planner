@@ -24,7 +24,11 @@ const toast = inject('toast', { success: () => {}, error: () => {}, info: () => 
 // ---- 内嵌 AI 动作（功能面板「内嵌 AI 动作」开关控制渲染；无启用模型配置时禁用）----
 const aiAvailable = inject('ai-available', ref(false))
 const inlineAiEnabled = ref(false)
-const aiBusy = ref(false)
+// 拆解/排程各自独立 busy（照抄 JournalView 的"生成中…"范式：按钮文案 + 旋转图标），
+// aiBusy 为二者聚合，供 disabled 计算与外部判断。
+const breakdownBusy = ref(false)
+const scheduleBusy = ref(false)
+const aiBusy = computed(() => breakdownBusy.value || scheduleBusy.value)
 
 onMounted(async () => {
   try {
@@ -36,13 +40,11 @@ onMounted(async () => {
 })
 
 const aiDisabledTitle = '需先在助手中启用模型配置'
-// 已有子任务时不可再拆解（后端 409 口径），用禁用态提前说明
-const breakdownDisabled = computed(
-  () => !aiAvailable.value || aiBusy.value || subtasks.value.length > 0
-)
+// 已有子任务时可增量拆解（后端会跳过重复项、只补缺）
+const breakdownDisabled = computed(() => !aiAvailable.value || aiBusy.value)
 const breakdownTitle = computed(() => {
   if (!aiAvailable.value) return aiDisabledTitle
-  if (subtasks.value.length > 0) return '已有子任务，如需重新拆解请先清空'
+  if (subtasks.value.length > 0) return '让 AI 补充拆解缺失的环节'
   return '让 AI 把任务拆成可执行的小步骤'
 })
 const scheduleDisabled = computed(() => !aiAvailable.value || aiBusy.value)
@@ -53,7 +55,7 @@ const scheduleTitle = computed(() =>
 async function aiBreakdown() {
   const t = props.task
   if (!t || breakdownDisabled.value) return
-  aiBusy.value = true
+  breakdownBusy.value = true
   try {
     const res = await breakdownSubtasks(t.id)
     const created = res?.subtasks || []
@@ -63,14 +65,14 @@ async function aiBreakdown() {
   } catch (e) {
     toast.error(`AI 拆解失败：${e.message}`)
   } finally {
-    aiBusy.value = false
+    breakdownBusy.value = false
   }
 }
 
 async function aiSchedule() {
   const t = props.task
   if (!t || scheduleDisabled.value) return
-  aiBusy.value = true
+  scheduleBusy.value = true
   try {
     const res = await scheduleTaskAi(t.id)
     toast.success(`已安排到 ${scheduleDateLabel(res?.date)}`)
@@ -79,7 +81,7 @@ async function aiSchedule() {
   } catch (e) {
     toast.error(`AI 排程失败：${e.message}`)
   } finally {
-    aiBusy.value = false
+    scheduleBusy.value = false
   }
 }
 
@@ -309,8 +311,8 @@ async function removeSub(s) {
               :title="breakdownTitle"
               @click="aiBreakdown"
             >
-              <ArtIcon name="steps" tone="mint" :size="18" />
-              <span>AI 拆解</span>
+              <ArtIcon name="steps" tone="mint" :size="18" :class="{ spin: breakdownBusy }" />
+              <span>{{ breakdownBusy ? '拆解中…' : 'AI 拆解' }}</span>
             </button>
             <button
               type="button"
@@ -319,8 +321,8 @@ async function removeSub(s) {
               :title="scheduleTitle"
               @click="aiSchedule"
             >
-              <ArtIcon name="calendar" tone="aqua" :size="18" />
-              <span>AI 排程</span>
+              <ArtIcon name="calendar" tone="aqua" :size="18" :class="{ spin: scheduleBusy }" />
+              <span>{{ scheduleBusy ? '排程中…' : 'AI 排程' }}</span>
             </button>
           </template>
         </div>
@@ -600,5 +602,17 @@ async function removeSub(s) {
   .attach-row {
     grid-template-columns: 1fr;
   }
+}
+
+/* AI 拆解/排程 进行中：图标旋转（与 ToolCallCard 的 spin 动画语义一致） */
+.spin {
+  animation: ai-btn-spin 0.9s linear infinite;
+}
+@keyframes ai-btn-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation: none; }
 }
 </style>

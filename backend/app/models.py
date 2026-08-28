@@ -97,6 +97,9 @@ class TaskScheduleEntry(Base):
     date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     source: Mapped[str] = mapped_column(String(20), default="manual", nullable=False)
     note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    # 日内时段（可选 "HH:MM"）；为空表示仅排到日、未指定时段
+    start_time: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
+    end_time: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, nullable=False
     )
@@ -152,6 +155,8 @@ class Subtask(Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     done: Mapped[bool] = mapped_column(Boolean, default=False)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # 预估耗时（分钟，可选）；拆解时由 AI 给出
+    estimated_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     task: Mapped["Task"] = relationship("Task", back_populates="subtasks")
@@ -174,10 +179,14 @@ class AIConfig(Base):
     native_web_search_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     native_web_search_options: Mapped[str] = mapped_column(Text, default="{}")
     search_enhancement_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 工具调用方式：native=原生 function-calling（默认）；plan=兼容 JSON-plan（应急回退）
+    tool_calling_mode: Mapped[str] = mapped_column(String(20), default="native", nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     # 每百万 tokens 的输入/输出单价（用户自填，用于用量成本估算；0 表示未设置）
     price_input: Mapped[float] = mapped_column(Float, default=0, nullable=False)
     price_output: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    # 阶段 3：思维链展示开关（默认开启）。为 false 时后端捕获但不发 reasoning_delta / done 不带 reasoning。
+    show_reasoning: Mapped[bool] = mapped_column(Boolean, default=True)
     active_skill_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("ai_skills.id"), nullable=True
     )
@@ -195,6 +204,43 @@ class AISkill(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     content: Mapped[str] = mapped_column(Text, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    # 内置 skill：随版本种子注入，始终生效、不进用户视图、不可被用户删除/修改
+    is_builtin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class MCPServer(Base):
+    """用户配置的 MCP（Model Context Protocol）服务器。
+
+    知时助手对话时，启用中的服务器提供的工具会以 mcp__s{id}__{原名} 命名空间
+    注入工具清单，由 Agent 循环按需调用。env/headers 为敏感字段，对外一律脱敏。
+    """
+
+    __tablename__ = "mcp_servers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    # 传输类型：stdio（本地命令子进程）/ http（Streamable HTTP 远程地址）
+    transport: Mapped[str] = mapped_column(String(10), nullable=False)
+    # stdio：可执行命令，如 npx / uvx / python
+    command: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    # stdio：JSON 数组参数，如 ["-y","@modelcontextprotocol/server-filesystem","D:/docs"]
+    args: Mapped[str] = mapped_column(Text, default="[]")
+    # stdio：追加的环境变量 JSON 对象（敏感，脱敏返回）
+    env: Mapped[str] = mapped_column(Text, default="{}")
+    # http：服务器地址（仅 http(s)://）
+    url: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+    # http：请求头 JSON 对象（敏感，脱敏返回）
+    headers: Mapped[str] = mapped_column(Text, default="{}")
+    timeout_sec: Mapped[int] = mapped_column(Integer, default=30)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    # 只读工具（带 MCP readOnlyHint）免二次确认
+    auto_approve_readonly: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_status: Mapped[str] = mapped_column(String(10), default="unknown")
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -210,6 +256,9 @@ class AIConversation(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+    # 阶段 B3：会话级 meta，存上下文压缩摘要 { summary, summary_upto_message_id }。
+    # 旧库无此列时启动迁移补列（main.py init_db），默认 '{}'。
+    meta: Mapped[str] = mapped_column(Text, default="{}")
 
     messages: Mapped[list["AIMessage"]] = relationship(
         "AIMessage",
@@ -230,6 +279,9 @@ class AIMessage(Base):
     content: Mapped[str] = mapped_column(Text, default="")
     meta: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # 阶段 B3：该消息是否已被纳入会话压缩摘要。压缩后旧消息不再逐条回放（防上下文爆炸），
+    # 但仍保留在库中以供历史查看与 undo。默认 False（旧库迁移补列默认 0）。
+    compacted: Mapped[bool] = mapped_column(Boolean, default=False)
 
     conversation: Mapped["AIConversation"] = relationship(
         "AIConversation", back_populates="messages"
@@ -437,4 +489,19 @@ class AIReport(Base):
     title: Mapped[str] = mapped_column(String(200), default="")
     content: Mapped[str] = mapped_column(Text, default="")
     model_name: Mapped[str] = mapped_column(String(100), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class AIToolGrant(Base):
+    """阶段 D1：工具「始终允许」授权规则。
+
+    命中即视为 safe（跳过确认）。arg_pattern 可为空=整工具允许；非空=按参数模式匹配。
+    配合权限三档（careful/standard/autonomous）：standard 下 grant 生效，autonomous 除高危外全部免问。
+    """
+    __tablename__ = "ai_tool_grants"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    tool_name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    # 参数模式（JSON 片段或键值约束）；空字符串=整工具允许
+    arg_pattern: Mapped[str] = mapped_column(Text, default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

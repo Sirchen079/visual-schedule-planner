@@ -44,6 +44,8 @@ def create_schedule_entry(
     if existing is not None:
         existing.source = data.source
         existing.note = data.note
+        existing.start_time = data.start_time
+        existing.end_time = data.end_time
         db.commit()
         db.refresh(existing)
         return existing
@@ -200,6 +202,7 @@ def get_month_schedule(db: Session, year: int, month: int) -> MonthScheduleRespo
             for task in tasks
             if (due_date := _as_date(task.due_date)) is not None
             and due_date < current_date
+            and current_date <= date.today()
         }
         planned_ids = {entry.task_id for entry in entries_by_date[current_date]}
         in_progress_ids = {
@@ -224,8 +227,64 @@ def get_month_schedule(db: Session, year: int, month: int) -> MonthScheduleRespo
     return MonthScheduleResponse(year=year, month=month, days=days)
 
 
+def get_range_load(db: Session, start: date, days: int = 7) -> list[dict]:
+    """排程负载视图：start 起 days 天内每日已排内容（供 AI 排程使用）。
+
+    与 get_month_schedule 的区别：按任意日期范围取（跨月安全）；
+    每日返回任务明细与预估总时长，不只是计数；逾期任务只计入 start 当天。
+    """
+    tasks = _active_tasks(db)
+    end = start + timedelta(days=days - 1)
+    entries_by_date: dict[date, list[TaskScheduleEntry]] = defaultdict(list)
+    for entry in _entries_between(db, start, end):
+        entries_by_date[entry.date].append(entry)
+
+    result: list[dict] = []
+    for i in range(days):
+        current = start + timedelta(days=i)
+        items: list[dict] = []
+        seen: set[int] = set()
+        for entry in entries_by_date[current]:
+            task = entry.task
+            if task is None or task.deleted_at is not None or task.status == DONE_STATUS:
+                continue
+            seen.add(task.id)
+            items.append(
+                {
+                    "task_id": task.id,
+                    "title": task.title,
+                    "estimated_minutes": task.estimated_minutes,
+                    "priority": task.priority,
+                }
+            )
+        for task in tasks:
+            due = _as_date(task.due_date)
+            if task.id in seen or due is None:
+                continue
+            # 当天截止计入当天；逾期任务只计入 start 当天（不向后蔓延）
+            if due == current or (due < start and current == start):
+                items.append(
+                    {
+                        "task_id": task.id,
+                        "title": task.title,
+                        "estimated_minutes": task.estimated_minutes,
+                        "priority": task.priority,
+                    }
+                )
+        result.append(
+            {
+                "date": current.isoformat(),
+                "weekday": "一二三四五六日"[current.weekday()],
+                "count": len(items),
+                "total_minutes": sum(it["estimated_minutes"] or 0 for it in items),
+                "items": items,
+            }
+        )
+    return result
+
+
 def _apply_entry_patch(entry: TaskScheduleEntry, patch: dict) -> None:
-    for field in ("date", "source", "note"):
+    for field in ("date", "source", "note", "start_time", "end_time"):
         if field in patch and patch[field] is not None:
             setattr(entry, field, patch[field])
 

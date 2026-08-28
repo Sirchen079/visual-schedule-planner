@@ -15,11 +15,20 @@ def tool_call_signature(name: str, args: dict[str, Any]) -> str:
     )
 
 
+def _is_real_failure(result: Any) -> bool:
+    """ok=False 且非 pending（待确认不算失败，避免误报与误触重试预算）。"""
+    return (
+        isinstance(result, dict)
+        and result.get("ok") is False
+        and not result.get("pending")
+    )
+
+
 def failed_tool_signatures(tool_results: list[dict[str, Any]]) -> Counter[str]:
     signatures: Counter[str] = Counter()
     for item in tool_results:
         result = item.get("result")
-        if not isinstance(result, dict) or result.get("ok") is not False:
+        if not _is_real_failure(result):
             continue
         signatures[
             tool_call_signature(str(item.get("tool", "")), dict(item.get("args", {})))
@@ -40,7 +49,7 @@ def failed_retry_budget_message(
     last_error = ""
     for item in reversed(tool_results):
         result = item.get("result")
-        if not isinstance(result, dict) or result.get("ok") is not False:
+        if not _is_real_failure(result):
             continue
         current_signature = tool_call_signature(
             str(item.get("tool", "")), dict(item.get("args", {}))
@@ -88,7 +97,7 @@ def build_run_summary(
             "error": item["result"].get("error"),
         }
         for item in tool_results
-        if isinstance(item.get("result"), dict) and item["result"].get("ok") is False
+        if _is_real_failure(item.get("result"))
     ]
     return {
         "run_id": run_id,

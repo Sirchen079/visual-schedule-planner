@@ -26,7 +26,9 @@ let appSettings = {
 let assistantFloat = null
 let mainEverShown = false // 主窗口是否曾显示过；开机自启从未 show，不误触发悬浮窗
 const FLOAT_BUTTON = { width: 60, height: 60 }
-const FLOAT_PANEL = { width: 380, height: 600 }
+// 展开态尺寸：与前端 AssistantFloat.vue 的 FLOAT_PANEL_SIZE 对齐（560×680），
+// 亦与 AssistantView 基础壳层设计尺寸一致，保证展开后复用程序内助手样式。
+const FLOAT_PANEL = { width: 560, height: 680 }
 
 // 开机自启：注册表启动命令带 --autostart，据此区分启动来源
 const isAutoStart = process.argv.includes('--autostart')
@@ -58,6 +60,42 @@ function findFreePort(start) {
       const port = srv.address().port
       srv.close(() => resolve(port))
     })
+  })
+}
+
+// 启动前清理僵尸进程：杀掉残留的旧 zhishi-backend.exe 与 知时.exe（本进程除外）。
+// 根因：异常退出/更新覆盖安装后，旧后端可能仍占着 18731 端口，导致新后端 bind 失败、
+// 前端连到旧后端或无响应，表现为"永远正在思考"。单实例锁已拦截第二个 知时.exe，
+// 但被强杀/崩溃的残留 backend 不受单实例锁约束，需在此显式清理。
+function killStaleProcesses() {
+  // taskkill /F 强制结束；/FI 排除当前 PID。失败静默（首次启动时本无残留）。
+  const kill = (image) => {
+    try {
+      // /T 连带子进程：backend 由 知时.exe 拉起，杀主进程时一并清理其 backend 子进程
+      spawnSync('taskkill', ['/F', '/T', '/IM', image], { windowsHide: true, encoding: 'utf8' })
+    } catch (_) {
+      // 无残留或无权限，忽略
+    }
+  }
+  // 当前进程也是 知时.exe，但 requestSingleInstanceLock 已确保我们是唯一主进程；
+  // 这里只清后端 exe（其生命周期由本主进程管理），避免误杀自己。
+  kill('zhishi-backend.exe')
+}
+
+// 优雅关闭旧后端（若占着端口）：先尝试 HTTP /shutdown 让其备份落盘，再兜底强杀。
+// 用于更新覆盖安装场景：旧进程正在服务，直接强杀可能丢失未落盘数据。
+function gracefulShutdownStaleBackend(port) {
+  return new Promise((resolve) => {
+    const req = http.request(
+      { hostname: '127.0.0.1', port, path: '/shutdown', method: 'POST', timeout: 4000 },
+      (res) => {
+        res.resume()
+        res.on('end', () => resolve(true))
+      }
+    )
+    req.on('error', () => resolve(false))
+    req.on('timeout', () => { req.destroy(); resolve(false) })
+    req.end()
   })
 }
 
@@ -634,6 +672,13 @@ ipcMain.handle('system:idle', async () => {
 })
 
 app.whenReady().then(async () => {
+  // 1. 先清理僵尸后端进程（异常退出/覆盖安装残留），释放被占的 18731 端口。
+  //    尝试优雅关闭（让旧后端备份落盘），无论成功与否再兜底强杀 zhishi-backend.exe。
+  await gracefulShutdownStaleBackend(PREFERRED_PORT)
+  killStaleProcesses()
+  // 给操作系统一点时间回收端口（TIME_WAIT），避免紧接着 bind 仍失败
+  await new Promise((r) => setTimeout(r, 800))
+  // 2. 探测端口、准备数据目录、启动后端
   activePort = await findFreePort(PREFERRED_PORT)
   // 先准备数据目录（必要时从 AppData 迁移到软件目录），再启动后端
   const resolvedDataDir = prepareDataDir()

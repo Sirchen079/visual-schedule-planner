@@ -9,7 +9,9 @@ files:
   - package.json
   - build/icon.ico
   - build/icon-256.png
-# 不进 asar、放到 resources/ 下：后端 exe 及其 _internal 资源
+# 不进 asar、放到 resources/ 下：后端 exe 及其 _internal 资源。
+# build/backend-dist/zhishi-backend/ 是 PyInstaller 产物目录（含 zhishi-backend.exe + _internal/），
+# 整个 zhishi-backend 子目录会被复制到 resources/zhishi-backend/，与 main.js backendExePath() 对齐。
 extraResources:
   - from: build/backend-dist/zhishi-backend
     to: zhishi-backend

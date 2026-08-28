@@ -3,11 +3,34 @@
 import json
 from datetime import datetime, timedelta
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import AIPendingAction, TaskScheduleEntry
-from app.schemas import FileUpdate, ScheduleEntryCreate, ScheduleEntryUpdate, TaskUpdate
-from app.services import file_service, schedule_service, task_service
+from app.models import AIPendingAction, AISkill, MCPServer, TaskScheduleEntry
+from app.schemas import (
+    AISkillCreate,
+    AISkillUpdate,
+    FileUpdate,
+    GoalUpdate,
+    HabitUpdate,
+    MCPServerCreate,
+    MCPServerUpdate,
+    ScheduleEntryCreate,
+    ScheduleEntryUpdate,
+    SubtaskUpdate,
+    TaskUpdate,
+)
+from app.services import (
+    ai_skill_service,
+    app_setting_service,
+    file_service,
+    goal_service,
+    habit_service,
+    mcp_service,
+    schedule_service,
+    subtask_service,
+    task_service,
+)
 
 SUPPORTED_ACTION_TYPES = {
     "update_task",
@@ -25,6 +48,19 @@ SUPPORTED_ACTION_TYPES = {
     "delete_schedule_entry",
     "bulk_assign_tasks_to_days",
     "auto_plan_tasks",
+    "mcp_tool_call",
+    "create_skill",
+    "create_mcp_server",
+    # 阶段 B5：补齐 CRUD 缺口（习惯/目标/提醒/子任务 update/delete + 设置改）
+    "update_habit",
+    "delete_habit",
+    "update_goal",
+    "delete_goal",
+    "update_reminder",
+    "delete_reminder",
+    "update_subtask",
+    "delete_subtask",
+    "update_setting",
 }
 
 
@@ -168,7 +204,10 @@ def build_action_preview(db: Session, action_type: str, payload: dict) -> list[s
             if task is None:
                 lines.append(_missing_preview_line("任务", item["task_id"], item["task_id"]))
             else:
-                lines.append(f"任务: #{task.id} {task.title} -> {item['date'].isoformat()}")
+                span = ""
+                if item.get("start_time"):
+                    span = f" {item['start_time']}" + (f"-{item['end_time']}" if item.get("end_time") else "")
+                lines.append(f"任务: #{task.id} {task.title} -> {item['date'].isoformat()}{span}")
         return lines
     if action_type == "bulk_delete_tasks":
         task_ids = _coerce_int_list(payload.get("task_ids", []))
@@ -195,7 +234,66 @@ def build_action_preview(db: Session, action_type: str, payload: dict) -> list[s
             if task_id is not None:
                 lines.extend(_task_preview_lines(db, [task_id]))
         return lines
+    if action_type == "mcp_tool_call":
+        server_id = _coerce_int(payload.get("server_id"))
+        tool_name = str(payload.get("tool_name", ""))
+        arguments = payload.get("arguments", {})
+        server = db.get(MCPServer, server_id) if server_id else None
+        server_label = (
+            f"#{server.id} {server.name}" if server else _missing_preview_line("MCP 服务器", payload.get("server_id"), server_id)
+        )
+        args_json = json.dumps(arguments, ensure_ascii=False, default=str)
+        if len(args_json) > 500:
+            args_json = args_json[:500] + "...[已截断]"
+        return [
+            "操作: 调用 MCP 工具（外部服务器，可能产生外部副作用）",
+            f"服务器: {server_label}",
+            f"工具: {tool_name}",
+            f"参数: {args_json}",
+        ]
+    if action_type == "create_skill":
+        name = str(payload.get("name", "")).strip() or "(未命名)"
+        content = str(payload.get("content", ""))
+        preview = content[:120].replace("\n", " ")
+        suffix = "..." if len(content) > 120 else ""
+        lines = [
+            "操作: 创建助手 skill（会注入后续对话的工作规则）",
+            f"名称: {name}",
+            f"内容预览: {preview}{suffix}",
+        ]
+        if payload.get("enabled"):
+            lines.append("同时启用该 skill")
+        return lines
+    if action_type == "create_mcp_server":
+        return _mcp_server_preview_lines(payload)
     return [f"操作: 不支持的危险操作 {action_type}"]
+
+
+def _mcp_server_preview_lines(payload: dict) -> list[str]:
+    name = str(payload.get("name", "")).strip() or "(未命名)"
+    transport = str(payload.get("transport", "stdio"))
+    lines = [
+        "操作: 配置 MCP 工具服务器（stdio 可执行本地命令 / http 访问远程，属高敏感操作）",
+        f"名称: {name}",
+        f"传输: {transport}",
+    ]
+    if transport == "http":
+        lines.append(f"URL: {payload.get('url', '')}")
+        header_keys = list((payload.get("headers") or {}).keys())
+        if header_keys:
+            lines.append(f"请求头: {', '.join(header_keys)}（值加密保存）")
+    else:
+        command = str(payload.get("command", ""))
+        args = payload.get("args") or []
+        arg_text = " ".join(str(a) for a in args)
+        lines.append(f"命令: {command} {arg_text}".rstrip())
+        env_keys = list((payload.get("env") or {}).keys())
+        if env_keys:
+            lines.append(f"环境变量: {', '.join(env_keys)}（值加密保存）")
+    if payload.get("auto_approve_readonly"):
+        lines.append("已勾选：只读工具免确认")
+    lines.append("确认后创建；请到 MCP 面板测试连接再决定是否启用")
+    return lines
 
 
 def is_supported_action_type(action_type: str) -> bool:
@@ -220,6 +318,26 @@ def confirm_action(
     db.commit()
     db.refresh(action)
     return action, action.confirm_token, None
+
+
+def reject_action(
+    db: Session, action_id: int
+) -> tuple[AIPendingAction | None, str | None]:
+    """用户拒绝待确认操作：pending/confirmed（未执行）→ rejected，终态，不可再确认执行。"""
+    action = db.get(AIPendingAction, action_id)
+    if action is None:
+        return None, "待确认操作不存在"
+    if action.status not in ("pending", "confirmed"):
+        return action, "操作不是待确认状态"
+    if action.expires_at < datetime.now():
+        action.status = "expired"
+        db.commit()
+        return action, "操作已过期"
+    action.status = "rejected"
+    action.confirm_token = None
+    db.commit()
+    db.refresh(action)
+    return action, None
 
 
 def execute_action(db: Session, action_id: int, token: str) -> tuple[bool, str]:
@@ -330,6 +448,8 @@ def _execute_payload(db: Session, action_type: str, payload: dict) -> tuple[bool
                     date=item["date"],
                     source="ai",
                     note=item.get("note", ""),
+                    start_time=item.get("start_time"),
+                    end_time=item.get("end_time"),
                 ),
             )
             if entry is not None:
@@ -345,7 +465,152 @@ def _execute_payload(db: Session, action_type: str, payload: dict) -> tuple[bool
         return True, f"已清空回收站：{len(tasks)} 个任务，{len(files)} 个资料"
     if action_type == "import_web_resources":
         return _execute_import_web_resources(db, payload)
+    if action_type == "mcp_tool_call":
+        return _execute_mcp_tool_call(db, payload)
+    if action_type == "create_skill":
+        return _execute_create_skill(db, payload)
+    if action_type == "create_mcp_server":
+        return _execute_create_mcp_server(db, payload)
+    # ---- 阶段 B5：补齐 CRUD 缺口 ----
+    if action_type == "update_habit":
+        habit_id = int(payload["habit_id"])
+        updated = habit_service.update_habit(db, habit_id, HabitUpdate(**dict(payload.get("patch", {}))))
+        return updated is not None, "习惯已更新" if updated else "习惯不存在"
+    if action_type == "delete_habit":
+        ok = habit_service.soft_delete_habit(db, int(payload["habit_id"]))
+        return ok, "习惯已移入回收站" if ok else "习惯不存在"
+    if action_type == "update_goal":
+        goal_id = int(payload["goal_id"])
+        updated = goal_service.update_goal(db, goal_id, GoalUpdate(**dict(payload.get("patch", {}))))
+        return updated is not None, "目标已更新" if updated else "目标不存在"
+    if action_type == "delete_goal":
+        ok = goal_service.soft_delete_goal(db, int(payload["goal_id"]))
+        return ok, "目标已移入回收站" if ok else "目标不存在"
+    if action_type == "update_reminder":
+        # 提醒=带 due_date 的任务，复用任务更新
+        task_id = int(payload["task_id"])
+        updated = task_service.update_task(db, task_id, TaskUpdate(**dict(payload.get("patch", {}))))
+        return updated is not None, "提醒已更新" if updated else "提醒/任务不存在"
+    if action_type == "delete_reminder":
+        ok = task_service.soft_delete_task(db, int(payload["task_id"]))
+        return ok, "提醒已移入回收站" if ok else "提醒/任务不存在"
+    if action_type == "update_subtask":
+        task_id = int(payload["task_id"])
+        subtask_id = int(payload["subtask_id"])
+        updated = subtask_service.update_subtask(
+            db, task_id, subtask_id, SubtaskUpdate(**dict(payload.get("patch", {})))
+        )
+        return updated is not None, "子任务已更新" if updated else "子任务不存在"
+    if action_type == "delete_subtask":
+        ok = subtask_service.delete_subtask(db, int(payload["task_id"]), int(payload["subtask_id"]))
+        return ok, "子任务已删除" if ok else "子任务不存在"
+    if action_type == "update_setting":
+        key = str(payload.get("key", "")).strip()
+        value = str(payload.get("value", ""))
+        if not key:
+            return False, "设置项键名不能为空"
+        app_setting_service.update_settings(db, {key: value})
+        return True, f"设置项 {key} 已更新"
     return False, f"不支持的危险操作: {action_type}"
+
+
+def _execute_create_skill(db: Session, payload: dict) -> tuple[bool, str]:
+    name = str(payload.get("name", "")).strip()
+    content = str(payload.get("content", "")).strip()
+    if not name or not content:
+        return False, "create_skill 需要 name 和 content"
+    if len(content) > 20000:
+        return False, "skill 内容超过 20000 字上限，请精简后重试"
+    description = str(payload.get("description", "")).strip()
+    existing = db.execute(
+        select(AISkill)
+        .where(AISkill.name == name)
+        .order_by(AISkill.updated_at.desc(), AISkill.id.desc())
+        .limit(1)
+    ).scalars().first()
+    if existing is not None and existing.is_builtin:
+        return False, f"「{name}」是系统内置 skill 名称，请换一个名称"
+    if existing is None:
+        skill = ai_skill_service.create_skill(
+            db,
+            AISkillCreate(name=name[:100], description=description, content=content),
+        )
+        action = "创建"
+    else:
+        skill = ai_skill_service.update_skill(
+            db, existing.id, AISkillUpdate(description=description, content=content)
+        )
+        if skill is None:
+            # 极小概率：select 与 update 之间被删除。graceful 失败而非 AttributeError→500
+            return False, f"skill「{name}」已被删除，请重试"
+        action = "更新"
+    if payload.get("enabled"):
+        ai_skill_service.enable_skill(db, skill.id)
+    return True, f"已{action} skill「{name}」"
+
+
+def _execute_create_mcp_server(db: Session, payload: dict) -> tuple[bool, str]:
+    name = str(payload.get("name", "")).strip()
+    if not name:
+        return False, "create_mcp_server 需要 name"
+    transport = str(payload.get("transport", "stdio")).strip()
+    if transport not in {"stdio", "http"}:
+        return False, "transport 只允许 stdio 或 http"
+    # enabled / auto_approve_readonly 显式传入才写；更新时省略表示保留现值，
+    # 避免省略字段静默把用户已停用 / 已关闭只读免确认的服务器改回去。
+    enabled_given = payload.get("enabled")
+    auto_approve_given = payload.get("auto_approve_readonly")
+    server_data = {
+        "name": name[:100],
+        "transport": transport,
+        "command": payload.get("command"),
+        "args": list(payload.get("args") or []),
+        "env": dict(payload.get("env") or {}),
+        "url": payload.get("url"),
+        "headers": dict(payload.get("headers") or {}),
+        "timeout_sec": _coerce_int(payload.get("timeout_sec")) or 30,
+        "enabled": bool(enabled_given) if enabled_given is not None else True,
+        "auto_approve_readonly": bool(auto_approve_given) if auto_approve_given is not None else False,
+    }
+    try:
+        create_payload = MCPServerCreate(**server_data)  # 触发传输字段校验
+    except ValueError as exc:
+        return False, f"MCP 配置无效: {exc}"
+    existing = db.execute(select(MCPServer).where(MCPServer.name == name)).scalar_one_or_none()
+    if existing is None:
+        mcp_service.create_server(db, create_payload)
+        action = "创建"
+    else:
+        update_data = dict(server_data)
+        if enabled_given is None:
+            update_data.pop("enabled", None)  # 保留现值
+        if auto_approve_given is None:
+            update_data.pop("auto_approve_readonly", None)  # 保留现值
+        mcp_service.update_server(db, existing.id, MCPServerUpdate(**update_data))
+        action = "更新"
+    return True, f"已{action} MCP 服务器「{name}」，请到 MCP 面板测试连接"
+
+
+def _execute_mcp_tool_call(db: Session, payload: dict) -> tuple[bool, str]:
+    """确认后执行 MCP 工具调用，返回工具文本结果（超长截断）。"""
+    server_id = _coerce_int(payload.get("server_id"))
+    tool_name = str(payload.get("tool_name", "")).strip()
+    arguments = payload.get("arguments", {})
+    if server_id is None:
+        return False, "MCP 工具调用缺少 server_id"
+    if not tool_name:
+        return False, "MCP 工具调用缺少 tool_name"
+    if not isinstance(arguments, dict):
+        return False, "MCP 工具参数 arguments 必须是对象"
+    # tool_name 可能是原始名，也可能（截断场景下）是 namespaced 形态：按 namespaced 还原
+    resolved = mcp_service.resolve_tool_name(db, server_id, tool_name)
+    outcome = mcp_service.call_tool(db, server_id, resolved or tool_name, arguments)
+    if outcome.get("ok"):
+        text = str(outcome.get("text", ""))
+        if len(text) > 2000:
+            text = text[:2000] + "...[已截断]"
+        return True, text or "(工具未返回文本内容)"
+    return False, str(outcome.get("error", "MCP 调用失败"))
 
 
 def _execute_import_web_resources(db: Session, payload: dict) -> tuple[bool, str]:
@@ -420,6 +685,8 @@ def _normalize_schedule_assignments(payload: dict) -> list[dict]:
                 "task_id": task_id,
                 "date": schedule_date,
                 "note": str(item.get("note") or "").strip(),
+                "start_time": item.get("start_time"),
+                "end_time": item.get("end_time"),
             }
         )
     return assignments

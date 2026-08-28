@@ -65,7 +65,9 @@ async function mockBackend(page, { tasks = [] } = {}) {
   await page.route('**/reminders/due**', async (route) =>
     json(route, { upcoming: [], overdue: [], triggered: [] })
   )
-  await page.route(/\/settings(?:$|\?)/, async (route) => json(route, []))
+  await page.route(/\/settings(?:$|\?)/, async (route) =>
+    json(route, { onboarding_done: '1', feature_habits_enabled: 'true', feature_journal_enabled: 'true', feature_goals_enabled: 'true', feature_timer_enabled: 'true' })
+  )
   await page.route('**/ai/configs**', async (route) => json(route, []))
   await page.route('**/ai/skills**', async (route) => json(route, []))
   await page.route('**/ai/conversations**', async (route) => json(route, []))

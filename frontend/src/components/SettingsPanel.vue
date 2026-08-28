@@ -8,6 +8,7 @@ import ArtIcon from './ArtIcon.vue'
 import BaseModal from './ui/BaseModal.vue'
 import { getSettings, updateSettings } from '../api/settings'
 import { exportTasksUrl, importTasksIcs } from '../api/ical'
+import { useOnboarding } from '../composables/useOnboarding'
 
 defineProps({
   open: { type: Boolean, default: false },
@@ -40,6 +41,10 @@ const closeBehavior = ref('minimize') // minimize | quit | ask
 const reportTaskLimit = ref(50)
 const reportTimeout = ref(180)
 const reportHistoryFilter = ref(true)
+// AI 排程偏好：工作时间与每日深度工作容量
+const workingHoursStart = ref('09:00')
+const workingHoursEnd = ref('18:00')
+const dailyCapacityMinutes = ref(240)
 const loading = ref(true)
 const saved = ref(false)
 let savedTimer = null
@@ -69,6 +74,9 @@ onMounted(async () => {
         reportTaskLimit.value = Number(s.report_task_limit ?? 50) || 50
         reportTimeout.value = Number(s.report_timeout_seconds ?? 180) || 180
         reportHistoryFilter.value = s.report_history_filter !== 'false'
+        workingHoursStart.value = s.working_hours_start || '09:00'
+        workingHoursEnd.value = s.working_hours_end || '18:00'
+        dailyCapacityMinutes.value = Number(s.daily_capacity_minutes ?? 240) || 240
       })
       .catch(() => {})
   )
@@ -143,6 +151,25 @@ function changeReportTaskLimit() {
 function changeReportTimeout() {
   return saveReportNumber('report_timeout_seconds', reportTimeout, 10)
 }
+
+// AI 排程偏好：工作时间字符串失焦即提交，每日容量按数值夹紧到 ≥30
+async function saveScheduleText(key, refObj) {
+  try {
+    await updateSettings({ [key]: String(refObj.value) })
+    flashSaved()
+  } catch {
+    toast.error('保存失败，请稍后重试')
+  }
+}
+function changeWorkingHoursStart() {
+  return saveScheduleText('working_hours_start', workingHoursStart)
+}
+function changeWorkingHoursEnd() {
+  return saveScheduleText('working_hours_end', workingHoursEnd)
+}
+function changeDailyCapacity() {
+  return saveReportNumber('daily_capacity_minutes', dailyCapacityMinutes, 30)
+}
 async function toggleReportHistoryFilter() {
   const next = !reportHistoryFilter.value
   reportHistoryFilter.value = next
@@ -203,6 +230,8 @@ async function onIcsPicked(event) {
 // ---- 新手引导与提示重置 ----
 // 清除所有 zs-tip-* 一次性提示键及 zs-onboarding 相关键，并把后端
 // onboarding_done 重置为 0：下次启动（且任务为空）会重新显示欢迎引导。
+// 走 useOnboarding 共享单例：重置后看板空态 overlay 立即恢复显示。
+const { reset: resetOnboardingState } = useOnboarding()
 async function resetOnboarding() {
   try {
     Object.keys(localStorage)
@@ -212,7 +241,7 @@ async function resetOnboarding() {
     // localStorage 不可用时仍尝试重置后端标记
   }
   try {
-    await updateSettings({ onboarding_done: '0' })
+    await resetOnboardingState()
     toast.success('已重置，下次启动将重新显示引导')
   } catch (e) {
     toast.error(`重置失败：${e.message}`)
@@ -370,6 +399,49 @@ async function resetOnboarding() {
           >
             <span class="knob"></span>
           </button>
+        </div>
+      </section>
+
+      <section class="row col-row report-group">
+        <div class="group-title">AI 排程偏好</div>
+        <div class="sub-row">
+          <div class="row-main">
+            <div class="row-title">工作开始时间</div>
+            <div class="row-desc">AI 排程时认定的工作时段起点（HH:MM），默认 09:00</div>
+          </div>
+          <input
+            class="num-input"
+            type="text"
+            placeholder="09:00"
+            v-model="workingHoursStart"
+            @change="changeWorkingHoursStart"
+          />
+        </div>
+        <div class="sub-row">
+          <div class="row-main">
+            <div class="row-title">工作结束时间</div>
+            <div class="row-desc">AI 排程时认定的工作时段终点（HH:MM），默认 18:00</div>
+          </div>
+          <input
+            class="num-input"
+            type="text"
+            placeholder="18:00"
+            v-model="workingHoursEnd"
+            @change="changeWorkingHoursEnd"
+          />
+        </div>
+        <div class="sub-row">
+          <div class="row-main">
+            <div class="row-title">每日深度工作容量（分钟）</div>
+            <div class="row-desc">单日深度工作的上限，AI 排程会据此避开过载，默认 240（即 4 小时）</div>
+          </div>
+          <input
+            class="num-input"
+            type="number"
+            min="30"
+            v-model.number="dailyCapacityMinutes"
+            @change="changeDailyCapacity"
+          />
         </div>
       </section>
 

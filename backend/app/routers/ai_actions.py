@@ -28,6 +28,11 @@ from app.services import (
 router = APIRouter(prefix="/ai/actions", tags=["ai-actions"])
 
 
+def _normalize_title(text: str) -> str:
+    """子任务标题归一化：忽略大小写与标点/空白差异，避免近似标题被当成新子任务重复插入。"""
+    return "".join(ch for ch in text.lower() if ch.isalnum())
+
+
 class BreakdownRequest(BaseModel):
     task_id: int
 
@@ -71,16 +76,20 @@ async def breakdown_subtasks(payload: BreakdownRequest, db: Session = Depends(ge
     config = _enabled_config(db)
     if config is None:
         raise HTTPException(status_code=400, detail="未启用 AI 配置，请先在助手中配置模型")
-    if task.subtasks:
-        raise HTTPException(status_code=409, detail="该任务已有子任务，请先清理后再拆解")
 
+    existing_titles = [s.title for s in task.subtasks]
     system = (
-        "你是任务拆解专家。把用户给出的任务拆成 3-6 个具体、可执行、有先后顺序的子任务。"
-        "每个子任务一句话、动词开头、可在一次专注内完成。只输出 JSON。"
+        "你是任务拆解专家。把用户给出的任务拆成 3-6 个可立即执行的子任务。要求：\n"
+        "1. 先分析完成该任务需要哪些环节和产出物，再据此拆步；\n"
+        "2. 每个子任务一句话、动词开头，有明确产出物（写完什么/整理好什么/发出什么）；"
+        "禁止用「准备」「着手」「跟进」「完善」这类空泛动词充数；\n"
+        "3. 粒度：每个子任务 30-90 分钟可完成；任务本身就小则少拆，不硬凑；\n"
+        "4. 顺序即执行顺序，第一步必须是能立刻开始的具体动作。只输出 JSON。"
     )
     user = (
         f"任务标题：{task.title}\n备注：{task.notes or '无'}\n"
-        f"截止：{task.due_date.isoformat() if task.due_date else '无'}\n"
+        f"截止：{task.due_date.isoformat() if task.due_date else '无'}，优先级 {task.priority}\n"
+        f"已有子任务：{existing_titles or '无'}（不要与已有子任务重复，只补充缺失的环节）\n"
         '输出格式：{"subtasks": ["步骤一", "步骤二", ...]}'
     )
     result = await ai_oneshot_service.generate_json(db, config, system, user, kind="inline")
@@ -88,8 +97,10 @@ async def breakdown_subtasks(payload: BreakdownRequest, db: Session = Depends(ge
         str(t).strip()
         for t in (result or {}).get("subtasks", [])
         if isinstance(t, str) and str(t).strip()
-    ][:6]
-    if not titles:
+    ]
+    existing_norm = {_normalize_title(t) for t in existing_titles}
+    titles = [t for t in titles if _normalize_title(t) not in existing_norm][:6]
+    if not titles and not existing_titles:
         raise HTTPException(status_code=502, detail="AI 未能给出有效拆解，请换个问法或稍后再试")
     created = [
         subtask_service.create_subtask(db, task.id, SubtaskCreate(title=title))
@@ -119,20 +130,27 @@ async def schedule_task(payload: ScheduleTaskRequest, db: Session = Depends(get_
         if config is None:
             raise HTTPException(status_code=400, detail="未启用 AI 配置，请先在助手中配置模型")
         today = date_type.today()
-        month = schedule_service.get_month_schedule(db, today.year, today.month)
-        pressure = {
-            day.date.isoformat(): day.total_count for day in month.days
-        }
-        days = [today + timedelta(days=i) for i in range(7)]
+        load_days = schedule_service.get_range_load(db, today, 7)
+        capacity = app_setting_service.daily_capacity_minutes(db)
+        work_start, work_end = app_setting_service.working_hours(db)
         system = (
-            "你是日程规划秘书。根据任务截止日与未来 7 天每日负载，为任务选一个最合适的日子。"
-            "原则：不晚于截止日、避开高负载日、重要任务尽早。只输出 JSON。"
+            "你是日程规划秘书。根据任务信息与未来 7 天每日已排内容，为任务选一个最合适的日子。"
+            "原则：不晚于截止日且尽量预留缓冲；预估时长大的任务安排在负载轻的日子；"
+            f"重要任务尽早；用户工作时段 {work_start}-{work_end}，"
+            f"每天深度工作总量不宜超过 {capacity} 分钟。只输出 JSON。"
+        )
+        load_text = "\n".join(
+            f"  {d['date']} 周{d['weekday']}：已排 {d['count']} 项、约 {d['total_minutes']} 分钟"
+            + ("：" + "、".join(f"{it['title']}({it['estimated_minutes'] or '?'}分钟)" for it in d["items"][:5]) if d["items"] else "")
+            for d in load_days
         )
         user = (
-            f"今天：{today.isoformat()}\n"
+            f"今天：{today.isoformat()} 周{'一二三四五六日'[today.weekday()]}\n"
             f"任务：{task.title}（优先级 {task.priority}，截止 "
-            f"{task.due_date.isoformat() if task.due_date else '无'}）\n"
-            f"候选日期与当前负载：{ {d.isoformat(): pressure.get(d.isoformat(), 0) for d in days} }\n"
+            f"{task.due_date.isoformat() if task.due_date else '无'}，"
+            f"预估 {task.estimated_minutes or '?'} 分钟）\n"
+            f"备注：{task.notes or '无'}\n"
+            f"未来 7 天每日已排：\n{load_text}\n"
             '输出格式：{"date": "YYYY-MM-DD", "reason": "一句话理由"}'
         )
         result = await ai_oneshot_service.generate_json(db, config, system, user, kind="inline")
@@ -140,7 +158,7 @@ async def schedule_task(payload: ScheduleTaskRequest, db: Session = Depends(get_
             target = date_type.fromisoformat(str((result or {}).get("date", "")))
         except ValueError:
             target = None
-        if target is None or target < today or target > today + timedelta(days=7):
+        if target is None or target < today or target > today + timedelta(days=6):
             raise HTTPException(status_code=502, detail="AI 未能给出合适的日期，请手动选择")
         note = str((result or {}).get("reason") or "AI 排程")[:200]
 

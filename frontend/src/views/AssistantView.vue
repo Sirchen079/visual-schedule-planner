@@ -1,9 +1,10 @@
 <script setup>
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue'
 import {
   confirmAiAction,
   createAiConfig,
   createAiSkill,
+  disableAiSkills,
   enableAiConfig,
   enableAiSkill,
   executeAiAction,
@@ -15,7 +16,16 @@ import {
   listAiSkills,
   renameConversation,
   deleteConversation,
-  sendAiChat,
+  rejectAiAction,
+  approveAiPlan,
+  streamAiApprovePlan,
+  rejectAiPlan,
+  createAiGrant,
+  listAiGrants,
+  deleteAiGrant,
+  streamAiChat,
+  streamAiResume,
+  cancelAiChat,
   testAiConfig,
   updateAiConfig,
   updateAiSkill,
@@ -45,6 +55,8 @@ const messages = ref([])
 const input = ref('')
 const conversationId = ref(null)
 const busy = ref(false)
+// 阶段 C1：会话模式 chat=正常对话；plan=计划模式（只读调研 + propose_plan 收尾）
+const chatMode = ref('chat')
 const loading = ref(false)
 const error = ref('')
 const notice = ref('')
@@ -74,6 +86,14 @@ let fabDragging = false
 const FAB_DRAG_THRESHOLD = 4
 const previousFocus = ref(null)
 const chatAbortController = ref(null)
+// 当前流式 agent run 的 id（meta 帧下发），用于中断链路：停止按钮调 /ai/chat/cancel
+const activeRunId = ref(null)
+// 运行状态行（阶段 1/2）：状态文案 + 已用秒数 + 累计 token 用量，仅 busy 期间有意义
+const runStatus = ref('')
+const runStartTs = ref(0)
+const runElapsed = ref(0)
+const runUsage = ref(null)
+let runElapsedTimer = null
 
 // 助手模式：assistant=知时助手（原版问答式）/ agent=知时代理（主动代劳的秘书）
 const STOCK_NAMES = ['知时助手', '知时代理']
@@ -115,6 +135,7 @@ function parseMessageBlocks(content) {
   const blocks = []
   let paragraph = []
   let list = []
+  let ordered = []
 
   const flushParagraph = () => {
     if (!paragraph.length) return
@@ -126,32 +147,147 @@ function parseMessageBlocks(content) {
     blocks.push({ type: 'list', items: list })
     list = []
   }
+  const flushOrdered = () => {
+    if (!ordered.length) return
+    blocks.push({ type: 'ordered', items: ordered })
+    ordered = []
+  }
+  const flushAll = () => {
+    flushParagraph()
+    flushList()
+    flushOrdered()
+  }
 
   for (const rawLine of lines) {
     const line = rawLine.trim()
-    const item = line.match(/^[-*]\s+(.+)$/)
     if (!line) {
-      flushParagraph()
-      flushList()
-    } else if (item) {
-      flushParagraph()
-      list.push(item[1])
-    } else {
-      flushList()
-      paragraph.push(line)
+      flushAll()
+      continue
     }
+    // heading：### / ## / # （# 后须有空格，避免误匹配话题标签）
+    const heading = line.match(/^(#{1,3})\s+(.+)$/)
+    if (heading) {
+      flushAll()
+      blocks.push({ type: 'heading', level: heading[1].length, lines: [tokenizeInline(heading[2])] })
+      continue
+    }
+    // quote：> 文本
+    const quoteMatch = line.match(/^>\s*(.*)$/)
+    if (quoteMatch) {
+      flushAll()
+      blocks.push({ type: 'quote', lines: [tokenizeInline(quoteMatch[1] || '')] })
+      continue
+    }
+    // unordered list：- 或 * 后跟空格
+    const item = line.match(/^[-*]\s+(.+)$/)
+    if (item) {
+      flushParagraph()
+      flushOrdered()
+      list.push(tokenizeInline(item[1]))
+      continue
+    }
+    // ordered list：1. / 2. 后跟空格
+    const orderedItem = line.match(/^\d+[.)]\s+(.+)$/)
+    if (orderedItem) {
+      flushParagraph()
+      flushList()
+      ordered.push(tokenizeInline(orderedItem[1]))
+      continue
+    }
+    // 普通段落行
+    flushList()
+    flushOrdered()
+    paragraph.push(tokenizeInline(line))
   }
 
-  flushParagraph()
-  flushList()
+  flushAll()
   return blocks
 }
 
+// 行内 Markdown tokenize：把单行拆成 segments 数组，供模板用 v-for + {{ }} 渲染（不用 v-html）。
+// 支持：**bold** / `code` / [text](url)。未匹配的文本作为 text segment。
+function tokenizeInline(text) {
+  const segments = []
+  // 合并正则：按出现顺序匹配三种语法
+  const regex = /(\*\*([^*]+)\*\*)|(`([^`]+)`)|(\[([^\]]+)\]\(([^)\s]+)\))/g
+  let lastIndex = 0
+  let match
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ type: 'text', text: text.slice(lastIndex, match.index) })
+    }
+    if (match[1]) {
+      segments.push({ type: 'bold', text: match[2] })
+    } else if (match[3]) {
+      segments.push({ type: 'code', text: match[4] })
+    } else if (match[5]) {
+      segments.push({ type: 'link', text: match[6], href: match[7] })
+    }
+    lastIndex = regex.lastIndex
+  }
+  if (lastIndex < text.length) {
+    segments.push({ type: 'text', text: text.slice(lastIndex) })
+  }
+  // 单段纯文本时返回字符串，兼容「无格式」快路径
+  if (segments.length === 1 && segments[0].type === 'text') return segments[0].text
+  return segments.length ? segments : text
+}
+
 function createMessage(message) {
+  // meta 在后端是 JSON 字符串或对象（AIMessage.meta）；统一解析成对象，方便 AssistantMessage 读取 usage/elapsed
+  let meta = message?.meta
+  if (typeof meta === 'string') {
+    try { meta = meta ? JSON.parse(meta) : {} } catch { meta = {} }
+  }
+  meta = meta || {}
   return {
     ...message,
+    meta,
+    // 历史消息的思维链存在 meta.reasoning：提升到顶层，与流式期间累积的 msg.reasoning 同一位
+    reasoning:
+      typeof message?.reasoning === 'string' && message.reasoning
+        ? message.reasoning
+        : meta.reasoning || '',
     blocks: message.content?.trim() ? parseMessageBlocks(message.content) : [],
   }
+}
+
+// ---- 运行状态行（阶段 1/2）：随 SSE 事件推进文案 + 实时计时 + token 累加 ----
+function startRunStatus() {
+  runStatus.value = '正在思考…'
+  runStartTs.value = Date.now()
+  runElapsed.value = 0
+  runUsage.value = null
+  if (runElapsedTimer) window.clearInterval(runElapsedTimer)
+  runElapsedTimer = window.setInterval(() => {
+    if (runStartTs.value) runElapsed.value = Math.floor((Date.now() - runStartTs.value) / 1000)
+  }, 1000)
+}
+
+function stopRunStatus() {
+  if (runElapsedTimer) { window.clearInterval(runElapsedTimer); runElapsedTimer = null }
+  runStatus.value = ''
+  runStartTs.value = 0
+}
+
+function toolFriendlyName(name) {
+  const n = String(name || '')
+  const MAP = {
+    list_tasks: '查看任务', create_task: '创建任务', list_reminders: '查看提醒',
+    create_reminder: '创建提醒', list_files: '查看资料', create_note_file: '创建资料',
+    create_subtask: '创建子任务', create_subtasks: '创建子任务', list_subtasks: '查看子任务',
+    attach_file_to_task: '关联资料', save_attachment_to_library: '保存附件',
+    list_day_schedule: '查看日程', list_month_schedule: '查看月度日程', assign_task_to_day: '安排日程',
+    list_habits: '查看习惯', create_habit: '创建习惯', check_in_habit: '习惯打卡',
+    list_journal_entries: '查看日记', write_journal: '写日记',
+    list_goals: '查看目标', create_goal: '创建目标', update_kr_progress: '更新 KR 进度',
+    start_timer: '开始计时', stop_timer: '停止计时',
+    update_task: '更新任务', update_file_notes: '更新资料备注',
+    auto_plan_tasks: '自动排程', bulk_assign_tasks_to_days: '批量安排日程',
+  }
+  if (MAP[n]) return MAP[n]
+  if (n.startsWith('mcp__')) return `MCP·${n.split('__').pop() || n}`
+  return n || '工具'
 }
 
 function defaultConfig() {
@@ -171,6 +307,7 @@ function defaultConfig() {
     search_enhancement_enabled: false,
     price_input: '',
     price_output: '',
+    show_reasoning: true,
   }
 }
 
@@ -195,6 +332,7 @@ function configToForm(config) {
     search_enhancement_enabled: Boolean(config.search_enhancement_enabled),
     price_input: Number(config.price_input) > 0 ? String(config.price_input) : '',
     price_output: Number(config.price_output) > 0 ? String(config.price_output) : '',
+    show_reasoning: config.show_reasoning !== false,
   }
 }
 
@@ -240,6 +378,7 @@ function configPayload({ includeConfigId = false } = {}) {
     search_enhancement_enabled: configForm.value.search_enhancement_enabled,
     price_input: priceValue(configForm.value.price_input),
     price_output: priceValue(configForm.value.price_output),
+    show_reasoning: configForm.value.show_reasoning !== false,
     active_skill_id: activeSkillId.value || null,
   }
   if (configForm.value.api_key.trim()) payload.api_key = configForm.value.api_key.trim()
@@ -470,7 +609,9 @@ function closeAssistant() {
     emit('collapse')
     return
   }
-  chatAbortController.value?.abort()
+  // Esc/关闭按钮只关窗，不杀请求（阶段 5 职责分离）：
+  // 进行中的 agent run 由「停止」按钮显式中断；关窗后流仍在后台跑，
+  // 重新打开窗口仍能看到增量。组件卸载时才 abort（onBeforeUnmount）。
   open.value = false
   dragState.value = null
   previousFocus.value?.focus?.()
@@ -561,6 +702,7 @@ function startNewChat() {
   input.value = ''
   chatAttachments.value = []
   pendingTokens.value = {}
+  savePendingTokens()
   failedChatText.value = ''
   assistantMode.value = 'chat'
   notice.value = '已开始新聊天'
@@ -568,7 +710,8 @@ function startNewChat() {
 }
 
 async function openConversation(row) {
-  if (!row || busy.value || uploadingFiles.value || attachingFiles.value) return
+  // 等待期允许翻历史/切换会话查看（只读），不阻塞进行中的请求
+  if (!row || uploadingFiles.value || attachingFiles.value) return
   historyLoading.value = true
   error.value = ''
   try {
@@ -576,7 +719,14 @@ async function openConversation(row) {
     conversationId.value = data.id
     messages.value = (data.messages || []).map(createMessage)
     chatAttachments.value = []
-    pendingTokens.value = {}
+    // 恢复该会话持久化的 token，只保留仍处于 pending/confirmed 态的 action
+    const activeActionIds = []
+    for (const msg of data.messages || []) {
+      for (const act of msg.pending_actions || []) {
+        if (act.status === 'pending' || act.status === 'confirmed') activeActionIds.push(act.id)
+      }
+    }
+    pendingTokens.value = loadPendingTokens(activeActionIds)
     failedChatText.value = ''
     assistantMode.value = 'chat'
     await scrollMessagesToBottom()
@@ -655,6 +805,21 @@ function selectSkill(skill) {
 function newSkill() {
   selectedSkillId.value = null
   skillForm.value = defaultSkill()
+}
+
+async function disableSkills() {
+  busy.value = true
+  error.value = ''
+  try {
+    await disableAiSkills()
+    activeSkillId.value = null
+    selectedSkillId.value = null
+    await load()
+  } catch (err) {
+    error.value = err.message || '停用失败'
+  } finally {
+    busy.value = false
+  }
 }
 
 async function saveConfig() {
@@ -757,9 +922,7 @@ async function enableSkill(skill, { manageBusy = true } = {}) {
     const enabled = await enableAiSkill(skill.id)
     activeSkillId.value = enabled.id
     selectedSkillId.value = enabled.id
-    if (activeConfig.value) {
-      await updateAiConfig(activeConfig.value.id, { active_skill_id: enabled.id })
-    }
+    // 后端 enable_skill 已写 active_skill_id，无需再调 updateAiConfig（FIX-8 去重复写入）
     await load()
     return true
   } catch (err) {
@@ -803,39 +966,229 @@ async function sendChatText(text, { restoreToInput = false, attachments = [] } =
   await scrollMessagesToBottom()
   busy.value = true
   error.value = ''
-  const controller = new AbortController()
-  chatAbortController.value = controller
-  try {
-    const res = await sendAiChat(
-      {
-        conversation_id: conversationId.value,
-        message: cleanText,
-        attachments: attachments.map((file) => ({ id: file.id })),
-      },
-      { signal: controller.signal }
-    )
-    conversationId.value = res.conversation_id
-    failedChatText.value = ''
-    messages.value.push(createMessage({
-      role: 'assistant',
-      content: res.reply || '已处理',
-      tool_results: res.tool_results || [],
-      pending_actions: res.pending_actions || [],
-    }))
-    await scrollMessagesToBottom()
-    emit('changed')
-    return true
-  } catch (err) {
+
+  // 阶段 FU-2.1：抽出共享 SSE 消费核心，approve_plan 复跑也复用同一套 onEvent 渲染。
+  // runAgentStream 返回 { ok, assistantIndex }；调用方负责前置消息 push 与失败回滚。
+  const ok = await runAgentStream(({ signal, onEvent }) => streamAiChat(
+    {
+      conversation_id: conversationId.value,
+      message: cleanText,
+      attachments: attachments.map((file) => ({ id: file.id })),
+      mode: chatMode.value,
+    },
+    { signal, onEvent },
+  ))
+
+  if (!ok) {
+    // 失败：移除用户消息占位、恢复输入
     messages.value.splice(messageIndex, 1)
     if (restoreToInput && !input.value.trim()) input.value = text || ''
+    if (restoreToInput) failedChatText.value = text || ''
+    return false
+  }
+  failedChatText.value = ''
+  return true
+}
+
+// 阶段 FU-2.1：共享 SSE 消费核心——创建 assistant 占位、消费事件流、done 落稳。
+// streamFn: (opts) => Promise；opts = { signal, onEvent }。
+// 返回 true=成功落稳，false=失败/中断（调用方按需回滚用户消息）。
+async function runAgentStream(streamFn) {
+  const controller = new AbortController()
+  chatAbortController.value = controller
+  // 流式：push 占位 assistant 消息，text_delta 追加（节流渲染），tool 卡片增量，
+  // done 帧权威替换为最终 reply/tool_results/pending_actions。
+  const placeholder = createMessage({
+    role: 'assistant',
+    content: '',
+    streaming: true,
+    tool_results: [],
+    pending_actions: [],
+  })
+  const assistantIndex = messages.value.push(placeholder) - 1
+  let streamBuffer = ''
+  let reasoningBuffer = ''
+  let pendingRenderTimer = null
+  const flushRender = () => {
+    pendingRenderTimer = null
+    const msg = messages.value[assistantIndex]
+    if (!msg) return
+    msg.content = streamBuffer
+    msg.blocks = streamBuffer.trim() ? parseMessageBlocks(streamBuffer) : []
+    if (reasoningBuffer) msg.reasoning = reasoningBuffer
+  }
+  const scheduleRender = () => {
+    if (pendingRenderTimer) return
+    pendingRenderTimer = window.setTimeout(flushRender, 50)
+  }
+  // tool 卡片：按 call_id 聚合，tool_call_start 建卡(running)，tool_result 就地更新
+  const toolCardsByCallId = new Map()
+  // 流中断/出错兜底：把仍在转圈的"执行中"卡片统一标记为已中断，避免无限旋转
+  const settleRunningCards = () => {
+    let touched = false
+    for (const card of toolCardsByCallId.values()) {
+      if (card._running) {
+        card._running = false
+        card.result = { ok: false, error: '已中断' }
+        touched = true
+      }
+    }
+    if (touched) {
+      const msg = messages.value[assistantIndex]
+      if (msg) msg.tool_results = [...toolCardsByCallId.values()]
+    }
+  }
+  // 当前 run 工具名 → 进行中的调用数（用于 pending_confirmation 时统计"等待确认 N 项"）
+  let runningToolCount = 0
+  let pendingConfirmCount = 0
+
+  // 发送即启动状态行：从"正在思考…"开始，随事件推进
+  startRunStatus()
+
+  try {
+    await streamFn({
+      signal: controller.signal,
+      onEvent: (event, data) => {
+        const msg = messages.value[assistantIndex]
+        if (!msg || toRaw(msg) !== placeholder) return
+        if (event === 'meta') {
+          if (data?.conversation_id) conversationId.value = data.conversation_id
+          if (data?.run_id) activeRunId.value = data.run_id
+        } else if (event === 'text_delta') {
+          streamBuffer += data?.delta || ''
+          scheduleRender()
+          // 正文本身即反馈：清除状态行（若因 tool_call_start 设过"正在调用…"）
+          runStatus.value = ''
+        } else if (event === 'reasoning_delta') {
+          // 思维链增量（阶段 3）：累积到独立缓冲，随 50ms 节流统一渲染（与正文同节奏）
+          if (data?.delta) {
+            reasoningBuffer += data.delta
+            scheduleRender()
+          }
+        } else if (event === 'usage') {
+          // token 累计（阶段 2）：provider 回了就显示，没回（null/0）保持不显示
+          if (data && Number(data.total_tokens) > 0) {
+            runUsage.value = {
+              prompt_tokens: Number(data.prompt_tokens) || 0,
+              completion_tokens: Number(data.completion_tokens) || 0,
+              total_tokens: Number(data.total_tokens) || 0,
+            }
+          }
+        } else if (event === 'tool_call_start') {
+          const callId = String(data?.call_id || `tc_${toolCardsByCallId.size}`)
+          // 同一 call_id 会收到两次（先 name 后 args）：已存在则更新 args，否则建卡
+          const existing = toolCardsByCallId.get(callId)
+          if (existing) {
+            if (data?.args && Object.keys(data.args).length) existing.args = data.args
+          } else {
+            toolCardsByCallId.set(callId, {
+              tool: data?.name || '',
+              args: {},
+              result: { ok: false, pending: true },
+              _callId: callId,
+              _running: true,
+            })
+            runningToolCount += 1
+          }
+          msg.tool_results = [...toolCardsByCallId.values()]
+          // 状态行：显示正在调用的工具（仅第一帧设，args 补发帧不覆盖）
+          if (data?.name) runStatus.value = `正在调用 ${toolFriendlyName(data.name)}…`
+        } else if (event === 'tool_result') {
+          const callId = String(data?.call_id || '')
+          let card = toolCardsByCallId.get(callId)
+          if (!card) {
+            card = { tool: data?.name || '', args: {}, _callId: callId }
+            toolCardsByCallId.set(callId, card)
+          }
+          if (card._running) runningToolCount = Math.max(0, runningToolCount - 1)
+          card._running = false
+          card.result = {
+            ok: !!data?.ok,
+            skipped: !!data?.skipped,
+            pending: !!data?.pending,
+            error: data?.error,
+            preview: data?.preview,
+          }
+          msg.tool_results = [...toolCardsByCallId.values()]
+        } else if (event === 'pending_confirmation') {
+          // 危险操作等待确认：后端发 {step, actions:[...]}，数量取 actions.length（此前误读不存在的 count 字段）
+          const actionCount = Array.isArray(data?.actions) ? data.actions.length : 0
+          pendingConfirmCount = actionCount || pendingConfirmCount + 1
+          runStatus.value = `等待你确认 ${pendingConfirmCount} 项操作…`
+        } else if (event === 'plan_proposed') {
+          // 阶段 C1：plan 模式 agent 提交计划卡片 → 写入当前 assistant 消息，供 PlanCard 渲染
+          if (data?.plan_card) msg.plan_card = data.plan_card
+        } else if (event === 'work_plan') {
+          // 阶段 C2：工作清单更新 → 写入当前 assistant 消息（最后一次覆盖）
+          if (Array.isArray(data?.items)) msg.work_plan = data.items
+        } else if (event === 'step_finish') {
+          // 一步结束、下一轮开始：若此时正文缓冲仍空，回落到"正在思考…"
+          if (!streamBuffer.trim() && runningToolCount === 0) runStatus.value = '正在思考…'
+        } else if (event === 'done') {
+          // 权威收敛帧：替换占位为最终态
+          if (pendingRenderTimer) { clearTimeout(pendingRenderTimer); pendingRenderTimer = null }
+          flushRender()
+          if (data?.reasoning) msg.reasoning = data.reasoning
+          msg.streaming = false
+          msg.content = data?.reply ?? streamBuffer
+          msg.blocks = msg.content?.trim() ? parseMessageBlocks(msg.content) : []
+          const finalTools = Array.isArray(data?.tool_results) && data.tool_results.length
+            ? data.tool_results
+            : [...toolCardsByCallId.values()].map(({ tool, args, result }) => ({ tool, args, result }))
+          msg.tool_results = finalTools
+          msg.pending_actions = data?.pending_actions || []
+          // 定格 usage/耗时到消息 meta（阶段 2/3）：历史消息刷新后仍可见
+          const meta = msg.meta || {}
+          if (data?.usage) meta.usage = data.usage
+          else if (runUsage.value) meta.usage = runUsage.value
+          if (data?.elapsed_ms) meta.elapsed_ms = data.elapsed_ms
+          else if (runStartTs.value) meta.elapsed_ms = Date.now() - runStartTs.value
+          if (data?.reasoning) meta.reasoning = data.reasoning
+          if (Object.keys(meta).length) msg.meta = meta
+        } else if (event === 'error') {
+          msg.streaming = false
+          if (streamBuffer) {
+            msg.content = streamBuffer
+            msg.blocks = streamBuffer.trim() ? parseMessageBlocks(streamBuffer) : []
+          } else {
+            msg.content = data?.message || '处理失败'
+            msg.blocks = parseMessageBlocks(msg.content)
+          }
+          if (data?.message) error.value = data.message
+          settleRunningCards()
+        }
+      },
+    })
+    await scrollMessagesToBottom()
+    const finalMsg = messages.value[assistantIndex]
+    const domains = domainsFromToolResults(finalMsg?.tool_results || [])
+    if (finalMsg?.pending_actions?.length) domains?.push?.('resume')
+    emit('changed', domains)
+    return true
+  } catch (err) {
+    // 流式中断/失败：保留已收到的增量文本，标记非 streaming
+    const msg = messages.value[assistantIndex]
+    settleRunningCards()
+    if (msg) {
+      msg.streaming = false
+      if (streamBuffer) {
+        msg.content = streamBuffer
+        msg.blocks = streamBuffer.trim() ? parseMessageBlocks(streamBuffer) : []
+      } else if (controller.signal.aborted) {
+        msg.content = '（已中断）'
+        msg.blocks = parseMessageBlocks('（已中断）')
+      }
+      // 非中断的失败：占位若已有部分内容则保留（展示错误上下文）；空占位由调用方在回滚用户消息时一并清理
+    }
     if (!controller.signal.aborted) {
       error.value = apiMessage(err)
-      // 手动发送失败的原文记录下来，对话区显示「重试」条，可一键重发同一条
-      if (restoreToInput) failedChatText.value = text || ''
     }
     return false
   } finally {
+    if (pendingRenderTimer) { clearTimeout(pendingRenderTimer); pendingRenderTimer = null }
     if (chatAbortController.value === controller) chatAbortController.value = null
+    activeRunId.value = null
+    stopRunStatus()
     busy.value = false
   }
 }
@@ -848,6 +1201,22 @@ async function send() {
   chatAttachments.value = []
   const ok = await sendChatText(text, { restoreToInput: true, attachments })
   if (!ok && !chatAttachments.value.length) chatAttachments.value = attachments
+}
+
+// 停止当前 agent run：先请求后端中断（阻止继续烧 token），再 abort fetch 流。
+// 中断是安全方向（已执行的副作用不回滚，仅停止后续步骤）。
+async function stopChat() {
+  const runId = activeRunId.value
+  // 先请求后端中断（阻止继续烧 token + 让后端落库 interrupted），再 abort fetch。
+  // 顺序关键：若先 abort，服务端检测到 disconnect 会直接关闭生成器，已累积进度不落库。
+  if (runId) {
+    try {
+      await cancelAiChat(runId)
+    } catch {
+      // 中断请求失败不阻塞，下面仍 abort fetch
+    }
+  }
+  chatAbortController.value?.abort()
 }
 
 // 重发上一条发送失败的消息；若输入框仍是当时恢复的原文则清掉，避免重复发送
@@ -914,7 +1283,7 @@ async function onChatFiles(event) {
   if (!uploaded.length) return
   if (instruction && input.value.trim() === instruction) input.value = ''
   notice.value = `已上传 ${uploaded.length} 个资料`
-  emit('changed')
+  emit('changed', ['files'])
   const text = uploadedFilesPrompt(uploaded, instruction)
   if (hasEnabledConfig.value) {
     await sendChatText(text)
@@ -927,6 +1296,17 @@ async function onChatFiles(event) {
   }
 }
 
+// 阶段 D1：首次确认时若勾选「以后都允许」，先创建 grant（不阻断确认主流程，失败仅 toast）
+async function grantAction({ toolName }) {
+  try {
+    await createAiGrant(toolName, '')
+    notice.value = `已允许「${toolName}」类操作以后自动执行`
+  } catch (err) {
+    // 授权失败不阻断确认主流程
+    toast?.error?.(`授权保存失败：${apiMessage(err)}`)
+  }
+}
+
 async function firstConfirm(action) {
   if (busy.value) return
   busy.value = true
@@ -934,6 +1314,7 @@ async function firstConfirm(action) {
   try {
     const res = await confirmAiAction(action.id)
     pendingTokens.value = { ...pendingTokens.value, [action.id]: res.confirm_token }
+    savePendingTokens()
     if (res.action) updatePendingAction(action.id, res.action)
   } catch (err) {
     error.value = apiMessage(err)
@@ -955,11 +1336,338 @@ async function secondConfirm(action) {
     const nextTokens = { ...pendingTokens.value }
     delete nextTokens[action.id]
     pendingTokens.value = nextTokens
-    emit('changed')
+    savePendingTokens()
+    emit('changed', domainsForAction(action))
+    // 确认后尝试回灌续跑（若该轮有被暂缓的 safe 工具或模型需基于确认结果继续）
+    await tryResumeConversation()
   } catch (err) {
     error.value = apiMessage(err)
   } finally {
     busy.value = false
+  }
+}
+
+async function rejectAction(action) {
+  if (busy.value) return
+  busy.value = true
+  error.value = ''
+  try {
+    const res = await rejectAiAction(action.id)
+    if (res.action) updatePendingAction(action.id, res.action)
+    else updatePendingAction(action.id, { status: 'rejected' })
+    const nextTokens = { ...pendingTokens.value }
+    delete nextTokens[action.id]
+    pendingTokens.value = nextTokens
+    savePendingTokens()
+    await scrollMessagesToBottom()
+    // 拒绝后同样尝试续跑，让模型得知「用户拒绝了该操作」并给出收尾回复
+    await tryResumeConversation()
+  } catch (err) {
+    error.value = apiMessage(err)
+  } finally {
+    busy.value = false
+  }
+}
+
+// 阶段 FU-2.1：批准计划——走 SSE 流式（工具卡片/工作清单实时呈现），与聊天主流体验一致。
+// 复用 runAgentStream 的 onEvent 渲染；SSE 异常时回落非流式 approveAiPlan。
+// approve 后强制切回 chat 模式（计划执行本身在 chat 模式下走 confirm 闸门）。
+async function approvePlan({ messageId, steps }) {
+  if (busy.value) return
+  chatMode.value = 'chat'
+  busy.value = true
+  error.value = ''
+  // 推一条用户消息：标注「按已批准计划执行」，让对话流可读
+  messages.value.push(createMessage({ role: 'user', content: '按已批准的计划执行' }))
+  await scrollMessagesToBottom()
+  const ok = await runAgentStream(({ signal, onEvent }) => streamAiApprovePlan(messageId, steps, { signal, onEvent }))
+  if (!ok) {
+    // 流式失败：回落非流式（降级通道，保证 approve 至少能完成）
+    try {
+      const res = await approveAiPlan(messageId, steps)
+      messages.value.push({
+        role: 'assistant',
+        content: res.reply || '计划已执行',
+        blocks: (res.reply || '').trim() ? parseMessageBlocks(res.reply) : [],
+        tool_results: res.tool_results || [],
+        pending_actions: res.pending_actions || [],
+        usage: res.usage || null,
+      })
+      for (const action of res.pending_actions || []) {
+        pendingTokens.value[action.id] = null
+      }
+      savePendingTokens()
+      await scrollMessagesToBottom()
+    } catch (err) {
+      error.value = apiMessage(err)
+    }
+  } else {
+    // 流式成功：done 帧已落稳 pending_actions，同步 pending tokens
+    const last = messages.value[messages.value.length - 1]
+    for (const action of last?.pending_actions || []) {
+      pendingTokens.value[action.id] = null
+    }
+    savePendingTokens()
+  }
+}
+
+// 阶段 C1：拒绝计划——标记 rejected，不执行任何步骤，回一句话。
+async function rejectPlan({ messageId, reason }) {
+  if (busy.value) return
+  busy.value = true
+  error.value = ''
+  try {
+    await rejectAiPlan(messageId, reason)
+    // 更新对应消息的 plan_card 状态
+    const msg = messages.value.find((m) => m.id === messageId)
+    if (msg?.plan_card) msg.plan_card.status = 'rejected'
+    await scrollMessagesToBottom()
+  } catch (err) {
+    error.value = apiMessage(err)
+  } finally {
+    busy.value = false
+  }
+}
+
+// 确认/拒绝后回灌续跑（流式）：后端若无 checkpoint 或仍有 pending 则 done 帧 resumed:false（静默），
+// resumed:true 时把续跑回复作为新 assistant 气泡流式追加。失败不阻塞确认/拒绝主流程。
+async function tryResumeConversation() {
+  if (!conversationId.value) return
+  const controller = new AbortController()
+  chatAbortController.value = controller
+  const placeholder = createMessage({
+    role: 'assistant',
+    content: '',
+    streaming: true,
+    tool_results: [],
+    pending_actions: [],
+  })
+  const assistantIndex = messages.value.push(placeholder) - 1
+  let streamBuffer = ''
+  let reasoningBuffer = ''
+  let pendingRenderTimer = null
+  const flushRender = () => {
+    pendingRenderTimer = null
+    const msg = messages.value[assistantIndex]
+    if (!msg) return
+    msg.content = streamBuffer
+    msg.blocks = streamBuffer.trim() ? parseMessageBlocks(streamBuffer) : []
+    if (reasoningBuffer) msg.reasoning = reasoningBuffer
+  }
+  const scheduleRender = () => {
+    if (pendingRenderTimer) return
+    pendingRenderTimer = window.setTimeout(flushRender, 50)
+  }
+  const toolCardsByCallId = new Map()
+  // 流中断/出错兜底：把仍在转圈的"执行中"卡片统一标记为已中断，避免无限旋转
+  const settleRunningCards = () => {
+    let touched = false
+    for (const card of toolCardsByCallId.values()) {
+      if (card._running) {
+        card._running = false
+        card.result = { ok: false, error: '已中断' }
+        touched = true
+      }
+    }
+    if (touched) {
+      const msg = messages.value[assistantIndex]
+      if (msg) msg.tool_results = [...toolCardsByCallId.values()]
+    }
+  }
+  let runningToolCount = 0
+  let pendingConfirmCount = 0
+  startRunStatus()
+  try {
+    await streamAiResume(conversationId.value, {
+      signal: controller.signal,
+      onEvent: (event, data) => {
+        const msg = messages.value[assistantIndex]
+        if (!msg || toRaw(msg) !== placeholder) return
+        if (event === 'meta') {
+          if (data?.run_id) activeRunId.value = data.run_id
+        } else if (event === 'text_delta') {
+          streamBuffer += data?.delta || ''
+          scheduleRender()
+          runStatus.value = ''
+        } else if (event === 'reasoning_delta') {
+          if (data?.delta) {
+            reasoningBuffer += data.delta
+            scheduleRender()
+          }
+        } else if (event === 'usage') {
+          if (data && Number(data.total_tokens) > 0) {
+            runUsage.value = {
+              prompt_tokens: Number(data.prompt_tokens) || 0,
+              completion_tokens: Number(data.completion_tokens) || 0,
+              total_tokens: Number(data.total_tokens) || 0,
+            }
+          }
+        } else if (event === 'tool_call_start') {
+          const callId = String(data?.call_id || `tc_${toolCardsByCallId.size}`)
+          const existing = toolCardsByCallId.get(callId)
+          if (existing) {
+            if (data?.args && Object.keys(data.args).length) existing.args = data.args
+          } else {
+            toolCardsByCallId.set(callId, {
+              tool: data?.name || '', args: {}, _callId: callId, _running: true,
+              result: { ok: false, pending: true },
+            })
+            runningToolCount += 1
+          }
+          msg.tool_results = [...toolCardsByCallId.values()]
+          if (data?.name) runStatus.value = `正在调用 ${toolFriendlyName(data.name)}…`
+        } else if (event === 'tool_result') {
+          const callId = String(data?.call_id || '')
+          let card = toolCardsByCallId.get(callId)
+          if (!card) {
+            card = { tool: data?.name || '', args: {}, _callId: callId }
+            toolCardsByCallId.set(callId, card)
+          }
+          if (card._running) runningToolCount = Math.max(0, runningToolCount - 1)
+          card._running = false
+          card.result = {
+            ok: !!data?.ok, skipped: !!data?.skipped, pending: !!data?.pending,
+            error: data?.error, preview: data?.preview,
+          }
+          msg.tool_results = [...toolCardsByCallId.values()]
+        } else if (event === 'pending_confirmation') {
+          const actionCount = Array.isArray(data?.actions) ? data.actions.length : 0
+          pendingConfirmCount = actionCount || pendingConfirmCount + 1
+          runStatus.value = `等待你确认 ${pendingConfirmCount} 项操作…`
+        } else if (event === 'plan_proposed') {
+          if (data?.plan_card) msg.plan_card = data.plan_card
+        } else if (event === 'work_plan') {
+          if (Array.isArray(data?.items)) msg.work_plan = data.items
+        } else if (event === 'step_finish') {
+          if (!streamBuffer.trim() && runningToolCount === 0) runStatus.value = '正在思考…'
+        } else if (event === 'done') {
+          // resumed:false 时静默移除占位（无续跑内容）
+          if (data?.resumed === false) {
+            messages.value.splice(assistantIndex, 1)
+            return
+          }
+          if (pendingRenderTimer) { clearTimeout(pendingRenderTimer); pendingRenderTimer = null }
+          flushRender()
+          if (data?.reasoning) msg.reasoning = data.reasoning
+          msg.streaming = false
+          msg.content = data?.reply ?? streamBuffer
+          msg.blocks = msg.content?.trim() ? parseMessageBlocks(msg.content) : []
+          const finalTools = Array.isArray(data?.tool_results) && data.tool_results.length
+            ? data.tool_results
+            : [...toolCardsByCallId.values()].map(({ tool, args, result }) => ({ tool, args, result }))
+          msg.tool_results = finalTools
+          msg.pending_actions = data?.pending_actions || []
+          const meta = msg.meta || {}
+          if (data?.usage) meta.usage = data.usage
+          else if (runUsage.value) meta.usage = runUsage.value
+          if (data?.elapsed_ms) meta.elapsed_ms = data.elapsed_ms
+          else if (runStartTs.value) meta.elapsed_ms = Date.now() - runStartTs.value
+          if (data?.reasoning) meta.reasoning = data.reasoning
+          if (Object.keys(meta).length) msg.meta = meta
+        } else if (event === 'error') {
+          msg.streaming = false
+          if (streamBuffer) {
+            msg.content = streamBuffer
+            msg.blocks = streamBuffer.trim() ? parseMessageBlocks(streamBuffer) : []
+          } else {
+            msg.content = data?.message || '继续处理失败'
+            msg.blocks = parseMessageBlocks(msg.content)
+          }
+          settleRunningCards()
+        }
+      },
+    })
+    await scrollMessagesToBottom()
+    const finalMsg = messages.value[assistantIndex]
+    if (finalMsg) emit('changed', domainsFromToolResults(finalMsg.tool_results || []))
+  } catch (err) {
+    // 续跑失败不阻塞确认/拒绝主流程：保留已收到的增量，静默标记
+    const msg = messages.value[assistantIndex]
+    settleRunningCards()
+    if (msg) {
+      msg.streaming = false
+      if (!streamBuffer) {
+        messages.value.splice(assistantIndex, 1)
+      } else {
+        msg.content = streamBuffer
+        msg.blocks = streamBuffer.trim() ? parseMessageBlocks(streamBuffer) : []
+      }
+    }
+    notice.value = `继续处理失败：${apiMessage(err)}`
+  } finally {
+    if (pendingRenderTimer) { clearTimeout(pendingRenderTimer); pendingRenderTimer = null }
+    if (chatAbortController.value === controller) chatAbortController.value = null
+    activeRunId.value = null
+    stopRunStatus()
+  }
+}
+
+// ---- 危险操作 → 影响域映射（用于按域刷新看板，而非全量重载）----
+const ACTION_DOMAINS = {
+  delete_task: ['tasks'], update_task: ['tasks'], bulk_update_tasks: ['tasks'],
+  bulk_delete_tasks: ['tasks'], empty_trash: ['tasks'],
+  delete_file: ['files'], update_file_notes: ['files'], bulk_delete_files: ['files'],
+  attach_file_to_task: ['tasks', 'files'], detach_file_from_task: ['tasks', 'files'],
+  import_web_resources: ['files'],
+  update_schedule_entry: ['schedule'], delete_schedule_entry: ['schedule'],
+  bulk_assign_tasks_to_days: ['schedule'], auto_plan_tasks: ['schedule'],
+  create_skill: [], create_mcp_server: [], mcp_tool_call: [],
+}
+
+function domainsForAction(action) {
+  return ACTION_DOMAINS[action?.action_type] || undefined
+}
+
+function domainsFromToolResults(toolResults) {
+  const TOOL_DOMAINS = {
+    create_task: 'tasks', list_tasks: 'tasks', create_reminder: 'tasks', list_reminders: 'tasks',
+    create_subtask: 'tasks', create_subtasks: 'tasks', list_subtasks: 'tasks',
+    assign_task_to_day: 'schedule', list_day_schedule: 'schedule', list_month_schedule: 'schedule',
+    create_note_file: 'files', list_files: 'files', attach_file_to_task: 'files',
+    save_attachment_to_library: 'files',
+    check_in_habit: 'habits', create_habit: 'habits', list_habits: 'habits',
+    write_journal: 'journal', list_journal_entries: 'journal',
+    list_goals: 'goals', create_goal: 'goals', update_kr_progress: 'goals',
+    start_timer: 'timer', stop_timer: 'timer',
+  }
+  const domains = new Set()
+  for (const item of toolResults || []) {
+    const name = String(item?.tool || '')
+    const domain = TOOL_DOMAINS[name]
+    if (domain) domains.add(domain)
+    else if (name.startsWith('mcp__')) domains.add('files')
+  }
+  return domains.size ? [...domains] : undefined
+}
+
+// ---- 待确认 token 的 sessionStorage 持久化（按会话隔离，刷新不丢失）----
+function pendingTokensStorageKey() {
+  return `ai-pending-tokens:${conversationId.value ?? 'new'}`
+}
+
+function savePendingTokens() {
+  try {
+    const raw = JSON.stringify(pendingTokens.value || {})
+    if (raw === '{}') sessionStorage.removeItem(pendingTokensStorageKey())
+    else sessionStorage.setItem(pendingTokensStorageKey(), raw)
+  } catch { /* sessionStorage 不可用时静默降级为内存态 */ }
+}
+
+function loadPendingTokens(activeActionIds) {
+  try {
+    const raw = sessionStorage.getItem(pendingTokensStorageKey())
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return {}
+    // 过滤脏 token：只保留当前消息里仍处于 pending/confirmed 态的 action 对应 token
+    const active = new Set(activeActionIds || [])
+    const cleaned = {}
+    for (const [id, token] of Object.entries(parsed)) {
+      if (active.has(Number(id)) && token) cleaned[id] = token
+    }
+    return cleaned
+  } catch {
+    return {}
   }
 }
 
@@ -995,24 +1703,18 @@ watch(assistantMode, (mode) => {
   if (mode === 'history') loadConversations()
 })
 
-// notice/error 自动消失：成功/通知类 4 秒、错误类 8 秒，均保留手动关闭
+// notice 自动 4 秒消失；错误横幅不自动消失（避免长任务失败时提示一闪而过），仅手动关闭
 let noticeTimer = null
-let errorTimer = null
 watch(notice, (value) => {
   window.clearTimeout(noticeTimer)
   noticeTimer = null
   if (value) noticeTimer = window.setTimeout(() => { notice.value = '' }, 4000)
 })
-watch(error, (value) => {
-  window.clearTimeout(errorTimer)
-  errorTimer = null
-  if (value) errorTimer = window.setTimeout(() => { error.value = '' }, 8000)
-})
 
 onBeforeUnmount(() => {
   chatAbortController.value?.abort()
   window.clearTimeout(noticeTimer)
-  window.clearTimeout(errorTimer)
+  if (runElapsedTimer) { window.clearInterval(runElapsedTimer); runElapsedTimer = null }
   window.removeEventListener('resize', keepWindowInView)
   window.removeEventListener('assistant:prompt', handleAssistantPrompt)
 })
@@ -1152,6 +1854,7 @@ onBeforeUnmount(() => {
         @select-skill="selectSkill"
         @save-skill="saveSkill"
         @enable-skill="enableSkill"
+        @disable-skills="disableSkills"
         @import-skill="fileInput?.click()"
       />
 
@@ -1179,14 +1882,25 @@ onBeforeUnmount(() => {
         :chat-attachments="chatAttachments"
         :pending-tokens="pendingTokens"
         :failed-text="failedChatText"
+        :run-status="runStatus"
+        :run-elapsed="runElapsed"
+        :run-usage="runUsage"
+        :chat-mode="chatMode"
+        :ai-available="hasEnabledConfig"
         @send="send"
+        @stop="stopChat"
         @retry="retryFailed"
         @dismiss-failed="failedChatText = ''"
         @first-confirm="firstConfirm"
         @second-confirm="secondConfirm"
+        @reject="rejectAction"
         @remove-attachment="removeChatAttachment"
         @pick-chat-files="chatFileInput?.click()"
         @pick-ai-attachments="aiAttachmentInput?.click()"
+        @set-mode="(m) => (chatMode = m)"
+        @approve-plan="approvePlan"
+        @reject-plan="rejectPlan"
+        @grant-action="grantAction"
         @open-settings="assistantMode = 'settings'"
       />
     </main>
@@ -1517,7 +2231,9 @@ onBeforeUnmount(() => {
   }
 }
 
-/* 悬浮窗独立窗口模式：填满窗口，header 原生拖动，精简布局适配窄窗 */
+/* 悬浮窗独立窗口模式：填满窗口、不透明底色、header 原生拖动、隐藏全屏。
+   展开尺寸已与基础壳层设计值对齐（560×680），故不再做字号/gap/padding 瘦身，
+   让面板回落到与程序内展开态一致的基础样式。仅保留「窗口语境」必需的覆盖。 */
 .assistant-shell.float-mode {
   position: absolute;
   inset: 0;
@@ -1525,57 +2241,25 @@ onBeforeUnmount(() => {
   bottom: auto;
   width: 100%;
   height: 100%;
-  padding: 10px;
+  padding: 14px; /* 与基础 .assistant-shell 一致 */
   /* 透明窗口下 backdrop-filter 失效，改用不透明底色，避免透出桌面 */
   background: var(--surface-solid);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
-.assistant-shell.float-mode .assistant {
-  gap: 8px;
-}
 .assistant-shell.float-mode .assistant-head {
   -webkit-app-region: drag;
-  padding: 2px 2px 8px;
-  gap: 8px;
-  /* 强制纵向：覆盖 @media(max-width:980px) 把 header 改成 row 的规则——
-     悬浮窗 400px 会误触发该 media，使「标题/收起」行与「助手模式切换」行
-     挤在同一水平行而重叠 */
+  /* 强制纵向：覆盖 @media(max-width:980px) 把 header 改成 row 的规则--
+     悬浮窗展开后虽为 560px，仍恒 <980px 会误触发该 media，使「标题/收起」行
+     与「助手模式切换」行挤在同一水平行而重叠。保留纵向 = 与程序内宽屏一致。 */
   flex-direction: column;
-}
-.assistant-shell.float-mode .assistant-head .page-title .art-icon {
-  display: none;
-}
-.assistant-shell.float-mode .assistant-head h2 {
-  font-size: 15px;
 }
 .assistant-shell.float-mode .head-actions,
 .assistant-shell.float-mode .head-switches {
   -webkit-app-region: no-drag;
-  gap: 4px;
-}
-.assistant-shell.float-mode .mode-switch {
-  grid-template-columns: repeat(3, minmax(40px, 1fr));
-  padding: 3px;
-  gap: 3px;
-}
-.assistant-shell.float-mode .mode-switch button {
-  min-height: 26px;
-  font-size: 12px;
-  padding: 0 6px;
 }
 .assistant-shell.float-mode .fullscreen-action {
-  display: none;
-}
-
-/* 悬浮窗窄窗：双助手切换与视图 tab 并排均分宽度，避免一个偏大、被 space-between 拉向两端而错位 */
-.assistant-shell.float-mode .head-switches {
-  flex-wrap: nowrap;
-}
-
-.assistant-shell.float-mode .head-switches .mode-switch {
-  flex: 1 1 0;
-  min-width: 0;
+  display: none; /* 悬浮窗为独立 OS 窗口，无需窗口内全屏 */
 }
 </style>
 
@@ -1993,6 +2677,51 @@ onBeforeUnmount(() => {
   margin-top: 3px;
 }
 
+.assistant-shell .message-ordered {
+  margin: 0 0 8px;
+  padding-left: 22px;
+}
+
+.assistant-shell .message-ordered:last-child {
+  margin-bottom: 0;
+}
+
+.assistant-shell .message-heading {
+  margin: 0 0 6px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.assistant-shell .message-heading.level-1 { font-size: 17px; }
+.assistant-shell .message-heading.level-2 { font-size: 15px; }
+.assistant-shell .message-heading.level-3 { font-size: 14px; }
+
+.assistant-shell .message-quote {
+  margin: 0 0 8px;
+  padding: 4px 12px;
+  border-left: 3px solid var(--border-strong);
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.assistant-shell .message-quote:last-child {
+  margin-bottom: 0;
+}
+
+.assistant-shell .message-content code {
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  background: var(--surface-2);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12.5px;
+}
+
+.assistant-shell .message-content a {
+  color: var(--accent-hover);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .assistant-shell .tool-results {
   display: grid;
   gap: 8px;
@@ -2195,18 +2924,5 @@ onBeforeUnmount(() => {
   .assistant-shell .message {
     width: fit-content;
   }
-}
-
-/* 悬浮窗窄窗：双助手分段控件拉满并均分两项，与右侧视图 tab 等宽对齐 */
-.assistant-shell.float-mode .head-switches .seg-control {
-  flex: 1 1 0;
-  display: flex;
-  min-width: 0;
-}
-
-.assistant-shell.float-mode .head-switches .seg-item {
-  flex: 1 1 0;
-  justify-content: center;
-  padding: 5px 6px;
 }
 </style>

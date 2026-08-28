@@ -243,6 +243,10 @@ def test_auto_plan_tasks_uses_confirmation_and_writes_assignments_atomically(
 
 
 def test_prompt_and_local_context_include_schedule_capabilities(db_session):
+    """阶段 7：plan 模式已硬删，native 模式不再在 prompt 文本里枚举工具（工具经 tools 数组暴露）。
+
+    本测试改为断言 native prompt 含 function-calling 协议段，且 local context 含日程状态。
+    """
     config = AIConfig(
         name="default",
         assistant_name="知时助手",
@@ -256,8 +260,7 @@ def test_prompt_and_local_context_include_schedule_capabilities(db_session):
     prompt = ai_prompt_service.build_system_prompt(db_session, config)
     context = ai_prompt_service.build_local_context(db_session)
 
-    assert "list_day_schedule" in prompt
-    assert "assign_task_to_day" in prompt
-    assert "update_schedule_entry" in prompt
-    assert "delete_schedule_entry" in prompt
+    # native 协议段：工具由 tools 数组承载，prompt 不输出 JSON 契约
+    assert "你可以直接调用系统提供的工具完成任务" in prompt
+    # 日程状态在 local context（每步重发）
     assert "schedule" in context or "日程" in context

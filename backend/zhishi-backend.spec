@@ -14,11 +14,17 @@ datas += collect_data_files("pypdf")
 datas += collect_data_files("docx")
 datas += collect_data_files("openpyxl")
 datas += collect_data_files("pptx")
+# MCP SDK：知时只用客户端能力，收集 client/shared/types 子包即可；
+# 不收集整个 mcp——其 mcp.cli 模块在导入时 sys.exit，会导致收集进程退出。
+datas += collect_data_files("mcp")
 
 # 动态 import 的子模块需显式收集，避免运行时 ModuleNotFoundError
 hiddenimports = []
 hiddenimports += collect_submodules("uvicorn")
 hiddenimports += collect_submodules("app")
+hiddenimports += collect_submodules("mcp.client")
+hiddenimports += collect_submodules("mcp.shared")
+hiddenimports += collect_submodules("mcp.types")
 hiddenimports += [
     "sqlalchemy.dialects.sqlite",
     "sqlalchemy.sql.default_comparator",

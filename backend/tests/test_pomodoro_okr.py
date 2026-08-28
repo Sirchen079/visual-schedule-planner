@@ -45,7 +45,8 @@ def test_time_stats_aggregation(client, db_session):
     from app.models import TimeLog
 
     task = _task(client, "统计任务", tags=["学习"], estimated_minutes=120)
-    today = datetime.now()
+    # 锚定当天中午：避免 0:00-2:00 运行时 timedelta(hours=2) 落回昨天，统计断言随时刻漂移
+    today = datetime.combine(date.today(), datetime.min.time()).replace(hour=12)
     db_session.add(
         TimeLog(task_id=task["id"], task_title="统计任务", kind="pomodoro",
                 started_at=today - timedelta(hours=2), ended_at=today - timedelta(hours=1), minutes=60)

@@ -322,3 +322,30 @@ def test_month_schedule_rejects_invalid_year_and_month(client):
 
     assert invalid_year_response.status_code == 400
     assert invalid_month_response.status_code == 400
+
+
+def test_month_schedule_overdue_does_not_spread_to_future(client):
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    _task(client, "Overdue task", due_date=str(yesterday))
+
+    response = client.get(f"/schedule/month?year={today.year}&month={today.month}")
+
+    assert response.status_code == 200
+    days = response.json()["days"]
+    today_day = next(d for d in days if d["date"] == str(today))
+    assert today_day["overdue_count"] == 1  # 逾期任务压在今天
+    future_days = [d for d in days if d["date"] > str(today)]
+    assert all(d["overdue_count"] == 0 for d in future_days)  # 不蔓延到未来
+
+
+def test_schedule_entry_update_rejects_invalid_time_format(client):
+    task = _task(client, "Time check")
+    entry = client.post(
+        "/schedule/entries",
+        json={"task_id": task["id"], "date": "2026-06-29", "source": "manual"},
+    ).json()
+
+    resp = client.put(f"/schedule/entries/{entry['id']}", json={"start_time": "25:99"})
+
+    assert resp.status_code == 422

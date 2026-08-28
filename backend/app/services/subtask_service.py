@@ -24,7 +24,7 @@ def create_subtask(db: Session, task_id: int, sub: SubtaskCreate) -> Optional[Su
     task = _task_with_subtasks(db, task_id)
     if task is None:
         return None
-    s = Subtask(task_id=task_id, title=sub.title)
+    s = Subtask(task_id=task_id, title=sub.title, estimated_minutes=sub.estimated_minutes)
     db.add(s)
     db.commit()
     db.refresh(s)

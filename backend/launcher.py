@@ -13,6 +13,17 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=18731)
     args = parser.parse_args()
 
+    # 先初始化文件日志（config/database 已在 import 时按 frozen 状态解析好数据根），
+    # 再 import app.main —— 这样 app 加载、DB 迁移、路由注册全程都有日志覆盖。
+    from app.services.log_service import setup_logging
+
+    log_file = setup_logging()
+    import logging
+
+    logging.getLogger("launcher").info(
+        "后端启动 host=%s port=%s log=%s", args.host, args.port, log_file
+    )
+
     import uvicorn
     from app.main import app
 

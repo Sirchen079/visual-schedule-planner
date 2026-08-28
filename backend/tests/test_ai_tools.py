@@ -1,5 +1,4 @@
 from app.services import ai_tool_service
-from app.services.ai_client import parse_assistant_plan
 
 
 def test_ai_tool_create_task(db_session):
@@ -48,6 +47,36 @@ def test_ai_tool_create_subtasks_for_task(db_session):
         "整理相关工作",
         "写阅读笔记",
     ]
+
+
+def test_ai_tool_create_subtasks_pass_estimated_minutes_to_model(db_session):
+    """create_subtasks 支持对象形态 {title, estimated_minutes}，且透传给模型可见的 _subtask_dict。"""
+    task = ai_tool_service.execute_tool(
+        db_session, "create_task", {"title": "带预估的任务"}
+    )["task"]
+
+    result = ai_tool_service.execute_tool(
+        db_session,
+        "create_subtasks",
+        {
+            "task_id": task["id"],
+            "titles": [
+                {"title": "写初稿", "estimated_minutes": 45},
+                "审校",  # 纯字符串：estimated_minutes 应为 None
+            ],
+        },
+    )
+
+    assert result["ok"] is True
+    by_title = {s["title"]: s for s in result["subtasks"]}
+    assert by_title["写初稿"]["estimated_minutes"] == 45
+    assert by_title["审校"]["estimated_minutes"] is None
+    # list_subtasks 也应透出 estimated_minutes（M1：_subtask_dict 不再丢字段）
+    listed = ai_tool_service.execute_tool(
+        db_session, "list_subtasks", {"task_id": task["id"]}
+    )
+    listed_by_title = {s["title"]: s for s in listed["subtasks"]}
+    assert listed_by_title["写初稿"]["estimated_minutes"] == 45
 
 
 def test_ai_tool_create_task_can_include_subtask_titles(db_session):
@@ -185,18 +214,16 @@ def test_ai_tool_rejects_mutating_existing_objects_without_confirmation(db_sessi
         assert "待确认" in result["error"]
 
 
-def test_parse_assistant_plan_accepts_json_block():
-    text = """
-说明文字
-```json
-{"reply":"已安排","tools":[{"name":"create_task","args":{"title":"读论文"}}],"dangerous_actions":[]}
-```
-"""
-    plan = parse_assistant_plan(text)
-    assert plan["reply"] == "已安排"
-    assert plan["tools"][0]["name"] == "create_task"
-
-
-def test_parse_assistant_plan_falls_back_to_text():
-    plan = parse_assistant_plan("普通回复")
-    assert plan == {"reply": "普通回复", "tools": [], "dangerous_actions": []}
+def test_ai_tool_get_time_stats_returns_daily_dates_as_strings(db_session):
+    """get_time_stats 返回 ok，且 daily 的 date 均为 ISO 字符串（供模型可读）。"""
+    result = ai_tool_service.execute_tool(db_session, "get_time_stats", {})
+    assert result["ok"] is True
+    stats = result["stats"]
+    assert "daily" in stats
+    for item in stats["daily"]:
+        assert isinstance(item["date"], str)
+        assert "T" not in item["date"]  # 纯日期 YYYY-MM-DD
+    # days 参数被 clamp 到 1-90
+    result_big = ai_tool_service.execute_tool(db_session, "get_time_stats", {"days": 999})
+    assert result_big["ok"] is True
+    assert len(result_big["stats"]["daily"]) <= 90

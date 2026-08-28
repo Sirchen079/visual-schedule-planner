@@ -47,3 +47,30 @@ def test_local_context_includes_current_state_and_reminders(db_session):
     assert "未来 7 天" in text
     assert "已经逾期的提醒" in text
     assert "即将到期的提醒" in text
+
+
+def test_local_context_task_lines_include_estimated_minutes(db_session):
+    task_service.create_task(
+        db_session,
+        TaskCreate(title="写季度总结", estimated_minutes=90, priority="高"),
+    )
+
+    text = ai_prompt_service.build_local_context(db_session)
+
+    assert "预估:90分钟" in text  # B1：任务行带预估时长
+    assert "写季度总结" in text
+
+
+def test_local_context_lists_must_do_and_unscheduled(db_session):
+    now = datetime.now()
+    task_service.create_task(
+        db_session,
+        TaskCreate(title="逾期报告", due_date=now - timedelta(days=1), estimated_minutes=45),
+    )
+
+    text = ai_prompt_service.build_local_context(db_session)
+
+    assert "今日必做（含逾期）：" in text  # B3：从只报数改为列清单
+    assert "未排期任务（需要安排）：" in text
+    assert "逾期报告" in text
+    assert "预估:45分钟" in text

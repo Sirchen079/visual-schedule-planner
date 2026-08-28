@@ -295,6 +295,48 @@ def test_bulk_delete_files_with_invalid_id_does_not_partially_apply(
     assert client.get(f"/files/{file_id}").status_code == 200
 
 
+def test_reject_pending_action_transitions_to_rejected(client, db_session):
+    task_id = client.post("/tasks", json={"title": "拒绝用任务"}).json()["id"]
+    action = ai_action_service.create_pending_action(
+        db_session, None, "delete_task", {"task_id": task_id}, "删除任务"
+    )
+    action, error = ai_action_service.reject_action(db_session, action.id)
+    assert error is None
+    assert action.status == "rejected"
+    assert action.confirm_token is None
+    # rejected 后任务仍未删除（拒绝 = 不执行）
+    assert client.get(f"/tasks/{task_id}").status_code == 200
+
+
+def test_reject_then_confirm_returns_409(client, db_session):
+    task_id = client.post("/tasks", json={"title": "拒绝后不能再确认"}).json()["id"]
+    action = ai_action_service.create_pending_action(
+        db_session, None, "delete_task", {"task_id": task_id}, "删除任务"
+    )
+    ai_action_service.reject_action(db_session, action.id)
+    # rejected 是终态，再次 confirm 应失败
+    _action, token, err = ai_action_service.confirm_action(db_session, action.id)
+    assert err == "操作不是待确认状态"
+    assert token is None
+
+
+def test_reject_confirmed_action_then_execute_returns_409(client, db_session):
+    task_id = client.post("/tasks", json={"title": "一次确认后再拒绝"}).json()["id"]
+    action = ai_action_service.create_pending_action(
+        db_session, None, "delete_task", {"task_id": task_id}, "删除任务"
+    )
+    _action, token, _err = ai_action_service.confirm_action(db_session, action.id)
+    assert token  # 一次确认成功
+    # confirmed 态（未执行）也可拒绝
+    action, error = ai_action_service.reject_action(db_session, action.id)
+    assert error is None
+    assert action.status == "rejected"
+    # 拿着旧 token 再 execute 应失败（状态不再是 confirmed）
+    ok, message = ai_action_service.execute_action(db_session, action.id, token)
+    assert ok is False
+    assert "确认" in message
+
+
 def test_empty_trash_requires_confirmation(client, db_session):
     task_id = client.post("/tasks", json={"title": "回收站任务"}).json()["id"]
     client.delete(f"/tasks/{task_id}")
@@ -311,3 +353,127 @@ def test_empty_trash_requires_confirmation(client, db_session):
 
     assert resp.status_code == 200
     assert client.get("/tasks/trash").json() == []
+
+
+def _confirm_token(db_session, action_id):
+    _action, token, _err = ai_action_service.confirm_action(db_session, action_id)
+    return token
+
+
+def test_create_skill_preview_and_execute(db_session):
+    from sqlalchemy import select
+
+    payload = {
+        "name": "论文工作流",
+        "description": "阅读规划",
+        "content": "把阅读任务拆成 45 分钟块，先读摘要再读方法。",
+        "enabled": True,
+    }
+    preview = ai_action_service.build_action_preview(db_session, "create_skill", payload)
+    assert any("创建助手 skill" in line for line in preview)
+    assert any("论文工作流" in line for line in preview)
+
+    action = ai_action_service.create_pending_action(db_session, None, "create_skill", payload, "创建 skill")
+    ok, _message = ai_action_service.execute_action(
+        db_session, action.id, _confirm_token(db_session, action.id)
+    )
+    assert ok is True
+    from app.models import AISkill
+
+    skill = db_session.execute(select(AISkill).where(AISkill.name == "论文工作流")).scalar_one()
+    assert "45 分钟块" in skill.content
+    assert skill.enabled is True
+
+
+def test_create_skill_upsert_updates_existing(db_session):
+    from app.models import AISkill
+
+    ai_action_service._execute_create_skill(db_session, {"name": "周报", "content": "v1"})
+    ok, _ = ai_action_service._execute_create_skill(db_session, {"name": "周报", "content": "v2"})
+    assert ok is True
+    skills = db_session.query(AISkill).filter(AISkill.name == "周报").all()
+    assert len(skills) == 1
+    assert skills[0].content == "v2"
+
+
+def test_create_mcp_server_preview_and_execute(db_session):
+    from sqlalchemy import select
+
+    payload = {
+        "name": "文件系统",
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "D:/docs"],
+        "env": {"API_TOKEN": "secret-value-1234567890"},
+        "enabled": True,
+    }
+    preview = ai_action_service.build_action_preview(db_session, "create_mcp_server", payload)
+    assert any("配置 MCP 工具服务器" in line for line in preview)
+    assert any("npx" in line for line in preview)
+    assert any("API_TOKEN" in line for line in preview)
+    # 值不进预览明文
+    assert not any("secret-value-1234567890" in line for line in preview)
+
+    action = ai_action_service.create_pending_action(db_session, None, "create_mcp_server", payload, "配置 MCP")
+    ok, _message = ai_action_service.execute_action(
+        db_session, action.id, _confirm_token(db_session, action.id)
+    )
+    assert ok is True
+    from app.models import MCPServer
+
+    server = db_session.execute(select(MCPServer).where(MCPServer.name == "文件系统")).scalar_one()
+    assert server.command == "npx"
+    assert server.transport == "stdio"
+    # env 库内明文保存
+    assert "secret-value-1234567890" in server.env
+
+
+def test_create_mcp_server_rejects_bad_transport(db_session):
+    ok, message = ai_action_service._execute_create_mcp_server(
+        db_session, {"name": "bad", "transport": "ftp", "command": "x"}
+    )
+    assert ok is False
+    assert "transport" in message
+
+
+def test_create_mcp_server_http_shape(db_session):
+    from app.models import MCPServer
+
+    payload = {
+        "name": "远程",
+        "transport": "http",
+        "url": "https://mcp.example.com/mcp",
+        "headers": {"Authorization": "Bearer xyz"},
+    }
+    preview = ai_action_service.build_action_preview(db_session, "create_mcp_server", payload)
+    assert any("https://mcp.example.com" in line for line in preview)
+    ok, _ = ai_action_service._execute_create_mcp_server(db_session, payload)
+    assert ok is True
+    server = db_session.query(MCPServer).filter(MCPServer.name == "远程").one()
+    assert server.url == "https://mcp.example.com/mcp"
+
+
+def test_daily_capacity_and_working_hours_settings_validated(db_session):
+    from app.services import app_setting_service
+
+    assert app_setting_service.daily_capacity_minutes(db_session) == 240  # 未设置回退
+    assert app_setting_service.working_hours(db_session) == ("09:00", "18:00")
+
+    app_setting_service.set_setting(db_session, "daily_capacity_minutes", "abc")  # 脏值
+    app_setting_service.set_setting(db_session, "working_hours_start", "8点")
+    assert app_setting_service.daily_capacity_minutes(db_session) == 240
+    assert app_setting_service.working_hours(db_session) == ("09:00", "18:00")
+
+    app_setting_service.set_setting(db_session, "daily_capacity_minutes", "300")
+    app_setting_service.set_setting(db_session, "working_hours_start", "10:00")
+    app_setting_service.set_setting(db_session, "working_hours_end", "19:30")
+    assert app_setting_service.daily_capacity_minutes(db_session) == 300
+    assert app_setting_service.working_hours(db_session) == ("10:00", "19:30")
+
+
+def test_normalize_title_ignores_case_and_punctuation():
+    from app.routers.ai_actions import _normalize_title
+
+    assert _normalize_title("写讲稿！") == _normalize_title("写讲稿")
+    assert _normalize_title("Write Draft") == _normalize_title("write  draft")
+    assert _normalize_title("整理资料（第一版）") == _normalize_title("整理资料第一版")

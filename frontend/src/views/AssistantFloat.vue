@@ -7,7 +7,9 @@ import AssistantView from './AssistantView.vue'
 import ArtIcon from '../components/ArtIcon.vue'
 
 const FLOAT_BUTTON_SIZE = { w: 60, h: 60 }
-const FLOAT_PANEL_SIZE = { w: 400, h: 640 }
+// 与 AssistantView 基础壳层设计尺寸一致（width:min(560px,…); height:min(680px,…)），
+// 展开后内容区与程序内助手面板同尺寸，元素不再被压缩。
+const FLOAT_PANEL_SIZE = { w: 560, h: 680 }
 const DRAG_THRESHOLD = 4
 
 const collapsed = ref(true)

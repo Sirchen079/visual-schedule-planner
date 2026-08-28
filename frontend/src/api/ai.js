@@ -167,6 +167,10 @@ export function enableAiSkill(id) {
   return request(`${BASE}/skills/${id}/enable`, { method: 'POST' })
 }
 
+export function disableAiSkills() {
+  return request(`${BASE}/skills/disable-all`, { method: 'POST' })
+}
+
 export function importAiSkill(payload) {
   return request(`${BASE}/skills/import`, {
     method: 'POST',
@@ -203,6 +207,178 @@ export function executeAiAction(id, confirmToken) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ confirm_token: confirmToken }),
   })
+}
+
+// 拒绝待确认操作：pending/confirmed（未执行）→ rejected，终态。返回更新后的 action。
+export function rejectAiAction(id) {
+  return request(`${BASE}/actions/${id}/reject`, { method: 'POST' })
+}
+
+// 确认/拒绝后回灌续跑：若该会话有待续跑的 checkpoint 且全部 pending 已结案则续跑，
+// 否则返回 {resumed:false, waiting:N}（前端静默处理）。
+export function resumeAiChat(conversationId) {
+  return request(`${BASE}/chat/resume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conversation_id: conversationId }),
+  }, CHAT_TIMEOUT_MS)
+}
+
+// ---- 阶段 C1：Plan Mode 批准/拒绝 ----
+export function approveAiPlan(messageId, steps = null) {
+  return request(`${BASE}/plan/${messageId}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(steps ? { steps } : {}),
+  }, CHAT_TIMEOUT_MS)
+}
+
+// ---- 阶段 D1：工具「始终允许」授权管理 ----
+export function listAiGrants() {
+  return request(`${BASE}/grants`)
+}
+
+export function createAiGrant(toolName, argPattern = '') {
+  return request(`${BASE}/grants`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tool_name: toolName, arg_pattern: argPattern }),
+  })
+}
+
+export function deleteAiGrant(grantId) {
+  return request(`${BASE}/grants/${grantId}`, { method: 'DELETE' })
+}
+
+// 阶段 FU-2.1：批准计划流式版（与 streamAiChat 同 SSE 协议）
+export async function streamAiApprovePlan(messageId, steps = null, { signal, onEvent } = {}) {
+  const res = await fetch(`${BASE}/plan/${messageId}/approve/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(steps ? { steps } : {}),
+    signal,
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    let detail = text
+    try { detail = extractErrorMessage(JSON.parse(text)) } catch { /* keep raw */ }
+    const safeDetail = compactErrorMessage(detail)
+    throw new Error(safeDetail ? `请求失败 (${res.status})：${safeDetail}` : `请求失败 (${res.status})`)
+  }
+  await consumeSseStream(res, onEvent, signal)
+}
+
+export function rejectAiPlan(messageId, reason = '') {
+  return request(`${BASE}/plan/${messageId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(reason ? { reason } : {}),
+  })
+}
+
+// ---- SSE 流式（阶段 4）----
+// fetch POST + ReadableStream 消费；按 \n\n 分帧解析 SSE，回调 onEvent(event, data)。
+// 不走 180s 总超时封装（流式可长时运行），用外部 signal 控制取消。
+// 解析失败或网络断开时抛错（含 abort 检测）。
+export async function streamAiChat(payload, { signal, onEvent } = {}) {
+  const res = await fetch(`${BASE}/chat/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal,
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    let detail = text
+    try { detail = extractErrorMessage(JSON.parse(text)) } catch { /* keep raw */ }
+    const safeDetail = compactErrorMessage(detail)
+    throw new Error(safeDetail ? `请求失败 (${res.status})：${safeDetail}` : `请求失败 (${res.status})`)
+  }
+  await consumeSseStream(res, onEvent, signal)
+}
+
+export async function streamAiResume(conversationId, { signal, onEvent } = {}) {
+  const res = await fetch(`${BASE}/chat/resume/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conversation_id: conversationId }),
+    signal,
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    let detail = text
+    try { detail = extractErrorMessage(JSON.parse(text)) } catch { /* keep raw */ }
+    const safeDetail = compactErrorMessage(detail)
+    throw new Error(safeDetail ? `请求失败 (${res.status})：${safeDetail}` : `请求失败 (${res.status})`)
+  }
+  await consumeSseStream(res, onEvent, signal)
+}
+
+// 中断进行中的流式 agent run（阶段 5）：set 后端对应 run_id 的取消事件。
+// 幂等：未知 run_id 返回 ok:false（前端停止按钮无脑调即可）。
+export function cancelAiChat(runId) {
+  return request(`${BASE}/chat/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ run_id: runId }),
+  }, DEFAULT_TIMEOUT_MS)
+}
+
+// 内部：从 ReadableStream 消费 SSE 帧，按空行分帧，解析 event:/data: 行。
+async function consumeSseStream(res, onEvent, signal) {
+  if (!res.body) throw new Error('浏览器不支持流式响应')
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+  let currentEvent = ''
+  let dataLines = []
+  const dispatch = () => {
+    if (!dataLines.length) return
+    const dataStr = dataLines.join('\n')
+    dataLines = []
+    let parsed = {}
+    try { parsed = JSON.parse(dataStr) } catch { parsed = { raw: dataStr } }
+    const eventName = currentEvent || 'message'
+    currentEvent = ''
+    if (onEvent) onEvent(eventName, parsed)
+  }
+  try {
+    while (true) {
+      if (signal?.aborted) {
+        try { await reader.cancel() } catch { /* ignore */ }
+        throw new DOMException('Aborted', 'AbortError')
+      }
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      let idx
+      while ((idx = buffer.indexOf('\n\n')) !== -1) {
+        const frame = buffer.slice(0, idx)
+        buffer = buffer.slice(idx + 2)
+        for (const line of frame.split('\n')) {
+          if (line.startsWith(':')) continue // comment
+          if (line.startsWith('event:')) {
+            currentEvent = line.slice(6).trim()
+          } else if (line.startsWith('data:')) {
+            dataLines.push(line.slice(5).replace(/^ /, ''))
+          }
+        }
+        dispatch()
+      }
+    }
+    // flush 尾部
+    buffer += decoder.decode()
+    if (buffer.trim()) {
+      for (const line of buffer.split('\n')) {
+        if (line.startsWith(':')) continue
+        if (line.startsWith('event:')) currentEvent = line.slice(6).trim()
+        else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''))
+      }
+      dispatch()
+    }
+  } finally {
+    try { reader.releaseLock() } catch { /* ignore */ }
+  }
 }
 
 // ---- 每日晨报（幕僚线）----

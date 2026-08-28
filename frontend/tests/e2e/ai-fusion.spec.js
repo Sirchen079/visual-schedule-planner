@@ -206,6 +206,11 @@ test('task modal AI breakdown creates subtasks via inline action', async ({ page
   await expect(modal).toContainText('通读修改')
   await expect(page.locator('.toast')).toContainText('已拆成 3 个子任务')
 
-  // 已有子任务后按钮禁用（后端 409 口径的前置提示）
-  await expect(breakdownBtn).toBeDisabled()
+  // 已有子任务后按钮仍可用（SMART_PLANNING C1：改为增量拆解，后端跳过重复项只补缺）
+  await expect(breakdownBtn).toBeEnabled()
+  await expect(breakdownBtn).toHaveAttribute('title', '让 AI 补充拆解缺失的环节')
+
+  // 再次点击会再次调用拆解端点（增量补缺）
+  await breakdownBtn.click()
+  await expect.poll(() => captured.breakdowns.length).toBe(2)
 })

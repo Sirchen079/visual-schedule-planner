@@ -25,12 +25,14 @@ class SubtaskResponse(BaseModel):
     done: bool
     completed_at: Optional[datetime] = None
     created_at: datetime
+    estimated_minutes: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class SubtaskCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
+    estimated_minutes: Optional[int] = Field(None, ge=0)
 
 
 class SubtaskUpdate(BaseModel):
@@ -120,6 +122,8 @@ class ScheduleEntryBase(BaseModel):
     date: date_type
     source: ScheduleSource = "manual"
     note: str = ""
+    start_time: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")  # 日内开始时刻 "HH:MM"（可选）
+    end_time: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")  # 日内结束时刻 "HH:MM"（可选）
 
 
 class ScheduleEntryCreate(ScheduleEntryBase):
@@ -130,6 +134,8 @@ class ScheduleEntryUpdate(BaseModel):
     date: Optional[date_type] = None
     note: Optional[str] = None
     source: Optional[ScheduleSource] = None
+    start_time: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    end_time: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
 class ScheduleEntryRead(ScheduleEntryBase):
@@ -185,6 +191,7 @@ class MonthScheduleResponse(BaseModel):
 
 
 AIProvider = Literal["openai_chat", "openai_responses", "claude_messages"]
+ToolCallingMode = Literal["native", "plan"]
 
 
 class AIConfigCreate(BaseModel):
@@ -201,9 +208,12 @@ class AIConfigCreate(BaseModel):
     native_web_search_enabled: bool = False
     native_web_search_options: dict[str, Any] = Field(default_factory=dict)
     search_enhancement_enabled: bool = False
+    tool_calling_mode: ToolCallingMode = "native"
     # 每百万 tokens 输入/输出单价（可选，用于用量成本估算；0 表示未设置）
     price_input: float = Field(0, ge=0)
     price_output: float = Field(0, ge=0)
+    # 阶段 3：思维链展示开关（默认开启）
+    show_reasoning: bool = True
 
 
 class AIConfigUpdate(BaseModel):
@@ -220,9 +230,11 @@ class AIConfigUpdate(BaseModel):
     native_web_search_enabled: Optional[bool] = None
     native_web_search_options: Optional[dict[str, Any]] = None
     search_enhancement_enabled: Optional[bool] = None
+    tool_calling_mode: Optional[ToolCallingMode] = None
     active_skill_id: Optional[int] = None
     price_input: Optional[float] = Field(None, ge=0)
     price_output: Optional[float] = Field(None, ge=0)
+    show_reasoning: Optional[bool] = None
 
 
 class AIConfigResponse(BaseModel):
@@ -240,14 +252,128 @@ class AIConfigResponse(BaseModel):
     native_web_search_enabled: bool = False
     native_web_search_options: dict[str, Any] = Field(default_factory=dict)
     search_enhancement_enabled: bool = False
+    tool_calling_mode: ToolCallingMode = "native"
     enabled: bool
     price_input: float = 0
     price_output: float = 0
+    show_reasoning: bool = True
     active_skill_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# ---- MCP 服务器配置 ----
+MCPTransport = Literal["stdio", "http"]
+
+
+def _validate_mcp_fields(
+    transport: str,
+    command: Optional[str],
+    args: Optional[list[str]],
+    url: Optional[str],
+) -> None:
+    """按传输类型校验必填项与格式。"""
+    if transport == "stdio":
+        if not command or not command.strip():
+            raise ValueError("stdio 传输需要 command（可执行命令）")
+        if args is None:
+            raise ValueError("stdio args 缺失")
+    elif transport == "http":
+        if not url or not url.strip():
+            raise ValueError("http 传输需要 url")
+        stripped = url.strip()
+        if not (stripped.startswith("http://") or stripped.startswith("https://")):
+            raise ValueError("http url 只允许 http:// 或 https://")
+    else:
+        raise ValueError("transport 只允许 stdio 或 http")
+
+
+class MCPServerBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    transport: MCPTransport
+    command: Optional[str] = Field(None, max_length=500)
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    url: Optional[str] = Field(None, max_length=1000)
+    headers: dict[str, str] = Field(default_factory=dict)
+    timeout_sec: int = Field(30, ge=5, le=120)
+    enabled: bool = True
+    auto_approve_readonly: bool = False
+
+    @model_validator(mode="after")
+    def _check_transport_fields(self):
+        _validate_mcp_fields(self.transport, self.command, self.args, self.url)
+        return self
+
+
+class MCPServerCreate(MCPServerBase):
+    pass
+
+
+class MCPServerUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    transport: Optional[MCPTransport] = None
+    command: Optional[str] = Field(None, max_length=500)
+    args: Optional[list[str]] = None
+    env: Optional[dict[str, str]] = None
+    url: Optional[str] = Field(None, max_length=1000)
+    headers: Optional[dict[str, str]] = None
+    timeout_sec: Optional[int] = Field(None, ge=5, le=120)
+    enabled: Optional[bool] = None
+    auto_approve_readonly: Optional[bool] = None
+
+    @model_validator(mode="after")
+    def _check_transport_fields(self):
+        # 更新时 transport 可能未传，按显式传入的字段组合校验
+        transport = self.transport
+        if transport is None and (
+            self.command is not None or self.args is not None or self.url is not None
+        ):
+            # 未带 transport 又改了传输相关字段，无法判定合法性，交给 service 层按现库值校验
+            return self
+        if transport is not None:
+            _validate_mcp_fields(transport, self.command, self.args, self.url)
+        return self
+
+
+class MCPServerResponse(BaseModel):
+    """响应模型：env/headers 的 value 一律脱敏。"""
+
+    id: int
+    name: str
+    transport: str
+    command: Optional[str] = None
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    url: Optional[str] = None
+    headers: dict[str, str] = Field(default_factory=dict)
+    timeout_sec: int = 30
+    enabled: bool = True
+    auto_approve_readonly: bool = False
+    last_status: str = "unknown"
+    last_error: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MCPToolInfo(BaseModel):
+    name: str  # 已加 mcp__s{id}__ 前缀的完整工具名
+    original_name: str  # MCP 服务器原始工具名
+    server_id: int
+    server_name: str
+    description: str = ""
+    input_schema: dict[str, Any] = Field(default_factory=dict)
+    read_only: bool = False
+
+
+class MCPTestResult(BaseModel):
+    ok: bool
+    message: str = ""
+    tools: list[MCPToolInfo] = Field(default_factory=list)
 
 
 class AIModelsRequest(BaseModel):
@@ -266,19 +392,19 @@ class AIModelsResponse(BaseModel):
 
 class AISkillCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    description: str = ""
-    content: str = Field(..., min_length=1)
+    description: str = Field("", max_length=500)
+    content: str = Field(..., min_length=1, max_length=20000)
 
 
 class AISkillUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
-    description: Optional[str] = None
-    content: Optional[str] = Field(None, min_length=1)
+    description: Optional[str] = Field(None, max_length=500)
+    content: Optional[str] = Field(None, min_length=1, max_length=20000)
 
 
 class AISkillImport(BaseModel):
     filename: str = Field(..., min_length=1, max_length=255)
-    content: str = Field(..., min_length=1)
+    content: str = Field(..., min_length=1, max_length=20000)
 
 
 class AISkillResponse(BaseModel):
@@ -326,6 +452,10 @@ class AIChatRequest(BaseModel):
     conversation_id: Optional[int] = None
     message: str = ""
     attachments: list[AIChatAttachmentRef] = Field(default_factory=list)
+    # 阶段 B2：请求级覆盖步数预算（3-30）。None/缺省回落 settings.agent_max_steps。
+    max_steps: Optional[int] = None
+    # 阶段 C1：会话模式。chat=正常对话；plan=计划模式（只读调研 + propose_plan 收尾）。
+    mode: Optional[str] = "chat"
 
     @model_validator(mode="after")
     def require_message_or_attachment(self):
@@ -340,6 +470,46 @@ class AIChatResponse(BaseModel):
     reply: str
     tool_results: list[dict[str, Any]] = Field(default_factory=list)
     pending_actions: list[AIPendingActionResponse] = Field(default_factory=list)
+    # resume 端点专用：true=已续跑并返回新回复；false=无 checkpoint 或仍有 pending（前端静默）
+    resumed: bool = False
+    # 本次 run 累计 token 用量（provider 不回 usage 时为 None）
+    usage: dict[str, Any] | None = None
+
+
+class AIChatResumeRequest(BaseModel):
+    conversation_id: int
+
+
+class AIPlanStep(BaseModel):
+    action: str = ""
+    tool: str = ""
+    args_preview: str | None = None
+    rationale: str | None = None
+
+
+class AIPlanApproveRequest(BaseModel):
+    """阶段 C1：批准计划。可携带用户编辑后的 steps；批准后作为新用户指令注入会话并切回 chat 模式执行。"""
+    steps: list[AIPlanStep] | None = None
+
+
+class AIPlanRejectRequest(BaseModel):
+    """阶段 C1：拒绝计划。可选携带用户拒绝理由，回一句话。"""
+    reason: str | None = None
+
+
+class AIToolGrantCreate(BaseModel):
+    """阶段 D1：创建「始终允许」授权规则。"""
+    tool_name: str
+    arg_pattern: str = ""
+
+
+class AIToolGrantResponse(BaseModel):
+    id: int
+    tool_name: str
+    arg_pattern: str = ""
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AIConversationMessageResponse(BaseModel):
@@ -348,6 +518,8 @@ class AIConversationMessageResponse(BaseModel):
     content: str
     tool_results: list[dict[str, Any]] = Field(default_factory=list)
     pending_actions: list[AIPendingActionResponse] = Field(default_factory=list)
+    # 消息元数据（白名单）：usage / elapsed_ms / reasoning，供历史消息展示 token 用量与思维链
+    meta: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
 
 

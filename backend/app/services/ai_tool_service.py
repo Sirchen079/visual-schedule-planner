@@ -22,65 +22,37 @@ from app.schemas import (
 )
 from app.services import (
     ai_attachment_service,
+    ai_report_service,
     app_setting_service,
     file_service,
     goal_service,
     habit_service,
     journal_service,
+    mcp_service,
+    notification_service,
     schedule_service,
     subtask_service,
     task_service,
     timer_service,
 )
+from app.services.tool_registry import (
+    confirm_names as _registry_confirm_names,
+    feature_flags as _registry_feature_flags,
+    safe_names as _registry_safe_names,
+)
 
-SAFE_TOOLS = {
-    "list_tasks",
-    "create_task",
-    "list_reminders",
-    "create_reminder",
-    "list_files",
-    "create_note_file",
-    "attach_file_to_task",
-    "save_attachment_to_library",
-    "list_subtasks",
-    "create_subtask",
-    "create_subtasks",
-    "list_day_schedule",
-    "list_month_schedule",
-    "assign_task_to_day",
-    "list_habits",
-    "create_habit",
-    "check_in_habit",
-    "list_journal_entries",
-    "write_journal",
-    "list_goals",
-    "create_goal",
-    "update_kr_progress",
-    "start_timer",
-    "stop_timer",
-}
-CONFIRMATION_REQUIRED_TOOLS = {
-    "update_task",
-    "update_file_notes",
-    "detach_file_from_task",
-}
-
-# 功能开关门控：功能在「功能管理」里被关闭时，对应工具组整体不可用
-TOOL_FEATURE_FLAGS = {
-    "list_habits": "feature_habits_enabled",
-    "create_habit": "feature_habits_enabled",
-    "check_in_habit": "feature_habits_enabled",
-    "list_journal_entries": "feature_journal_enabled",
-    "write_journal": "feature_journal_enabled",
-    "list_goals": "feature_goals_enabled",
-    "create_goal": "feature_goals_enabled",
-    "update_kr_progress": "feature_goals_enabled",
-    "start_timer": "feature_timer_enabled",
-    "stop_timer": "feature_timer_enabled",
-}
+# 白名单/确认集/功能开关统一从 tool_registry 派生（单一数据源）；
+# execute_tool 的 if 执行体仍按原 name 分派，引用这些集合做门控。
+SAFE_TOOLS = _registry_safe_names()
+CONFIRMATION_REQUIRED_TOOLS = _registry_confirm_names()
+TOOL_FEATURE_FLAGS = _registry_feature_flags()
 
 
 def execute_tool(db: Session, name: str, args: dict) -> dict:
+    # MCP 工具（mcp__ 前缀）：仅服务器开启「只读免确认」且工具带 readOnlyHint 时可直接执行，
+    # 其余一律要求走 dangerous_actions 的 mcp_tool_call 两段确认（安全红线 2.6）。
+    if name.startswith("mcp__"):
+        return _execute_mcp_tool(db, name, args)
     if name in CONFIRMATION_REQUIRED_TOOLS:
         return {"ok": False, "error": f"工具需要待确认操作，不能直接执行: {name}"}
     if name not in SAFE_TOOLS:
@@ -277,16 +249,111 @@ def execute_tool(db: Session, name: str, args: dict) -> dict:
             if log is None:
                 return {"ok": False, "error": "没有运行中的计时"}
             return {"ok": True, "timer": _timer_dict(log)}
+        if name == "get_time_stats":
+            days = min(max(int(args.get("days") or 30), 1), 90)
+            stats = timer_service.time_stats(db, days)
+            for item in stats["daily"]:
+                item["date"] = item["date"].isoformat()
+            return {"ok": True, "stats": stats}
+        # ---- 阶段 B5：补齐 safe 工具缺口 ----
+        if name == "toggle_subtask":
+            task_id = int(args["task_id"])
+            subtask_id = int(args["subtask_id"])
+            task = task_service.get_task(db, task_id)
+            if task is None:
+                return {"ok": False, "error": "任务不存在"}
+            sub = next((s for s in task.subtasks if s.id == subtask_id), None)
+            if sub is None:
+                return {"ok": False, "error": "子任务不存在"}
+            # 复用 update_subtask 翻转 done（与现有 subtask_service 口径一致）
+            from app.schemas import SubtaskUpdate
+            new_done = not bool(getattr(sub, "done", False))
+            subtask_service.update_subtask(db, task_id, subtask_id, SubtaskUpdate(done=new_done))
+            return {"ok": True, "subtask_id": subtask_id, "done": new_done}
+        if name == "restore_from_trash":
+            item_type = str(args.get("item_type", ""))
+            item_id = int(args["item_id"])
+            if item_type == "task":
+                restored = task_service.restore_task(db, item_id)
+                return ({"ok": True, "task": _task_dict(restored)} if restored
+                        else {"ok": False, "error": "任务不存在或不在回收站"})
+            if item_type == "file":
+                restored = file_service.restore_file(db, item_id)
+                return ({"ok": True, "file": _file_dict(restored)} if restored
+                        else {"ok": False, "error": "资料不存在或不在回收站"})
+            return {"ok": False, "error": "item_type 必须是 task 或 file"}
+        if name == "mark_notifications_read":
+            nid = args.get("notification_id")
+            if nid is not None:
+                updated = notification_service.mark_read(db, int(nid))
+                return ({"ok": True, "notification_id": int(nid)} if updated
+                        else {"ok": False, "error": "通知不存在"})
+            count = notification_service.mark_all_read(db)
+            return {"ok": True, "marked_count": count}
+        if name == "get_settings":
+            return {"ok": True, "settings": app_setting_service.list_settings(db)}
+        if name == "generate_report":
+            # 报告生成需 AI config（异步），此处同步收集报告数据供 agent 总结，
+            # 避免在同步 execute_tool 中触发异步 provider 调用。
+            kind = str(args.get("kind", "daily"))
+            report_type = "weekly" if kind == "weekly" else "daily"
+            from datetime import date as _date
+            target = None
+            if args.get("date"):
+                target = _date.fromisoformat(str(args["date"]))
+            data = ai_report_service.collect_report_data(db, report_type, target, task_limit=50)
+            return {"ok": True, "kind": report_type, "report_data": data}
+        # 阶段 C1/C2：plan 模式收尾 + 工作清单（不操作业务数据，结果由 agent 循环捕获）
+        if name == "propose_plan":
+            # 计划卡片：原样回传，由 _dispatch_native_tool_call / 循环写入消息 meta
+            return {"ok": True, "plan_card": {
+                "title": str(args.get("title", "")),
+                "steps": args.get("steps") or [],
+                "affected_days": args.get("affected_days") or [],
+                "status": "pending",
+            }}
+        if name == "update_work_plan":
+            # 工作清单：原样回传，由流式循环作为 work_plan 事件推送 + 落库 meta
+            items = args.get("items") or []
+            return {"ok": True, "work_plan": items}
     except (ValidationError, KeyError, ValueError) as exc:
         return {"ok": False, "error": str(exc)}
     return {"ok": False, "error": "未处理的工具"}
+
+
+def _execute_mcp_tool(db: Session, name: str, args: dict) -> dict:
+    """MCP 工具直接执行闸门：仅「只读免确认」服务器上的只读工具可直接调用。
+
+    其余一律拒绝直接执行，要求模型改走 dangerous_actions 的 mcp_tool_call 两段确认，
+    以落实安全红线（MCP 工具默认经确认管道执行）。
+    """
+    parsed = mcp_service.parse_namespaced(name)
+    if parsed is None:
+        return {"ok": False, "error": f"MCP 工具名格式无效: {name}"}
+    server_id, fallback_name = parsed
+    # is_auto_approved 按 namespaced 形态匹配（兼容截断名）；call_tool 需原始名
+    if not mcp_service.is_auto_approved(db, server_id, name):
+        return {
+            "ok": False,
+            "error": (
+                f"MCP 工具 {name} 需要用户确认。请改放入 dangerous_actions："
+                f'{{"action_type":"mcp_tool_call","payload":{{"server_id":{server_id},'
+                f'"tool_name":"{mcp_service.resolve_tool_name(db, server_id, name) or fallback_name}",'
+                f'"arguments":<参数>}},"summary":"<说明>"}}'
+            ),
+        }
+    original = mcp_service.resolve_tool_name(db, server_id, name) or fallback_name
+    outcome = mcp_service.call_tool(db, server_id, original, args)
+    if outcome.get("ok"):
+        return {"ok": True, "text": str(outcome.get("text", ""))}
+    return {"ok": False, "error": str(outcome.get("error", "MCP 调用失败"))}
 
 
 def _create_task_with_optional_files(db: Session, args: dict) -> dict:
     task_args = dict(args)
     file_ids = _pop_file_ids(task_args)
     attachment_ids = _pop_attachment_ids(task_args)
-    subtask_titles = _pop_subtask_titles(task_args)
+    subtask_items = _pop_subtask_titles(task_args)
     missing = _missing_file_ids(db, file_ids)
     if missing:
         return {"ok": False, "error": f"资料不存在: {', '.join(str(i) for i in missing)}"}
@@ -299,18 +366,24 @@ def _create_task_with_optional_files(db: Session, args: dict) -> dict:
             file_ids.append(db_file.id)
     for file_id in file_ids:
         file_service.attach_to_task(db, task.id, file_id)
-    for title in subtask_titles:
-        subtask_service.create_subtask(db, task.id, SubtaskCreate(title=title))
+    for sub in subtask_items:
+        subtask_service.create_subtask(
+            db, task.id, SubtaskCreate(title=sub["title"], estimated_minutes=sub.get("estimated_minutes"))
+        )
     task = task_service.get_task(db, task.id) or task
     return {"ok": True, "task": _task_dict(task)}
 
 
-def _create_subtasks(db: Session, task_id: int, titles: list[str]) -> dict:
-    if not titles:
+def _create_subtasks(db: Session, task_id: int, items: list[dict]) -> dict:
+    if not items:
         return {"ok": False, "error": "创建子任务需要 titles 或 subtasks"}
     created = []
-    for title in titles:
-        subtask = subtask_service.create_subtask(db, task_id, SubtaskCreate(title=title))
+    for item in items:
+        subtask = subtask_service.create_subtask(
+            db,
+            task_id,
+            SubtaskCreate(title=item["title"], estimated_minutes=item.get("estimated_minutes")),
+        )
         if subtask is None:
             return {"ok": False, "error": "任务不存在"}
         created.append(subtask)
@@ -330,6 +403,8 @@ def _assign_task_to_day(db: Session, args: dict) -> dict:
     if target_date is None:
         return {"ok": False, "error": "assign_task_to_day 需要 ISO 格式 date"}
     note = str(args.get("note") or "").strip()
+    start_time = args.get("start_time")
+    end_time = args.get("end_time")
     try:
         entry = schedule_service.create_schedule_entry(
             db,
@@ -338,6 +413,8 @@ def _assign_task_to_day(db: Session, args: dict) -> dict:
                 date=target_date,
                 source="ai",
                 note=note,
+                start_time=start_time,
+                end_time=end_time,
             ),
         )
     except schedule_service.ScheduleTaskNotFound:
@@ -383,7 +460,11 @@ def _pop_attachment_ids(args: dict) -> list[str]:
     return ids
 
 
-def _pop_subtask_titles(args: dict) -> list[str]:
+def _pop_subtask_titles(args: dict) -> list[dict]:
+    """提取子任务列表为 [{title, estimated_minutes}]；支持纯字符串或对象项。
+
+    去重（按 title）；estimated_minutes 仅在对象项中给出时保留。
+    """
     raw = args.pop("titles", args.pop("subtask_titles", args.pop("subtasks", [])))
     if raw is None or raw == "":
         return []
@@ -391,15 +472,22 @@ def _pop_subtask_titles(args: dict) -> list[str]:
         raw = [raw]
     if not isinstance(raw, list):
         raise ValueError("子任务必须是字符串或数组")
-    titles = []
+    items: list[dict] = []
+    seen: set[str] = set()
     for item in raw:
         if isinstance(item, dict):
             title = str(item.get("title", "")).strip()
+            estimated = item.get("estimated_minutes")
         else:
             title = str(item).strip()
-        if title and title not in titles:
-            titles.append(title)
-    return titles
+            estimated = None
+        if title and title not in seen:
+            seen.add(title)
+            entry = {"title": title}
+            if isinstance(estimated, (int, float)) and estimated >= 0:
+                entry["estimated_minutes"] = int(estimated)
+            items.append(entry)
+    return items
 
 
 def _missing_file_ids(db: Session, file_ids: list[int]) -> list[int]:
@@ -444,6 +532,7 @@ def _task_dict(task) -> dict:
         "status": task.status,
         "priority": task.priority,
         "progress": task.progress,
+        "estimated_minutes": task.estimated_minutes,
         "start_date": task.start_date.isoformat() if task.start_date else None,
         "end_date": task.end_date.isoformat() if task.end_date else None,
         "due_date": task.due_date.isoformat() if task.due_date else None,
@@ -523,5 +612,6 @@ def _subtask_dict(subtask) -> dict:
         "task_id": subtask.task_id,
         "title": subtask.title,
         "done": subtask.done,
+        "estimated_minutes": subtask.estimated_minutes,
         "completed_at": subtask.completed_at.isoformat() if subtask.completed_at else None,
     }

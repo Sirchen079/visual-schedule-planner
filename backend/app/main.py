@@ -10,7 +10,7 @@ from sqlalchemy import text
 
 from app.database import engine
 from app.models import Base
-from app.routers import ai, ai_actions, files, goals, habits, ical, journal, notifications, reminders, schedule, settings, stats, tasks, timer
+from app.routers import ai, ai_actions, files, goals, habits, ical, journal, mcp, notifications, reminders, schedule, settings, stats, tasks, timer
 from app.services import backup_service
 
 
@@ -18,6 +18,12 @@ def init_db() -> None:
     """运行时建表（测试用内存库，不走这里）。"""
     Base.metadata.create_all(bind=engine)
     _migrate()
+    # 内置 skill 种子：随版本幂等更新（始终生效，不进用户视图）
+    from app.database import SessionLocal
+    from app.services import ai_skill_service
+
+    with SessionLocal() as db:
+        ai_skill_service.seed_builtin_skills(db)
 
 
 def _migrate() -> None:
@@ -54,6 +60,9 @@ def _migrate() -> None:
         {
             "price_input": "FLOAT DEFAULT 0",
             "price_output": "FLOAT DEFAULT 0",
+            "tool_calling_mode": "VARCHAR(20) DEFAULT 'native'",
+            # 阶段 3：思维链展示开关（默认开启；DeepSeek/OpenAI 兼容服务的 reasoning_content 零成本获得）
+            "show_reasoning": "BOOLEAN DEFAULT 1",
         }
     )
     with engine.connect() as conn:
@@ -105,12 +114,31 @@ def _migrate() -> None:
             for name, column_type in ai_config_columns.items():
                 if name not in ai_cols:
                     conn.execute(text(f"ALTER TABLE ai_configs ADD COLUMN {name} {column_type}"))
+        skill_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(ai_skills)"))]
+        if skill_cols and "is_builtin" not in skill_cols:
+            conn.execute(text("ALTER TABLE ai_skills ADD COLUMN is_builtin BOOLEAN DEFAULT 0"))
         file_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(files)"))]
         if file_cols:
             for name, column_type in file_columns.items():
                 if name not in file_cols:
                     conn.execute(text(f"ALTER TABLE files ADD COLUMN {name} {column_type}"))
             conn.execute(text("UPDATE files SET resource_type = 'file' WHERE resource_type IS NULL OR resource_type = ''"))
+        entry_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(task_schedule_entries)"))]
+        if entry_cols:
+            for name, column_type in {"start_time": "VARCHAR(5)", "end_time": "VARCHAR(5)"}.items():
+                if name not in entry_cols:
+                    conn.execute(text(f"ALTER TABLE task_schedule_entries ADD COLUMN {name} {column_type}"))
+        subtask_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(subtasks)"))]
+        if subtask_cols and "estimated_minutes" not in subtask_cols:
+            conn.execute(text("ALTER TABLE subtasks ADD COLUMN estimated_minutes INTEGER"))
+        # 阶段 B3：会话上下文压缩。AIConversation 增 meta 列存 summary / summary_upto_message_id；
+        # AIMessage 增 compacted 列标记已纳入摘要（压缩后旧消息不再逐条回放，防上下文爆炸）。
+        conv_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(ai_conversations)"))]
+        if conv_cols and "meta" not in conv_cols:
+            conn.execute(text("ALTER TABLE ai_conversations ADD COLUMN meta TEXT DEFAULT '{}'"))
+        msg_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(ai_messages)"))]
+        if msg_cols and "compacted" not in msg_cols:
+            conn.execute(text("ALTER TABLE ai_messages ADD COLUMN compacted BOOLEAN DEFAULT 0"))
         conn.commit()
 
 
@@ -137,6 +165,7 @@ app.include_router(timer.router)
 app.include_router(ical.router)
 app.include_router(ai_actions.router)
 app.include_router(ai.router)
+app.include_router(mcp.router)
 
 
 @app.get("/health")

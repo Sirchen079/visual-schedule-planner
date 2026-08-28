@@ -8,6 +8,7 @@ import EmptyState from '../components/ui/EmptyState.vue'
 import { getDueReminders } from '../api/reminders'
 import { updateTask } from '../api/tasks'
 import { useWarmGreeting } from '../composables/useWarmGreeting'
+import { useOnboarding } from '../composables/useOnboarding'
 import { formatQuickHint, parseQuickInput } from '../utils/quickparse'
 
 const props = defineProps({
@@ -15,6 +16,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['open', 'update-status', 'create', 'quick-create'])
 const toast = inject('toast', { success: () => {}, error: () => {}, info: () => {}, undo: () => {} })
+const { onboardingDone } = useOnboarding()
 
 const COLUMNS = ['待办', '进行中', '完成']
 const lists = ref({ 待办: [], 进行中: [], 完成: [] })
@@ -235,8 +237,9 @@ function focusQuick(status) {
   quickInput.value?.focus()
 }
 
-// 整板无任何任务（不含筛选导致的空）：列区域上叠加居中的新手引导空状态
-const boardEmpty = computed(() => !props.tasks.length)
+// 整板空态 overlay 只在「新手引导未完成」时出现；引导结束（onboarding_done=1）后
+// 永远展示基本界面（空列 + 列底快速新建），即使任务列表为空也不再叠加引导层。
+const boardEmpty = computed(() => !props.tasks.length && !onboardingDone.value)
 
 // 空状态引导的次按钮：把自然语言示例填入快速新建框并聚焦，回车即可体验解析
 function tryQuickCreate() {
