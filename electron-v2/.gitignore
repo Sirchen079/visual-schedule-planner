@@ -1,0 +1,6 @@
+node_modules/
+dist/
+dev-data/
+*.log
+dist2/
+dist3/

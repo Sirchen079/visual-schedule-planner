@@ -1,0 +1,33 @@
+const {app,BrowserWindow}=require('electron')
+const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),assert=require('node:assert/strict')
+const qa=path.resolve(process.argv[2]),state=JSON.parse(fs.readFileSync(path.join(qa,'brand-state.json'),'utf8'))
+const base=`http://127.0.0.1:${state.port}`,repo='https://github.com/Sirchen079/visual-schedule-planner',sleep=ms=>new Promise(r=>setTimeout(r,ms))
+app.setPath('userData',fs.mkdtempSync(path.join(os.tmpdir(),'zhishi-brand-render-')))
+app.disableHardwareAcceleration()
+app.whenReady().then(async()=>{
+ const win=new BrowserWindow({width:1450,height:960,show:false,webPreferences:{offscreen:true,contextIsolation:true,nodeIntegration:false,sandbox:true}})
+ const js=code=>win.webContents.executeJavaScript(code,true)
+ const opened=[];win.webContents.setWindowOpenHandler(({url})=>{opened.push(url);return{action:'deny'}})
+ async function wait(code){for(let i=0;i<180;i++){if(await js(code))return;await sleep(100)}throw Error('Timeout '+code)}
+ async function shot(name){fs.writeFileSync(path.join(qa,name+'.png'),(await win.webContents.capturePage()).toPNG())}
+ try{
+  await win.loadURL(base+'/#/calendar')
+  await wait(`!!document.querySelector('.content-head .project-link')`)
+  const documentTitle=await js('document.title');assert(documentTitle.endsWith('知时'));assert(!documentTitle.includes('v2'))
+  assert.equal(await js(`document.querySelector('.content-head .project-link').href`),repo)
+  assert.equal(await js(`document.querySelector('.project-link').referrerPolicy`),'no-referrer')
+  await js(`document.querySelector('.content-head .project-link').click()`)
+  for(let i=0;i<40&&opened.length<1;i++)await sleep(100)
+  assert.deepEqual(opened,[repo]);assert(win.webContents.getURL().includes('/#/calendar'))
+  await shot('star-calendar-wide');win.setSize(900,900);await sleep(200)
+  for(const selector of ['.content-head .project-link','#calendar-export'])assert(await js(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return r.width>0&&r.left>=0&&r.right<=innerWidth})()`))
+  await shot('star-calendar-narrow')
+  await js(`location.hash='#/settings'`);await wait(`!!document.querySelector('.project-support .project-link')`)
+  assert((await js(`document.querySelector('.project-support').textContent`)).includes('喜欢知时？点个 Star'))
+  await js(`document.querySelector('.project-support .project-link').click()`)
+  for(let i=0;i<40&&opened.length<2;i++)await sleep(100)
+  assert.deepEqual(opened,[repo,repo]);await shot('star-settings-narrow')
+  fs.writeFileSync(path.join(qa,'brand-ui.json'),JSON.stringify({passed:true,opened,documentTitle},null,2))
+  win.destroy();app.exit(0)
+ }catch(e){console.error(e.stack);await shot('star-failure');app.exit(1)}
+})

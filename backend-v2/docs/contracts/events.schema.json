@@ -1,0 +1,705 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "zhishi SSE events v1",
+  "oneOf": [
+    {
+      "$ref": "#/definitions/RunStarted"
+    },
+    {
+      "$ref": "#/definitions/StageChanged"
+    },
+    {
+      "$ref": "#/definitions/Heartbeat"
+    },
+    {
+      "$ref": "#/definitions/TextDelta"
+    },
+    {
+      "$ref": "#/definitions/ReasoningDelta"
+    },
+    {
+      "$ref": "#/definitions/ToolCallStarted"
+    },
+    {
+      "$ref": "#/definitions/ToolCallArgsDelta"
+    },
+    {
+      "$ref": "#/definitions/ToolCallResult"
+    },
+    {
+      "$ref": "#/definitions/ToolApprovalRequested"
+    },
+    {
+      "$ref": "#/definitions/ToolApprovalResolved"
+    },
+    {
+      "$ref": "#/definitions/PlanCard"
+    },
+    {
+      "$ref": "#/definitions/WorkPlanUpdated"
+    },
+    {
+      "$ref": "#/definitions/SubagentStarted"
+    },
+    {
+      "$ref": "#/definitions/SubagentDelta"
+    },
+    {
+      "$ref": "#/definitions/SubagentCompleted"
+    },
+    {
+      "$ref": "#/definitions/UsageUpdated"
+    },
+    {
+      "$ref": "#/definitions/RunCompleted"
+    },
+    {
+      "$ref": "#/definitions/RunError"
+    },
+    {
+      "$ref": "#/definitions/Done"
+    }
+  ],
+  "definitions": {
+    "RunStarted": {
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "run_started",
+          "default": "run_started",
+          "title": "Type",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "conversation_id": {
+          "title": "Conversation Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "run_id",
+        "conversation_id"
+      ],
+      "title": "RunStarted",
+      "type": "object"
+    },
+    "StageChanged": {
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "stage_changed",
+          "default": "stage_changed",
+          "title": "Type",
+          "type": "string"
+        },
+        "stage": {
+          "enum": [
+            "preparing",
+            "connecting",
+            "waiting_first_token",
+            "streaming_reasoning",
+            "streaming_text",
+            "executing_tools",
+            "awaiting_approval",
+            "finalizing"
+          ],
+          "title": "Stage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage"
+      ],
+      "title": "StageChanged",
+      "type": "object"
+    },
+    "Heartbeat": {
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "heartbeat",
+          "default": "heartbeat",
+          "title": "Type",
+          "type": "string"
+        },
+        "elapsed_ms": {
+          "title": "Elapsed Ms",
+          "type": "integer"
+        },
+        "stage": {
+          "title": "Stage",
+          "type": "string"
+        },
+        "last_event_age_ms": {
+          "title": "Last Event Age Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "elapsed_ms",
+        "stage",
+        "last_event_age_ms"
+      ],
+      "title": "Heartbeat",
+      "type": "object"
+    },
+    "TextDelta": {
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "text_delta",
+          "default": "text_delta",
+          "title": "Type",
+          "type": "string"
+        },
+        "delta": {
+          "title": "Delta",
+          "type": "string"
+        }
+      },
+      "required": [
+        "delta"
+      ],
+      "title": "TextDelta",
+      "type": "object"
+    },
+    "ReasoningDelta": {
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "reasoning_delta",
+          "default": "reasoning_delta",
+          "title": "Type",
+          "type": "string"
+        },
+        "delta": {
+          "title": "Delta",
+          "type": "string"
+        }
+      },
+      "required": [
+        "delta"
+      ],
+      "title": "ReasoningDelta",
+      "type": "object"
+    },
+    "ToolCallStarted": {
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "tool_call_started",
+          "default": "tool_call_started",
+          "title": "Type",
+          "type": "string"
+        },
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "args_preview": {
+          "title": "Args Preview",
+          "type": "string"
+        }
+      },
+      "required": [
+        "call_id",
+        "tool",
+        "args_preview"
+      ],
+      "title": "ToolCallStarted",
+      "type": "object"
+    },
+    "ToolCallArgsDelta": {
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "tool_call_args_delta",
+          "default": "tool_call_args_delta",
+          "title": "Type",
+          "type": "string"
+        },
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "args_delta": {
+          "title": "Args Delta",
+          "type": "string"
+        }
+      },
+      "required": [
+        "call_id",
+        "args_delta"
+      ],
+      "title": "ToolCallArgsDelta",
+      "type": "object"
+    },
+    "ToolCallResult": {
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "tool_call_result",
+          "default": "tool_call_result",
+          "title": "Type",
+          "type": "string"
+        },
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "result_preview": {
+          "title": "Result Preview",
+          "type": "string"
+        },
+        "duration_ms": {
+          "title": "Duration Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "call_id",
+        "ok",
+        "result_preview",
+        "duration_ms"
+      ],
+      "title": "ToolCallResult",
+      "type": "object"
+    },
+    "ToolApprovalRequested": {
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "tool_approval_requested",
+          "default": "tool_approval_requested",
+          "title": "Type",
+          "type": "string"
+        },
+        "action_id": {
+          "title": "Action Id",
+          "type": "integer"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "args": {
+          "additionalProperties": true,
+          "title": "Args",
+          "type": "object"
+        },
+        "preview": {
+          "title": "Preview",
+          "type": "string"
+        },
+        "grant_available": {
+          "default": true,
+          "title": "Grant Available",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "action_id",
+        "tool",
+        "args",
+        "preview"
+      ],
+      "title": "ToolApprovalRequested",
+      "type": "object"
+    },
+    "ToolApprovalResolved": {
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "tool_approval_resolved",
+          "default": "tool_approval_resolved",
+          "title": "Type",
+          "type": "string"
+        },
+        "action_id": {
+          "title": "Action Id",
+          "type": "integer"
+        },
+        "outcome": {
+          "enum": [
+            "approved",
+            "denied",
+            "expired"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action_id",
+        "outcome"
+      ],
+      "title": "ToolApprovalResolved",
+      "type": "object"
+    },
+    "PlanCard": {
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "plan_card",
+          "default": "plan_card",
+          "title": "Type",
+          "type": "string"
+        },
+        "plan_id": {
+          "title": "Plan Id",
+          "type": "integer"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Steps",
+          "type": "array"
+        }
+      },
+      "required": [
+        "plan_id",
+        "title",
+        "steps"
+      ],
+      "title": "PlanCard",
+      "type": "object"
+    },
+    "WorkPlanUpdated": {
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "work_plan_updated",
+          "default": "work_plan_updated",
+          "title": "Type",
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Steps",
+          "type": "array"
+        }
+      },
+      "required": [
+        "steps"
+      ],
+      "title": "WorkPlanUpdated",
+      "type": "object"
+    },
+    "SubagentStarted": {
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "subagent_started",
+          "default": "subagent_started",
+          "title": "Type",
+          "type": "string"
+        },
+        "subagent_id": {
+          "title": "Subagent Id",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subagent_id",
+        "description"
+      ],
+      "title": "SubagentStarted",
+      "type": "object"
+    },
+    "SubagentDelta": {
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "subagent_delta",
+          "default": "subagent_delta",
+          "title": "Type",
+          "type": "string"
+        },
+        "subagent_id": {
+          "title": "Subagent Id",
+          "type": "string"
+        },
+        "delta": {
+          "title": "Delta",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subagent_id",
+        "delta"
+      ],
+      "title": "SubagentDelta",
+      "type": "object"
+    },
+    "SubagentCompleted": {
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "subagent_completed",
+          "default": "subagent_completed",
+          "title": "Type",
+          "type": "string"
+        },
+        "subagent_id": {
+          "title": "Subagent Id",
+          "type": "string"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subagent_id",
+        "ok",
+        "summary"
+      ],
+      "title": "SubagentCompleted",
+      "type": "object"
+    },
+    "UsageUpdated": {
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "usage_updated",
+          "default": "usage_updated",
+          "title": "Type",
+          "type": "string"
+        },
+        "tokens_in": {
+          "title": "Tokens In",
+          "type": "integer"
+        },
+        "tokens_out": {
+          "title": "Tokens Out",
+          "type": "integer"
+        },
+        "cost_estimate": {
+          "title": "Cost Estimate",
+          "type": "number"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tokens_in",
+        "tokens_out",
+        "cost_estimate",
+        "model"
+      ],
+      "title": "UsageUpdated",
+      "type": "object"
+    },
+    "RunCompleted": {
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "run_completed",
+          "default": "run_completed",
+          "title": "Type",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "usage": {
+          "additionalProperties": true,
+          "title": "Usage",
+          "type": "object"
+        },
+        "elapsed_ms": {
+          "title": "Elapsed Ms",
+          "type": "integer"
+        },
+        "done_reason": {
+          "title": "Done Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "usage",
+        "elapsed_ms",
+        "done_reason"
+      ],
+      "title": "RunCompleted",
+      "type": "object"
+    },
+    "RunError": {
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "run_error",
+          "default": "run_error",
+          "title": "Type",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "retryable": {
+          "title": "Retryable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "run_id",
+        "message",
+        "retryable"
+      ],
+      "title": "RunError",
+      "type": "object"
+    },
+    "Done": {
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "done",
+          "default": "done",
+          "title": "Type",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "title": "Done",
+      "type": "object"
+    }
+  }
+}

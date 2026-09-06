@@ -1,0 +1,316 @@
+/*
+ * 知时 v2 设计 token —— 单一数据源。
+ * 视觉基准：design-demos/final-shell.html（B 布局骨架 × C 暗色温度，夜间书房里的 claude.ai）。
+ * 规则：组件样式只消费这里的变量，禁止硬编码色值；纸面色板（日历页用）作为作用域变量预留。
+ */
+
+:root {
+  /* ---- 底面（C 的暖棕墨底系，由暗到亮） ---- */
+  --bg-rail: #171310; /* 导航轨：书房最暗处 */
+  --bg-app: #1c1815; /* 内容区桌面 */
+  --bg-chat: #211b16; /* 对话列 */
+  --bg-raise: #272019; /* 卡片抬升面 */
+  --bg-sink: #191411; /* 代码块沉底面 */
+  --bg-bubble: #2f2721; /* 用户消息气泡 */
+  --bg-runbar: #231c15; /* 活性状态条 */
+  --bg-approve: #271e17; /* 审批卡底 */
+  --bg-preview: #1f1913; /* 审批预览块底 */
+
+  /* ---- 墨色（文字，全部对暗底 ≥4.5:1） ---- */
+  --ink: #f0e8dc;
+  --ink-2: #cbbba7;
+  --ink-3: #a69682; /* 弱标签 ≈6.0:1 */
+  --ink-faint: #9a8b7a; /* 输入框占位（装饰性，非正文） */
+
+  /* ---- 线 ---- */
+  --line: rgba(233, 203, 168, 0.1);
+  --line-2: rgba(233, 203, 168, 0.18);
+  --line-hover: rgba(233, 203, 168, 0.35);
+
+  /* ---- accent：赤陶橙 / 琥珀（只给待决、关键动作、选中态） ---- */
+  --amber: #e4a366;
+  --amber-soft: #f0b27e;
+  --amber-dim: #c9a27a;
+  --terra: #d0764a;
+  --terra-soft: #e09268;
+  --ok: #a9bc8f;
+
+  /* ---- 工具卡内部专用 ---- */
+  --tool-name: #e8cba0; /* mono 工具名 */
+  --tool-code: #d6be9c; /* mono 参数/结果 */
+
+  /* ---- 审批卡辉光（台灯下待签字的单据） ---- */
+  --approve-border: rgba(226, 140, 88, 0.6);
+  --approve-border-soft: rgba(226, 140, 88, 0.28);
+  --approve-gradient: linear-gradient(180deg, rgba(217, 119, 87, 0.1), rgba(217, 119, 87, 0.035));
+  --glow-ring: rgba(224, 135, 87, 0.12);
+  --glow-ring-strong: rgba(224, 135, 87, 0.28);
+  --glow-blur: rgba(217, 119, 87, 0.16);
+  --glow-blur-strong: rgba(217, 119, 87, 0.28);
+  --approve-title: #f4b985;
+  --approve-icon: #f2b27c;
+  --approve-p1: #f6ebdb;
+  --approve-always: #cfa377;
+  --btn-ok-text: #2a150a;
+  --btn-ok-bg: linear-gradient(180deg, #eca26b, #ce7448);
+  --btn-no-text: #dccbb5;
+
+  /* ---- 关键动作（新建）与发送 ---- */
+  --btn-new-bg: #b45a32;
+  --btn-new-bg-hover: #a34e28;
+  --btn-new-text: #fff7ee;
+  --send-idle-bg: #3a3128;
+  --send-idle-text: #b7a78f;
+
+  /* ---- 琥珀/赤陶半透明覆写（徽标描边、光晕、选中 wash、错误虚线） ---- */
+  --amber-border: rgba(228, 166, 102, 0.45);
+  --amber-border-weak: rgba(228, 166, 102, 0.4);
+  --amber-ring: rgba(228, 163, 102, 0.18);
+  --amber-wash: rgba(228, 166, 102, 0.1);
+  --amber-wash-strong: rgba(228, 166, 102, 0.12); /* 内容头本地优先徽标底 */
+  --terra-dashed: rgba(224, 146, 104, 0.4);
+  --shadow-now: 0 0 0 1px rgba(228, 163, 102, 0.18), 0 4px 18px rgba(0, 0, 0, 0.3);
+
+  /* ---- 壳层（导航轨/内容头）专用 ---- */
+  --nav-hover-bg: rgba(233, 203, 168, 0.08); /* 图标轨悬停 wash */
+  --nav-active-bg: rgba(228, 166, 102, 0.14); /* 图标轨选中 wash */
+  --head-bar-bg: rgba(0, 0, 0, 0.14); /* 内容头压暗条 */
+
+  /* ---- 内容区暖光 ---- */
+  --app-glow:
+    radial-gradient(58% 46% at 46% 0%, rgba(232, 178, 118, 0.08), transparent 70%),
+    radial-gradient(40% 30% at 92% 100%, rgba(232, 178, 118, 0.04), transparent 70%);
+
+  /* ---- 阴影 ---- */
+  --shadow-input: 0 1px 3px rgba(0, 0, 0, 0.25);
+
+  /* ---- 交互淡色（hover 底/进行中描边等） ---- */
+  --ink-wash: rgba(233, 203, 168, 0.08); /* 图标按钮 hover 底（--line 同源浅色） */
+  --ink-ghost: rgba(233, 203, 168, 0.28); /* 状态条分隔符等幽灵墨 */
+  --amber-border-dim: rgba(228, 166, 102, 0.4); /* 琥珀弱描边（附件上传中/工具徽标） */
+  --amber-border-mid: rgba(228, 166, 102, 0.45); /* 琥珀中描边（计划卡） */
+  --amber-border: rgba(228, 166, 102, 0.5); /* 琥珀虚线描边（用户消息附件 chip） */
+  --amber-wash: rgba(228, 166, 102, 0.1); /* 琥珀淡底（工具徽标） */
+  --amber-pulse: rgba(228, 163, 102, 0.45); /* pulse 动画起手辉光（--amber 同族） */
+  --amber-pulse-end: rgba(228, 163, 102, 0); /* pulse 动画消散 */
+
+  /* ---- 暗色浮层（会话列表面板等） ---- */
+  --overlay-backdrop: rgba(0, 0, 0, 0.25); /* 面板背衬 */
+  --shadow-panel: 0 14px 40px rgba(0, 0, 0, 0.45); /* 浮层面板投影 */
+
+  /* ---- 字体 ---- */
+  --serif: 'Fraunces', 'Noto Serif SC', Georgia, serif;
+  --sans: 'Inter', 'Noto Sans SC', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --mono: 'JetBrains Mono', 'Noto Sans SC', Consolas, monospace;
+
+  /* ---- 尺寸 ---- */
+  --rail-w: 60px;
+  --chat-w: 570px;
+  --radius-s: 7px;
+  --radius-m: 10px;
+  --radius-l: 12px;
+  --radius-pill: 999px;
+
+  /* ---- 纸面色板（「纸与桌」母题：日历/报告页作用域使用，M2 启用） ----
+     取值与 design-demos/final-calendar.html 的 .paper 作用域逐一对齐，禁止漂移。 */
+  --paper-bg: #f0eee6; /* 纸面主色（final-calendar --paper） */
+  --paper-hi: #faf9f5; /* 纸面高光/今日列（--paper-hi） */
+  --paper-kraft: #e8e6dc; /* 牛皮纸次面（--kraft） */
+  --paper-line: #dcd6c4; /* 纸上分隔线（--pline） */
+  --paper-ink: #141413; /* 纸上主墨色（--pink） */
+  --paper-ink-2: #3d3d3a; /* 纸上次级墨（--pink-2） */
+  --paper-ink-3: #5e5d59; /* 纸上弱标签（--pink-3） */
+  --paper-accent: #d97757; /* 纸上赤陶（--pterra） */
+  --paper-accent-deep: #c6613f; /* 深赤陶，hover/强调（--pterra-deep） */
+  --paper-accent-text: #a34d26; /* 赤陶文字色，纸底对比达标（--pterra-text） */
+  --paper-tint: #ece6d6; /* 暖调晕染底（--ptint） */
+  /* 纸面展示衬线用 Newsreader（--serif-paper），M2 需在 index.html 字体链接中补 Newsreader */
+  --serif-paper: 'Newsreader', 'Noto Serif SC', Georgia, serif;
+
+  /* ---- 纸面质感（「纸与桌」母题的光影，取值与 final-calendar.html 逐一对应） ---- */
+  --paper-edge: rgba(255, 240, 214, 0.16); /* 纸外缘受光 */
+  --paper-inset-hi: rgba(255, 255, 255, 0.55); /* 纸内顶部受光 */
+  --paper-frame-line: rgba(20, 20, 19, 0.14); /* 裱边发丝印刷线 */
+  --shadow-desk-near: rgba(0, 0, 0, 0.55); /* 桌面投影：近接触影 */
+  --shadow-desk-mid: rgba(0, 0, 0, 0.42); /* 桌面投影：中景 */
+  --shadow-desk-far: rgba(0, 0, 0, 0.38); /* 桌面投影：远景 */
+  --paper-block-shadow: rgba(20, 20, 19, 0.04); /* 纸上课程块微影 */
+  --paper-ghost-tint: rgba(217, 119, 87, 0.06); /* 幽灵块斜纹底 */
+  --desk-glow: rgba(240, 200, 140, 0.05); /* 暗桌台灯暖光 */
+
+  /* ---- 纸面浮层（详情便签卡等）：遮罩与投影 ---- */
+  --paper-backdrop: rgba(20, 20, 19, 0.38); /* 便签浮层背衬（纸墨色半透明） */
+  --paper-note-shadow-1: 0 10px 26px rgba(0, 0, 0, 0.45);
+  --paper-note-shadow-2: 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+
+/*
+ * ---- 浅色主题「日间书房」（data-theme='light'，由 main.ts 挂载前引导、设置页切换） ----
+ * 视觉直觉：暖纸书桌——底 #faf9f5/#f0eee6/#ece6d6 族（与 --paper-* 同族），
+ * 墨 #2b241c/#57493a/#756551 族；线与 wash 改用深纸墨 rgba(60,45,30,…) 系；
+ * 琥珀/赤陶整体加深（文字走已审对比达标的 #a34d26 / #8a5717 族），辉光收敛、投影变柔。
+ * 仅覆盖颜色类变量；:root 的暗色取值与字体/尺寸/paper-* 全部原样保留（暗色仍是缺省主题）。
+ */
+[data-theme='light'] {
+  color-scheme: light;
+
+  /* ---- 底面（日间书房：桌面浅、纸面亮，导航轨是略深的牛皮纸沿） ---- */
+  --bg-rail: #e6dfcd; /* 导航轨：桌面边缘略深的牛皮纸 */
+  --bg-app: #f0eee6; /* 内容区桌面 = 纸面主色 */
+  --bg-chat: #faf9f5; /* 对话列：最亮的一张纸 */
+  --bg-raise: #fdfbf5; /* 卡片抬升面 */
+  --bg-sink: #ece5d4; /* 代码块沉底面 */
+  --bg-bubble: #efe7d6; /* 用户消息气泡：暖调晕染 */
+  --bg-runbar: #f2ecdd; /* 活性状态条 */
+  --bg-approve: #f7f1e2; /* 审批卡：台灯暖光下的单据 */
+  --bg-preview: #efe9d8; /* 审批预览块底 */
+
+  /* ---- 墨色（浅底反转：正文 ≥4.5:1、弱标签 ≥3:1，均按 #faf9f5/#f0eee6 校过） ----
+   * --ink-3 按「最暗承载面」校准：今日/看板统计小卡底是 --bg-sink #ece5d4，
+   * 弱标签须在其上仍 ≥4.5:1（#756551 只有 4.48，故加深到 #6e5f4c ≈4.9:1）。 */
+  --ink: #2b241c;
+  --ink-2: #57493a;
+  --ink-3: #6e5f4c; /* 弱标签，#ece5d4 底 ≈4.9:1、#faf9f5 底 ≈5.9:1 */
+  --ink-faint: #6f604b; /* 输入框占位（M8 口径：placeholder 按普通文本 ≥4.5:1；#ece5d4 底 ≈4.85:1、#fdfbf5 底 ≈5.8:1） */
+
+  /* ---- 禁用态控件（:disabled）整体不透明度：浅底上 0.45~0.6 会让琥珀/弱墨
+   * 掉到 3:1 以下（WCAG 禁用件下限），浅色统一抬到 0.75；:root 不定义，
+   * 暗色组件走各自 fallback（0.45/0.5/0.6），暗色渲染零变化。 ---- */
+  --ctl-disabled-opacity: 0.75;
+
+  /* ---- 禁用态补充（M8，re reviewer「placeholder 按 4.5、不得自设豁免」）----
+   * --ctl-disabled-opacity-solid：实底填充按钮（--btn-new-bg 白字）禁用时白字在 0.75 下
+   *   只有 ≈2.4:1，实底件浅色抬到 0.9 才 ≥3:1；:root 不定义，暗色走组件 fallback（0.5）。
+   * --inputbox-disabled-opacity：会话输入框禁用是「整组 opacity」——0.75 会把占位文字一并
+   *   压到 ≈2.4:1（placeholder 按 4.5 审），浅色改为 1（禁用感由 textarea 墨色降级 + cursor 承载）。 */
+  --ctl-disabled-opacity-solid: 0.9;
+  --inputbox-disabled-opacity: 1;
+
+  /* ---- 线（深纸墨半透明，不再沿用浅色 rgba(233,203,168,…)） ---- */
+  --line: rgba(60, 45, 30, 0.12);
+  --line-2: rgba(60, 45, 30, 0.2);
+  --line-hover: rgba(60, 45, 30, 0.38);
+
+  /* ---- accent：赤陶橙 / 琥珀在浅底加深；文字态（hover/选中/徽标）用深琥珀 ---- */
+  --amber: #b4763b;
+  --amber-soft: #8a5717; /* 语义是「hover/选中前景」，浅底上要深才可读 ≈5.7:1 */
+  --amber-dim: #9c7a48;
+  --terra: #bc5c33;
+  --terra-soft: #9e451f; /* 错误/警示文本 ≈6.0:1 */
+  --ok: #56743a;
+
+  /* ---- 工具卡内部专用 ---- */
+  --tool-name: #7c5a20; /* mono 工具名 */
+  --tool-code: #6d5335; /* mono 参数/结果 */
+
+  /* ---- 审批卡（白日单据：辉光收敛为赤陶细环，渐变更淡） ---- */
+  --approve-border: rgba(198, 97, 63, 0.55);
+  --approve-border-soft: rgba(198, 97, 63, 0.3);
+  --approve-gradient: linear-gradient(180deg, rgba(217, 119, 87, 0.12), rgba(217, 119, 87, 0.04));
+  --glow-ring: rgba(198, 97, 63, 0.14);
+  --glow-ring-strong: rgba(198, 97, 63, 0.32);
+  --glow-blur: rgba(198, 97, 63, 0.18);
+  --glow-blur-strong: rgba(198, 97, 63, 0.3);
+  --approve-title: #8a5717;
+  --approve-icon: #a06220;
+  --approve-p1: #332a1e;
+  --approve-always: #7d5f33;
+  --btn-ok-text: #2b1608;
+  --btn-ok-bg: linear-gradient(180deg, #e29a5c, #c66f35);
+  --btn-no-text: #5c4b38;
+
+  /* ---- 关键动作（新建）与发送 ---- */
+  --btn-new-bg: #a34d26; /* = --paper-accent-text，浅底已审达标 */
+  --btn-new-bg-hover: #8f421e;
+  --btn-new-text: #fff7ee;
+  --send-idle-bg: #e8e1d0;
+  --send-idle-text: #5f5342; /* 发送键空闲/禁用图标色（--ctl-disabled-opacity 0.75 下对 #e8e1d0 组底 ≈3.5:1） */
+
+  /* ---- 琥珀/赤陶半透明覆写（基色换深赤陶，浅底上才留得住形） ---- */
+  --amber-border: rgba(163, 77, 38, 0.5);
+  --amber-border-weak: rgba(163, 77, 38, 0.42);
+  --amber-ring: rgba(180, 90, 45, 0.2);
+  --amber-wash: rgba(217, 119, 87, 0.12);
+  --amber-wash-strong: rgba(217, 119, 87, 0.16); /* 内容头本地优先徽标底 */
+  --terra-dashed: rgba(158, 69, 31, 0.45);
+  --shadow-now: 0 0 0 1px rgba(163, 77, 38, 0.22), 0 4px 14px rgba(87, 60, 30, 0.12);
+
+  /* ---- 壳层（导航轨/内容头）专用 ---- */
+  --nav-hover-bg: rgba(60, 45, 30, 0.08); /* 图标轨悬停 wash */
+  --nav-active-bg: rgba(163, 77, 38, 0.14); /* 图标轨选中 wash */
+  --head-bar-bg: rgba(255, 253, 247, 0.6); /* 内容头提亮条（半透纸白） */
+
+  /* ---- 内容区暖光（白日窗光，淡到近乎不可见） ---- */
+  --app-glow:
+    radial-gradient(58% 46% at 46% 0%, rgba(217, 119, 87, 0.05), transparent 70%),
+    radial-gradient(40% 30% at 92% 100%, rgba(217, 119, 87, 0.028), transparent 70%);
+
+  /* ---- 阴影（浅底投影更柔更浅，色相走暖纸墨） ---- */
+  --shadow-input: 0 1px 3px rgba(87, 60, 30, 0.15);
+
+  /* ---- 交互淡色 ---- */
+  --ink-wash: rgba(60, 45, 30, 0.07); /* 图标按钮 hover 底（--line 同源深墨） */
+  --ink-ghost: rgba(60, 45, 30, 0.3); /* 状态条分隔符等幽灵墨 */
+  --amber-border-dim: rgba(163, 77, 38, 0.4); /* 琥珀弱描边（附件上传中/工具徽标） */
+  --amber-border-mid: rgba(163, 77, 38, 0.45); /* 琥珀中描边（计划卡） */
+  --amber-pulse: rgba(198, 97, 63, 0.4); /* pulse 动画起手辉光（--amber 同族） */
+  --amber-pulse-end: rgba(198, 97, 63, 0); /* pulse 动画消散 */
+
+  /* ---- 浅色浮层（会话列表面板等） ---- */
+  --overlay-backdrop: rgba(58, 49, 40, 0.24); /* 面板背衬（暖纸墨半透明） */
+  --shadow-panel: 0 14px 40px rgba(87, 60, 30, 0.18); /* 浮层面板投影 */
+}
+
+/* Webfonts（final-shell 基准字体栈）经 index.html 的 Google Fonts link 引入，
+   与 final-shell 一致；无网络时回退系统衬线/黑体栈，布局不破。 */
+
+/* ---- 全局基线 ---- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--sans);
+  font-size: 14px;
+  background: var(--bg-app);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+svg {
+  display: block;
+}
+
+ul,
+ol {
+  list-style: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+html.widget-mode, html.widget-mode body { background: transparent; }

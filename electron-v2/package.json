@@ -1,0 +1,70 @@
+{
+  "name": "zhishi",
+  "productName": "知时",
+  "version": "2.14.2",
+  "description": "知时：本地日程与 AI 私人秘书",
+  "main": "main.js",
+  "author": "zhishi-dev <dev@zhishi.local>",
+  "private": true,
+  "scripts": {
+    "test": "node --test scripts/*.test.js",
+    "start": "electron .",
+    "smoke": "electron . --smoke-quit",
+    "icons": "electron scripts/gen-icon.js",
+    "dist": "electron-builder --win nsis --x64"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "local.zhishi.v2",
+    "productName": "知时",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "main-preload.js",
+      "desktop-settings.js",
+      "settings-selftest.js",
+      "widget.js",
+      "widget-preload.js",
+      "package.json",
+      "assets/**/*",
+      "event-reminders-selftest.js"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend-v2/dist/zhishi-backend",
+        "to": "zhishi-backend"
+      }
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false,
+      "allowToChangeInstallationDirectory": true,
+      "language": "2052",
+      "installerLanguages": [
+        "zh_CN"
+      ],
+      "unicode": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "知时",
+      "artifactName": "zhishi-Setup-${version}.${ext}"
+    }
+  }
+}
