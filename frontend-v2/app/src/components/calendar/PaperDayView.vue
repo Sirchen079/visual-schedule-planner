@@ -1,10 +1,6 @@
 <script setup lang="ts">
 /**
- * 纸质日视图（M2.5）：单日时间轴，排版延续 final-calendar 的纸面出版语言——
- * 刊头（kicker / 大衬线 h1 / folio / mast-rule）+ 42px 时间轴单栏分栏。
- * - 数据：GET /api/schedule/events/expand?start=end=当日（与周/月视图同源）
- * - 课程块可点击 → 详情便签卡；审批幽灵块投影当日（多个并存）
- * - 查看的是今天时画「现在」指示线（轴外钳制到轴端，永不消失）
+ * 单日日历：按时间轴展示日程，全天和时间未定事项单独排列。
  */
 import { fitsCalendarAxis, occurrenceTime } from '../../utils/eventPlacement'
 import { computed, onMounted, ref } from 'vue'

@@ -1,8 +1,4 @@
-# tests/server/test_config_create_defaults.py
-"""re k3#049 观察②：request_limit 三方不一致——ConfigBody/AIConfig 列默认 30，
-但 k3 实测创建后得 0。根因：前端表单硬编码显式传 request_limit: 0（bundle 实证），
-直穿 pydantic 默认落库。修复：非正值（0/负）一律回退默认 30——「不传即 30，
-传非法 0 也即 30」，显式合法值（>0）原样保留。"""
+"""request_limit 默认值校验：省略、零值和负值使用 30，正值原样保留。"""
 from fastapi.testclient import TestClient
 from zhishi.server.app import create_app
 

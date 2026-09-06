@@ -1,4 +1,4 @@
-# tests/contracts/test_events.py
+
 import json
 import typing
 from pathlib import Path

@@ -2,7 +2,7 @@
  * 任务 store：看板视图（/board）+ 时间轴视图（/timeline）共用。
  *
  * - 看板：按状态三列（待办/进行中/已完成）或按截止日期分组切换；完成态切换走 PATCH
- *   （乐观更新 + 失败回滚，约束①失败可见不沉默）。
+ *   乐观更新，失败时回滚并显示错误。
  * - 时间轴：任务（due_date）+ 任务排程负载（/api/schedule/range，端点语义见 api/schedule.ts
  *   文件头 —— 它是「任务负载视图」不是事件视图）合并成按日纵览，纯函数 buildTaskTimeline 可单测。
  * - refreshAll 供「run done 后自动刷新」调用：AI 写操作（create_task/update_task/
@@ -230,7 +230,7 @@ export const useTasksStore = defineStore('tasks', {
         const today = toIsoDate(new Date())
         this.range = await getRangeView(today, addDays(today, n - 1))
       } catch (e) {
-        // range 是时间轴的负载侧；失败在时间轴行内可见（约束①），不影响看板列表
+        // range 是时间轴的负载侧；失败在时间轴行内可见，不影响看板列表
         this.rangeError = e instanceof Error ? `任务负载加载失败：${e.message}` : '任务负载加载失败'
       } finally {
         this.loadingRange = false
@@ -239,7 +239,7 @@ export const useTasksStore = defineStore('tasks', {
 
     /**
      * 完成态切换（看板核心交互）：乐观更新本地 → PATCH 落库；失败回滚并落 actionError
-     * （约束①：失败不沉默）。status 语义：todo=未完成、doing=进行中、done=完成。
+     * 。status 语义：todo=未完成、doing=进行中、done=完成。
      */
     async setStatus(taskId: number, status: TaskStatus): Promise<boolean> {
       const task = this.items?.find((t) => t.id === taskId)
@@ -270,7 +270,7 @@ export const useTasksStore = defineStore('tasks', {
 
     /**
      * 子任务完成态切换（看板卡/时间轴任务项的子任务清单点击）：乐观翻转本地 done →
-     * PATCH 落定后以回包局部更新该子任务；失败回滚并落 actionError（约束①）。
+     * PATCH 落定后以回包局部更新该子任务；失败回滚并落 actionError。
      * 子任务生命周期会驱动父任务状态/进度（见 api/tasks.ts 头注释：全部完成 → 父任务 done），
      * 落定后局部重取父任务对齐；重取失败不回滚子任务（服务端已落定，下次 load 自然对齐）。
      */

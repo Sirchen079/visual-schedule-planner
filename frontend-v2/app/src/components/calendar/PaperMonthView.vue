@@ -1,10 +1,6 @@
 <script setup lang="ts">
 /**
- * 纸质月视图（M2.5）：传统月历版面（周首 = 周一，与周视图约定一致）。
- * - 数据：GET /api/schedule/events/expand（覆盖 6 周网格首末）——
- *   /api/schedule/month 实测只含任务负载（task_count），不含 events，月历必须走 expand
- * - 格内：日程数 + 最多两条简要条目 + 「等 N 项」；审批幽灵块以赤陶虚线角标投影
- * - 点击某天 → 切到日视图；月外溢出日灰显；今日高亮 --paper-hi；周末微染 --paper-tint
+ * 月日历：展示每日事件摘要，支持选择日期和打开事件详情。
  */
 import type { EventOccurrence } from '../../api/schedule'
 import { computed, onMounted, ref } from 'vue'

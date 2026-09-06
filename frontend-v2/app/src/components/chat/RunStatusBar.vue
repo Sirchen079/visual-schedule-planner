@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 活性状态条（约束 1：等待不沉默，常驻）：
+ * 活性状态条（常驻）：
  * 八阶段中文标签 + 心跳/本地时钟刷新「已进行 Xs」 + usage token 累计。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'

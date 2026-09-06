@@ -1,4 +1,3 @@
-# src/zhishi/agent/events.py
 """SSE 事件契约 v1（19 个事件）。前端契约的单一数据源：
 scripts/export_contracts.py 由此生成 docs/contracts/events.schema.json。
 任何变更必须重导出并更新快照测试。"""

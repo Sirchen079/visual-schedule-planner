@@ -22,10 +22,7 @@ export interface NavMeta {
 }
 
 /**
- * M3：七大域视图全部落地（看板/时间轴/习惯/日记/目标/资料库/回收站），
- * M4a：设置页落地（自治档位/永久授权/MCP 清单），M4b：报表页落地（列表/纸面详情/手动生成），占位视图清空。
- * 用 hash 模式——本地桌面单机应用最稳
- * （后端 SPA 托管支持 history 模式，后续如需可切）。
+ * 页面路由和导航元数据。使用 hash 模式，避免桌面入口依赖服务端路由回退。
  */
 export const routes: RouteRecordRaw[] = [
   { path: '/research', name: 'research', component: ResearchView, meta: { title: '学习与研究', group: 'main' } },

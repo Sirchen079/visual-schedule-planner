@@ -1,13 +1,7 @@
 <script setup lang="ts">
 /**
- * 事件详情便签卡（M2.5）：点击课程块/事件块后浮出的「纸面上的一张便签」。
- * - 展示：标题 / 日期与时间 / 地点 / 类别 / 重复规则（RRULE → 人类可读，单双周轮换等）/ 备注
- * - 数据：GET /api/schedule/events/{event_id}（2026-09-04 实测形状，openapi 无 schema）
- * - M3.5（re #020 事项2）：重复规则文案优先消费 repeat_note（expand/day 契约新增的
- *   人类可读周次规则，如「双周课（第6-12周）」——详情端点实测尚不透出，由点击处的
- *   expand occurrence 经 repeatNoteHint 传入）；缺失时回退手写 describeRrule。
- * - 约束①：请求期间显示「正在调取事件详情…」，失败给行内错误 + 重试，永不沉默
- * - 关闭：Esc / 点击遮罩 / 右上角 ×
+ * 事件详情及编辑浮层。重复事件的修改作用于整个系列。
+ * 日期、时间、提醒与 RRULE 通过日程接口保存。
  */
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useScheduleStore } from '../../stores/schedule'
@@ -115,7 +109,7 @@ async function load(): Promise<void> {
 
 
 /**
- * Esc 关闭并入全局分层第 ③ 层（M4e）：不再自挂 window keydown（KEYMAP 单一注册点约束），
+ * Esc 关闭并入全局分层第 ③ 层：不再自挂 window keydown（统一的快捷键注册入口），
  * 详情打开期间向 hotkeyPorts 注册 tier 3 条目，由 useHotkeys 的统一 Esc 分发调用 close。
  * 行为与原局部监听一致：Esc 且详情打开 → emit('close')；多浮层并存时先关更内层（第②层）。
  */
@@ -169,7 +163,7 @@ const isRecurring = computed(
         <span class="tape" />
         <button class="close" title="关闭（Esc）" aria-label="关闭详情" @click="emit('close')">×</button>
 
-        <!-- 等待不沉默：加载中有明确提示 -->
+        <!-- 加载状态提示 -->
         <div v-if="loading" class="state loading">
           <span class="state-mark">…</span>
           <p>正在调取事件详情…</p>

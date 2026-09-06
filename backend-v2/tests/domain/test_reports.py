@@ -1,4 +1,3 @@
-# tests/domain/test_reports.py
 """AI 报告（日报/周报/晨报）：数据收集/提示词/生成落库/幂等/规则降级。全程离线。"""
 import json
 from datetime import date, datetime, timedelta

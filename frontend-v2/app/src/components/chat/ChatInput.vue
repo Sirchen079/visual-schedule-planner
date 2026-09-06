@@ -28,7 +28,7 @@ watch(() => conv.viewVersion, () => {
   if (ta.value) ta.value.style.height = 'auto'
 })
 
-/* c 键全局聚焦入口（M4e）：App 级 provide 注册表（CHAT_FOCUS_KEY），本组件挂载时登记
+/* c 键全局聚焦入口：App 级 provide 注册表（CHAT_FOCUS_KEY），本组件挂载时登记
  * textarea 聚焦函数、卸载时注销。不用组件间直接 import / window 事件——注册表由壳层持有，
  * 方向单一且可在单测中直调。 */
 const chatFocusRegistry = inject(CHAT_FOCUS_KEY, null)

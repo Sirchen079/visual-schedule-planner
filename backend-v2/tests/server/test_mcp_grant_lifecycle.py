@@ -1,5 +1,4 @@
-# tests/server/test_mcp_grant_lifecycle.py
-"""re #063 blocker：MCP grant 跨服务器继承。grants/pending 审批卡以 mcp__{sid}__{name}
+"""MCP grant 跨服务器继承。grants/pending 审批卡以 mcp__{sid}__{name}
 为键，而 sid 是 sqlite rowid 可复用——删 A 建 B 得同 sid、或 PUT 把 A 的端点整个换成
 B，旧「始终允许」与旧审批卡都不得为新服务器续命：
 ①删 A 重建 B 复用同 sid → 旧 grant 不生效（classify confirm）；
@@ -148,7 +147,7 @@ def test_delete_expires_pending_action_and_resume_refuses_backfill(tmp_path, mon
         assert "过期" in body.get("message", "")
 
 
-# ---- re #072：approve 后（confirmed 未消费）改服务器配置/删除重建，旧卡不得续命 ----
+# ---- approve 后（confirmed 未消费）改服务器配置/删除重建，旧卡不得续命 ----
 
 def _chat_and_approve(c, ai_route, sid: str) -> tuple[int, int]:
     """发起一次会触发 MCP confirm 审批的对话并 approve，返回 (conv_id, action_id)。"""
@@ -190,7 +189,7 @@ def _counting_del_server(calls: dict):
 
 
 def test_put_change_after_approve_invalidates_confirmed_card(tmp_path, monkeypatch):
-    """re #072 确定性时序（PUT）：approve 得 confirmed（未 resume）→ PUT 改连接字段 →
+    """确定性时序（PUT）：approve 得 confirmed（未 resume）→ PUT 改连接字段 →
     旧卡必须被作废：resume 400 拒绝、B 的同名工具执行计数为 0。"""
     calls = {"n": 0}
     _patch_build_client(monkeypatch, _counting_del_server(calls))
@@ -213,7 +212,7 @@ def test_put_change_after_approve_invalidates_confirmed_card(tmp_path, monkeypat
 
 
 def test_delete_recreate_after_approve_invalidates_confirmed_card(tmp_path, monkeypatch):
-    """re #072 确定性时序（DELETE+复用 sid）：approve → DELETE A → 新建 B 复用同 sid →
+    """确定性时序（DELETE+复用 sid）：approve → DELETE A → 新建 B 复用同 sid →
     旧 confirmed 卡作废、resume 400、B 的工具执行计数为 0、B 的工具 classify=confirm。"""
     calls = {"n": 0}
     _patch_build_client(monkeypatch, _counting_del_server(calls))

@@ -1,4 +1,3 @@
-# src/zhishi/infra/config.py
 """数据目录根，优先级：ZHISHI_DATA_DIR 环境变量 > 工作目录 data/。
 新版所有数据落在 data_root/v2/ 下，绝不触碰旧版 data/app.db。"""
 from __future__ import annotations

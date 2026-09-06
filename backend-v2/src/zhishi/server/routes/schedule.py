@@ -1,4 +1,3 @@
-# src/zhishi/server/routes/schedule.py
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -14,7 +13,7 @@ router = APIRouter(prefix="/api/schedule", tags=["schedule"])
 
 
 class EventDetailOut(BaseModel):
-    """独立日程详情（re #033）：date 为 ISO 字符串（与既有消费面一致）；repeat_note 透出。"""
+    """独立日程详情：date 为 ISO 字符串（与既有消费面一致）；repeat_note 透出。"""
     id: int
     title: str
     date: str
@@ -29,7 +28,7 @@ class EventDetailOut(BaseModel):
     reminder_time: str | None = None
 
 
-# ---- 只读视图 typed 响应（re #017 k3① + #019 minor：openapi 200 schema 定型） ----
+# 只读日程视图的响应模型。
 
 class DayItemOut(BaseModel):
     """统一日视图条目：event（独立日程，含 event_id/date/location/category）
@@ -43,7 +42,7 @@ class DayItemOut(BaseModel):
     end_time: str | None = None
     location: str | None = None
     category: str | None = None
-    repeat_note: str | None = None  # 人类可读周次规则（如「双周课（第2-16周）」，re #020 事项2）
+    repeat_note: str | None = None  # 人类可读周次规则（如「双周课（第2-16周）」）
 
 
 class DayViewOut(BaseModel):
@@ -60,7 +59,7 @@ class RangeTaskItem(BaseModel):
 
 
 class MonthDayOut(BaseModel):
-    """month 视图单日条目（re #020 事项3）：task_count=当日任务排期数；
+    """month 视图单日条目：task_count=当日任务排期数；
     event_count=当日独立日程 RRULE 展开计数（双周课隔周 +1）。"""
     date: str
     task_count: int
@@ -82,7 +81,7 @@ class ExpandedEventOut(BaseModel):
     end_time: str | None = None
     location: str | None = None
     category: str | None = None
-    repeat_note: str | None = None  # 人类可读周次规则（可空，re #020 事项2）
+    repeat_note: str | None = None  # 人类可读周次规则（可空）
 
 
 class ConflictItemOut(BaseModel):
@@ -113,7 +112,7 @@ class FreeSlotOut(BaseModel):
 
 
 class ScheduleEntryOut(BaseModel):
-    """排期条目本体（re #B5）：列表/创建/更新端点共用同一形状。"""
+    """排期条目本体：列表/创建/更新端点共用同一形状。"""
     id: int
     task_id: int
     date: str                       # YYYY-MM-DD
@@ -126,7 +125,7 @@ class ScheduleEntryOut(BaseModel):
 @router.get("/entries", response_model=list[ScheduleEntryOut])
 def list_entries(task_id: int | None = None, date_from: date | None = None,
                  date_to: date | None = None, db: Session = Depends(get_db)):
-    """排期条目列表（re #B5）：默认近 30 天（[今天-29, 今天]），只给一端按 30 天窗推算；
+    """排期条目列表：默认近 30 天（[今天-29, 今天]），只给一端按 30 天窗推算；
     可按 task_id 过滤。entry_id 不再创建即失联。"""
     return [_entry_dict(e) for e in service.list_entries(
         db, task_id=task_id, date_from=date_from, date_to=date_to)]

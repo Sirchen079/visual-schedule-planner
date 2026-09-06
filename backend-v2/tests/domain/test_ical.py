@@ -1,4 +1,3 @@
-# tests/domain/test_ical.py
 from datetime import date, datetime
 from icalendar import Calendar
 from zhishi.domain import ical

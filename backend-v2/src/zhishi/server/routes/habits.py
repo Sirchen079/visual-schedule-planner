@@ -1,4 +1,3 @@
-# src/zhishi/server/routes/habits.py
 # Date 别名：类体内 `date: Date | None` 避开字段名 date 遮蔽类型的求值坑（同 schedule/schemas.py）
 from datetime import date, date as Date
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -11,7 +10,7 @@ from zhishi.server.deps import get_db
 router = APIRouter(prefix="/api/habits", tags=["habits"])
 
 
-# ---- typed 响应（re #B1：openapi 从空 schema 变 $ref，字段与实际返回形状一致） ----
+# ---- typed 响应（openapi 从空 schema 变 $ref，字段与实际返回形状一致） ----
 
 class HabitStatusOut(BaseModel):
     """实时状态（仅列表端点携带）：streak 今天未达标不打断（算到昨天）。"""
@@ -48,7 +47,7 @@ class HabitLogOut(BaseModel):
 
 
 class UncheckBody(BaseModel):
-    """re #B3：date 可省略（缺省=今天），与 check_in 的 day=None 语义一致。"""
+    """date 可省略（缺省=今天），与 check_in 的 day=None 语义一致。"""
     date: Date | None = None
 
 
@@ -82,7 +81,7 @@ def check_in(habit_id: int, body: dict | None = None, db: Session = Depends(get_
 @router.post("/{habit_id}/uncheck", response_model=UncheckOut)
 def uncheck(habit_id: int, body: UncheckBody | None = None,
             db: Session = Depends(get_db)):
-    """撤销一笔打卡：date 缺省=今天（re #B3，openapi schema 与实现对齐）。"""
+    """撤销一笔打卡：date 缺省=今天（openapi schema 与实现对齐）。"""
     try:
         day = body.date if body else None
         service.uncheck(db, habit_id, day or date.today())

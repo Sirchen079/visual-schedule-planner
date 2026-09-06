@@ -1,16 +1,8 @@
-# src/zhishi/agent/compaction.py
-"""上下文压缩。两层：
-1) 自研摘要压缩 maybe_summarize（清账 11，替代缺失的框架 capability）：
-   轮数超 compaction_threshold（settingsvc 可配，默认 12）时，把最旧一半轮次
-   交 oneshot 模型生成四段式摘要（用户目标/已办事项/关键偏好/未完成事项），
-   以一条【会话摘要】user 消息 + assistant 确认占位替换；轮边界切分保证无
-   孤儿 tool 消息；模型调用异常 → 返回原 history（硬截断兜底），绝不阻塞对话。
-   接线于 server/routes/ai.py 的 load_conversation_history（chat/resume 共用），
-   摘要持久化 AIConversation.meta_json.summary，重放优先注入不再重复调模型。
-   查证记录见 docs/superpowers/plans/BLOCKED.md：pydantic-ai 2.38 无客户端可
-   挂载的通用 Compaction capability（2.40 新增者为 provider-native），自研替代。
-2) 保底硬截断 window_history / window_model_messages：按轮保留最近 keep 轮，
-   轮边界截断保证无孤儿 tool 消息。"""
+"""会话上下文压缩与预算控制。
+
+按完整轮次拆分历史，分块摘要并合并已有摘要。原始会话另行持久保存，
+摘要失败时保留原历史；发起模型请求前执行上下文预算检查。
+"""
 from __future__ import annotations
 
 import asyncio
@@ -48,7 +40,7 @@ SUMMARY_SYSTEM_PROMPT = (
     "【关键偏好】用户表达的偏好、约束与习惯\n"
     "【未完成事项】尚未完成、待跟进或被搁置的事项")
 
-# 合并式压缩（re #066 major1）：旧摘要 + 新折叠段 → 新摘要，旧摘要中仍有效的事实必须保留
+# 合并式压缩：旧摘要 + 新折叠段 → 新摘要，旧摘要中仍有效的事实必须保留
 MERGE_INSTRUCTION = (
     "以下是先前会话摘要与本次需并入的对话轮次。请把两者合并为一份新的结构化摘要，"
     "保留旧摘要中仍然有效的事实，并融合新增轮次的关键信息。"
@@ -95,7 +87,7 @@ def window_model_messages(messages: list, keep: int = 12) -> list:
     return ([ModelRequest(parts=system_parts)] if system_parts else []) + messages[cut:]
 
 
-# ---- 自研摘要压缩（清账 11） ----
+# ---- 会话摘要压缩 ----
 
 def compaction_threshold(db) -> int:
     """触发阈值（轮数）：settingsvc 可配 compaction_threshold，脏值/非正数回退默认 12。"""
@@ -110,7 +102,7 @@ def compaction_threshold(db) -> int:
 
 
 def compaction_timeout(db) -> float:
-    """摘要模型调用超时（秒，re #066 major2）：settingsvc 可配 compaction_timeout，
+    """摘要模型调用超时（秒）：settingsvc 可配 compaction_timeout，
     脏值/非正数回退默认 20.0。"""
     from zhishi.domain import settingsvc
     raw = settingsvc.get_setting(db, "compaction_timeout", str(DEFAULT_COMPACTION_TIMEOUT))
@@ -179,7 +171,7 @@ def summary_pair(text: str) -> list:
 
 
 def _fold_fingerprint(messages: list) -> str:
-    """被折叠进摘要的消息集指纹（re #066 major1）：对消息序列的规范化 JSON 取 sha256，
+    """被折叠进摘要的消息集指纹：对消息序列的规范化 JSON 取 sha256，
     同一原始历史的重放指纹一致，内容有增改则必然不同。"""
     from pydantic_ai.messages import ModelMessagesTypeAdapter
     raw = ModelMessagesTypeAdapter.dump_json(list(messages))
@@ -187,7 +179,7 @@ def _fold_fingerprint(messages: list) -> str:
 
 
 def _oneshot_with_timeout(config, system: str, user: str, timeout: float) -> str:
-    """带应用级超时的摘要模型调用（re #066 major2）：摘要接在请求路径且在取消机制
+    """带应用级超时的摘要模型调用：摘要接在请求路径且在取消机制
     覆盖之外，供应商挂起不能无限拖住对话。超时抛 TimeoutError，由调用方降级硬截断；
     守护线程晚到的结果直接丢弃（写入决策在超时返回之后，绝不补写旧摘要）。
     oneshot/build_model 不碰 db/Session，超时后无共享资源滞留。"""
@@ -204,7 +196,7 @@ def _oneshot_with_timeout(config, system: str, user: str, timeout: float) -> str
     worker.start()
     worker.join(timeout)
     if worker.is_alive():
-        raise TimeoutError(f"摘要模型调用超过 {timeout}s，放弃摘要走硬截断兜底")
+        raise TimeoutError(f"摘要模型调用超过 {timeout}s，保留原始历史")
     if "error" in result:
         raise result["error"]
     return result["text"]
@@ -289,15 +281,11 @@ def summarize_history(db, config, history: list,
                       threshold: int | None = None,
                       timeout: float | None = None,
                       extra_tokens: int = 0) -> tuple[list, str | None, str | None]:
-    """轮数或 token 预算超限时，把足够多的旧轮次压缩为有界摘要对。
-    返回 (新history, 摘要文本, 折叠集指纹)；未触发/无法生成 → (原history, None, None)。
-    context_window=None 保持旧轮数策略；extra_tokens 为额外指令/工具预留输入空间。
-    最新完整轮次本身超限时抛 ContextBudgetExceeded，不能静默丢弃用户输入。
-    摘要复用规则（re #066 major1）：stored_fingerprint 与本次折叠集指纹一致（同一原始
-    历史的重放）才直接复用 stored_summary 不调模型；指纹不一致或缺失（旧数据/继续聊天
-    后再次压缩）→ 旧摘要 + 新折叠段合并生成新摘要，绝不盲信旧摘要静默丢弃中段事实。
-    模型调用带 compaction_timeout 应用级超时（re #066 major2）；
-    超时/异常 → 返回 (原history, None, None)，绝不阻塞对话，调用方硬截断兜底。"""
+    """超过轮数或 token 预算时，将较早的完整轮次压缩为有界摘要。
+
+返回新历史、摘要文本和折叠集指纹。相同指纹可复用已有摘要；否则分块生成
+并与旧摘要合并。超时或调用失败时保留原历史，由请求预算检查决定能否继续。
+最新完整轮次本身超限时抛出 ContextBudgetExceeded，不静默丢弃用户输入。"""
     budget = history_budget(config, extra_tokens)
     # Validate the indivisible newest round before the best-effort summary block.
     # This error must reach the caller, never be mistaken for a model failure.
@@ -370,8 +358,7 @@ def summarize_history(db, config, history: list,
 
 
 def maybe_summarize(db, config, history: list) -> list:
-    """规格入口：超阈值触发摘要压缩；失败/未触发返回原 history
-    （调用方仍有 window_model_messages 硬截断兜底）。"""
+    """超过阈值时压缩会话，失败或未触发时返回原始历史。"""
     new, _summary, _fp = summarize_history(db, config, history)
     return new
 

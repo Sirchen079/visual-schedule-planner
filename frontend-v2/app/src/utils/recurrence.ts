@@ -1,13 +1,5 @@
 /**
- * 事件元信息的人类可读标注（纯函数，无 Vue 依赖）。
- *
- * RRULE 语义以后端实测为准（E:\知时\data 真实课表 + backend weeks.py）：
- * - 每周课：FREQ=WEEKLY;BYDAY=MO;UNTIL=20261108
- * - 单双周课（week_kind odd/even 生成）：FREQ=WEEKLY;INTERVAL=2;BYDAY=FR;UNTIL=20261011
- *
- * 已知契约缺口（如实记录，不前端模拟）：「单周/双周」的学期周次奇偶需要 semester_start
- * （第 1 教学周周一），后端导入后并未持久化暴露，前端无法把 INTERVAL=2 折算成
- * 「单周/双周」，只能如实描述为「隔周（单双周轮换）」并给出首末落点。
+ * 将 RRULE 转为中文说明；实际重复日期由后端展开。
  */
 
 const BYDAY_CN: Record<string, string> = {
@@ -98,7 +90,7 @@ export function categoryLabel(category: string | null | undefined): string {
 }
 
 /**
- * 重复规则文案（M3.5，re #020 事项2）：优先后端透出的人类可读 repeat_note
+ * 重复规则文案：优先后端透出的人类可读 repeat_note
  * （expand/day 契约新增字段，课表导入按学期周次生成，如「每周（第2-13周）/
  * 双周课（第6-12周）」——前端无法从 RRULE 折算教学周次，见 describeRrule 的
  * 契约缺口记录）；缺失/空白时回退手写 describeRrule(rrule)。纯函数便于单测。

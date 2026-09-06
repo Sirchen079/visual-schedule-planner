@@ -1,4 +1,3 @@
-# tests/domain/tasks/test_service.py
 import pytest
 from datetime import datetime
 from zhishi.domain.tasks import service as ts
@@ -42,7 +41,7 @@ def test_trash_flow(db):
 
 
 def test_purge_task_cascades_related_rows(db):
-    """M3 回归：带排期/标签/附件/子任务/计时/通知的任务 purge 必须成功
+    """带排期/标签/附件/子任务/计时/通知的任务 purge 必须成功
     （FK 开启下曾被 task_schedule_entries 等关联行阻断），且关联表无孤儿行。"""
     from datetime import date
     from zhishi.domain.models import (LibraryFile, NotificationLog, Subtask,

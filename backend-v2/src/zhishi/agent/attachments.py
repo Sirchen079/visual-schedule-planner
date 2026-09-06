@@ -374,7 +374,7 @@ async def process_media(db: Session, config, file, storage_root: Path,
         ):
             return _unread(kind, mime, route, '视觉权限或配置已更改，请重试')
         # One session for fresh discovery and execution; do not use the generic
-        # adapter's flatten(), which turns binary results into apparent text.
+        # adapter's flatten, which turns binary results into apparent text.
         async with asyncio.timeout(min(max(server.timeout_sec or 30, 1), 120)):
             toolset = mcp_client.build_toolset(server)
             async with toolset:

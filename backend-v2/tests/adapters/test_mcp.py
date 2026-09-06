@@ -1,7 +1,5 @@
-# tests/adapters/test_mcp.py
-"""MCP 接入：适配器（官方 mcp SDK v2 起真实服务器）、runtime 注入与权限门
-（mcp__ 命名空间 / auto_approve_readonly / 审批同路径）、管理路由。
-stdio 用例以真实子进程跑通（Windows 实测稳定）；runtime/路由用 in-process 服务器。"""
+"""MCP 适配、权限检查与管理路由测试。
+stdio 用例启动测试子进程；其他用例使用进程内服务器。"""
 import json
 import os
 import sys
@@ -234,7 +232,7 @@ async def test_mcp_readonly_confirms_without_auto_approve(db, monkeypatch):
 
 
 async def test_mcp_grant_skips_approval_end_to_end(db, monkeypatch):
-    """清账：MCP 工具接入 grants——预置「始终允许」（命名空间全名 + 空模式）
+    """MCP 工具接入 grants——预置「始终允许」（命名空间全名 + 空模式）
     后真流直连执行，不再落审批卡片（auto_approve_readonly=False 照样生效）。"""
     from zhishi.domain.models import AIToolGrant
     server = _make_server()
@@ -319,7 +317,7 @@ def test_mcp_test_endpoint_failure_writes_last_error(tmp_path):
             assert row.last_status == "error" and "supersecret99" not in (row.last_error or "")
 
 
-# ---- B1：stdio 显式信任（无认证本地服务下防止任意进程拉起） ----
+# ---- stdio 显式信任（无认证本地服务下防止任意进程拉起） ----
 
 def test_untrusted_stdio_test_endpoint_rejected(tmp_path, monkeypatch):
     """untrusted stdio：/test 与 /tools 拒绝且不拉起子进程；显式信任后放行。"""
@@ -355,7 +353,7 @@ def test_untrusted_stdio_test_endpoint_rejected(tmp_path, monkeypatch):
 
 
 async def test_runtime_skips_untrusted_stdio_assembly(db, monkeypatch):
-    """B1：untrusted stdio 服务器不进工具装配（连 client 都不构造 → 不可能拉起进程）；
+    """untrusted stdio 服务器不进工具装配（连 client 都不构造 → 不可能拉起进程）；
     trusted=True 后恢复装配。http 传输不受限。"""
     from pydantic_ai.models.function import FunctionModel
     from zhishi.adapters import mcp_client
@@ -395,7 +393,7 @@ async def test_runtime_skips_untrusted_stdio_assembly(db, monkeypatch):
     assert f"mcp__{row.id}__add" in seen["names"]
 
 
-# ---- B2：工具清单 60s TTL 缓存（清账：/tools 与 runtime 装配不再每次真连） ----
+# ---- 工具清单 60s TTL 缓存（/tools 与 runtime 装配不再每次真连） ----
 
 async def test_list_tools_cache_hits_within_ttl(db, stdio_row, monkeypatch):
     """TTL 内两次 list_tools 只真实连接一次（stdiio 真子进程路径）。"""
@@ -484,7 +482,7 @@ def test_mcp_test_endpoint_bypasses_cache(tmp_path, monkeypatch):
         assert calls["n"] == 3                          # /test 未写缓存，/tools 需自连
 
 
-# ---- 清账 B2 尾巴：GatedToolset（run 装配路径）复用同一模块级 TTL 缓存 ----
+# ---- GatedToolset（run 装配路径）复用同一模块级 TTL 缓存 ----
 
 def _count_client_connects(monkeypatch):
     """给 fastmcp.Client.__aenter__ 套计数（每次真实建立会话记一次；
@@ -560,8 +558,8 @@ async def test_gated_toolset_call_tool_still_connects(db, monkeypatch):
     assert connects["n"] == 2                        # 仅工具调用按需连接（列取未连）
 
 
-# ---- re #063 major：缓存世代号——invalidate 后旧查询返回不得回填 ----
-# list_tools miss 后 await 网络；若等待期间 PUT/DELETE 调了 invalidate()，旧结果
+# ---- 缓存世代号——invalidate 后旧查询返回不得回填 ----
+# list_tools miss 后 await 网络；若等待期间 PUT/DELETE 调了 invalidate，旧结果
 # 无条件写回会污染缓存 60s（含 readOnlyHint，参与免审分类，是安全问题）。
 # 修复：进入时捕获模块级世代号，网络返回后世代未变才写回，变了则丢弃。
 

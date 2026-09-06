@@ -1,5 +1,4 @@
-# tests/server/test_config_enable.py
-"""re #036 major：enable 无效 ID 不得清空既有启用配置。
+"""enable 无效 ID 不得清空既有启用配置。
 回归锁定：①不存在 ID → 404 且原 enabled 保持；②有效 ID 切换后恰有一条 enabled。"""
 from fastapi.testclient import TestClient
 from zhishi.server.app import create_app

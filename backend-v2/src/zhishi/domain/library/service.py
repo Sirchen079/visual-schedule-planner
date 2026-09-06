@@ -1,6 +1,5 @@
-# src/zhishi/domain/library/service.py
 """资料库：文件落盘（防重名）+ 链接资源 + 任务关联 + 回收站。
-extracted_text/parse_status 由 M3 解析管道回填，本层只留列。"""
+extracted_text/parse_status 由 解析管道回填，本层只留列。"""
 from __future__ import annotations
 import hashlib
 import json
@@ -112,7 +111,7 @@ def purge(db: Session, file_id: int, *, storage_root: Path | None = None) -> Non
     if storage_root is not None and row.resource_type == "file":
         target = storage_root.parent / row.storage_path
         target.unlink(missing_ok=True)
-    # M3：先解除任务关联（FK 开启下直接删文件会被 task_file 阻断）；
+    # 先解除任务关联（FK 开启下直接删文件会被 task_file 阻断）；
     # 走集合 remove 保持 ORM 关联行删除与内存一致
     for t in db.scalars(select(Task).where(Task.files.any(LibraryFile.id == file_id))):
         t.files.remove(row)

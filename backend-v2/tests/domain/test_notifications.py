@@ -1,4 +1,3 @@
-# tests/domain/test_notifications.py
 from datetime import datetime
 from freezegun import freeze_time
 from zhishi.domain.notifications import record_due_reminders, mark_read, unread_count

@@ -66,7 +66,7 @@ describe('date utils', () => {
     expect(minutesToHm(0)).toBe('00:00')
   })
 
-  it('blockPercent：数值与 final-calendar 基准稿逐位一致', () => {
+  it('blockPercent：按时间轴范围换算位置与高度', () => {
     // 基准稿：08:55-10:45 → top 7.051% / height 14.103%
     const a = blockPercent('08:55', '10:45')!
     expect(a.top).toBeCloseTo(7.051, 2)
@@ -114,7 +114,7 @@ describe('date utils', () => {
   })
 })
 
-describe('月历网格（M2.5 月视图）', () => {
+describe('月历网格（月视图）', () => {
   it('firstOfMonth / addMonths：跨年与负向平移都落在 1 号', () => {
     expect(firstOfMonth('2026-09-04')).toBe('2026-09-01')
     expect(addMonths('2026-09-15', -1)).toBe('2026-08-01')

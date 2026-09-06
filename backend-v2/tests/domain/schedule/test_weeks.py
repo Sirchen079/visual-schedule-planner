@@ -1,4 +1,3 @@
-# tests/domain/schedule/test_weeks.py
 from datetime import date
 from zhishi.domain.schedule.weeks import week_spec_to_event
 
@@ -8,10 +7,9 @@ SEMESTER = date(2026, 9, 7)   # 第 1 周周一（学期锚点）
 
 def test_continuous_range():
     """连续周 2-13，周二 → 首次 9/15（第2周周二），UNTIL 第13周周日（12/6）"""
-    ev = week_spec_to_event(title="数值分析", weekday=2, week_kind="range",
+    ev = week_spec_to_event(title="示例课程A", weekday=2, week_kind="range",
                             start_week=2, end_week=13, semester_start=SEMESTER)
-    # 偏差（对计划）：原断言 9/8 是第1周周二，与'连续周2-13首次出现在第2周'
-    # 语义及本测试注释矛盾；第2周周二 = 9/15
+    # 第 2 周周二为 9 月 15 日。
     assert ev["date"] == date(2026, 9, 15)         # 第2周周二
     assert "FREQ=WEEKLY;BYDAY=TU" in ev["recur_rrule"]
     assert "UNTIL=20261206" in ev["recur_rrule"]   # 第13周周日 = 9/7+12周+6天
@@ -19,7 +17,7 @@ def test_continuous_range():
 
 def test_odd_weeks_single():
     """单周 13-13（第13周一次）→ 13周周二 = 12/1（13周周一=11/30）"""
-    ev = week_spec_to_event(title="海洋勘探单周", weekday=2, week_kind="odd",
+    ev = week_spec_to_event(title="单周课程", weekday=2, week_kind="odd",
                             start_week=13, end_week=13, semester_start=SEMESTER)
     assert ev["date"] == date(2026, 12, 1)
     assert "INTERVAL=2" in ev["recur_rrule"]

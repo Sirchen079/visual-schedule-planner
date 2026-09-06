@@ -1,4 +1,3 @@
-# tests/conftest.py
 import pytest
 from zhishi.infra.database import make_engine, make_session_factory, create_all
 

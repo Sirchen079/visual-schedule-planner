@@ -1,4 +1,3 @@
-# tests/agent/test_subagent.py
 """Task 子代理：主代理经 task 工具派出只读子代理；
 subagent_started/delta/completed 三事件穿透到主流；用量并入主 run。"""
 import json

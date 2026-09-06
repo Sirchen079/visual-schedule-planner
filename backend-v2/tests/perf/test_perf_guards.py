@@ -1,7 +1,5 @@
-# tests/perf/test_perf_guards.py
-"""性能守卫（本地界，防算法回归；真实 provider 的 P95 属 CI 外手动验收）：
-1. 领域热路径在合理数据量下总耗时受控；
-2. SSE 心跳在慢模型下端到端可见（活性契约：等待不沉默）。"""
+"""本地性能回归测试：领域查询耗时和慢模型执行期间的 SSE 心跳。
+测试使用受控数据与模型替身，不衡量外部服务响应速度。"""
 import asyncio
 import time
 from datetime import date

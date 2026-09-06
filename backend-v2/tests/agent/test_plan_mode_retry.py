@@ -1,5 +1,4 @@
-# tests/agent/test_plan_mode_retry.py
-"""re #017(k3)③：计划模式指令强化 + 受控重试。
+"""(k3)③：计划模式指令强化 + 受控重试。
 plan_mode 下必须注入「必须提交计划」专用指令段；execution 正常结束但既无
 plan_card 也无审批/错误时，以追加指令再驱动一轮（仅一次，防循环）；
 run trace 的 steps 随多轮正常累加。"""

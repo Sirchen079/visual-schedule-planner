@@ -1,22 +1,13 @@
-/**
- * 日程 store：今日视图（/api/schedule/day）+ 周视图 / 日视图 / 月视图（/api/schedule/events/expand）
- * + 冲突检测（/api/schedule/conflicts）与今日空闲（/api/schedule/free-slots）。
- *
- * - 后端负责 RRULE 展开（含单双周），前端只按日期分组渲染；月视图与日视图同样走 expand
- *   （/api/schedule/month 实测只含任务负载 task_count，不含 events —— 契约漂移已记录）。
- * - refreshAll 供「run done 后自动刷新」调用：AI 写操作落库后，各视图无需手动
- *   刷新即可看到新日程（App.vue 监听 run.phase → completed 即调用）。
- * - 冲突/空闲是今日页的伴生数据：由 loadToday 连带刷新（今日页是默认落地页，
- *   refreshAll → loadToday 即覆盖，run done 后冲突警示带/空闲条随之更新）。
- * - 分组/统计/审批幽灵块映射抽成纯函数导出，便于单测。
- */
+/** 日程状态：统一管理当天日程、日周月视图、冲突和空闲时段。
+ * 日历通过 /events/expand 获取重复事件实例，再按日期分组。
+ * AI 执行结束后刷新已加载数据，今日数据加载时同时更新冲突与空闲时段。 */
 import { defineStore } from 'pinia'
 import type { ConflictDay, ConflictItem, DayItem, EventOccurrence, FreeSlot } from '../api/schedule'
 import { expandEvents, getConflicts, getDayView, getFreeSlots } from '../api/schedule'
 import { repeatRuleText } from '../utils/recurrence'
 import { addDays, addMonths, firstOfMonth, mondayOf, monthGridBounds, toIsoDate, weekDates } from '../utils/date'
 
-/** 审批幽灵块（与对话内审批卡互为镜像，语言见 final-calendar.html .ghost）。 */
+/** 审批幽灵块（与对话审批卡共用状态）。 */
 export interface GhostBlock {
   date: string
   title: string
@@ -70,14 +61,9 @@ export function weekSummary(dates: string[], grouped: Record<string, EventOccurr
   return { count, days }
 }
 
-/**
- * 审批待决的 create_event → 幽灵块。args 键以后端工具实测为准（d0f5474，2026-09-05）：
- * - 工具名实测为裸名 create_event（历史录制里也出现过 api__schedule__create_event 形态，
- *   M2 写死的 'schedule.create_event' 等值匹配在真实流上永不命中 —— 幽灵块只在注入探针下
- *   显示过，属 M2 遗留缺陷，本次以 /create_event$/ 后缀匹配修复）；
- * - 日期参数是 day（REST 的 POST /api/schedule/events 才叫 date）；
- * - 时间参数兼容 start/end 别名。工具不符或缺关键字段时返回 null。
- */
+/** 将待审批 create_event 调用投影为日历预览。
+ * 支持带命名空间的工具名；日期参数为 day，时间兼容 start/end 别名。
+ * 缺少必要字段或工具不匹配时返回 null。 */
 export function ghostFromApproval(a: { tool: string; args: Record<string, unknown> } | null): GhostBlock | null {
   if (!a || !/create_event$/.test(String(a.tool))) return null
   const args = a.args
@@ -296,7 +282,7 @@ export const useScheduleStore = defineStore('schedule', {
     },
 
     /** 加载单日（expand：start=end=date）；缺省 = 已聚焦日或今天。
-     *  锚点先行落位：视图组件挂载守卫据此避免重复拉取，日标签即刻可见（等待不沉默）。 */
+     *  锚点先行落位：视图组件挂载守卫据此避免重复拉取，日标签即刻可见。 */
     async loadSingleDay(date?: string): Promise<void> {
       const d = date ?? (this.dayDate || toIsoDate(new Date()))
       this.dayDate = d

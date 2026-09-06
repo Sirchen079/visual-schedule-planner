@@ -1,4 +1,3 @@
-# src/zhishi/server/routes/journal.py
 from datetime import date, datetime
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -10,7 +9,7 @@ from zhishi.server.deps import get_db
 router = APIRouter(prefix="/api/journal", tags=["journal"])
 
 
-# ---- typed 响应（re #B1：openapi 从空 schema 变 $ref，字段与实际返回形状一致） ----
+# ---- typed 响应（openapi 从空 schema 变 $ref，字段与实际返回形状一致） ----
 
 class JournalEntryOut(BaseModel):
     id: int

@@ -1,11 +1,5 @@
 /**
- * 键位数据单源（M4e）——docs/KEYMAP.md 的 TS 投影。
- * 同一份数据同时驱动：useHotkeys 的绑定分发（combos/chordKey/id）与
- * ShortcutsOverlay 的速查浮层渲染（keys 展示文案/group/desc）。
- * 禁止在绑定逻辑或浮层里另写一份键位文案。
- *
- * combo 语法（eventCombo 的输出）：小写键名；ctrl 前缀「ctrl+」；shift 前缀「shift+」；
- * Esc → 「esc」；Shift+/ → 「?」。例：'c'、'shift+f'、'ctrl+,'、'?'、'arrowleft'。
+ * 全局快捷键定义，同时供事件处理和快捷键帮助使用。
  */
 
 /** 分组：全局 / 导航（g 前缀）/ 日历视图（仅 /calendar 生效，由视图注册注销） */
@@ -129,7 +123,7 @@ export function eventCombo(e: HotkeyEvent): string {
   return key.toLowerCase() // 命名键（Enter/Tab/ArrowLeft…）：规范化小写，可作废 g 窗但不绑定
 }
 
-/** 输入守卫（KEYMAP 守卫 1）：焦点在这些目标上时全局键一律不触发（Esc 与 Ctrl+, 例外放行）。 */
+/** 输入守卫（快捷键守卫 1）：焦点在这些目标上时全局键一律不触发（Esc 与 Ctrl+, 例外放行）。 */
 export function isEditableTarget(target: unknown): boolean {
   const el = target as { tagName?: unknown; isContentEditable?: unknown } | null | undefined
   if (!el || typeof el !== 'object') return false

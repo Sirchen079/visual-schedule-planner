@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /**
  * 日历标签页（内容区）：暗桌 + 纸面（PaperCalendar 周历 / PaperDayView 日视图 /
- * PaperMonthView 月视图），M2.5 起支持日/周/月切换。
+ * PaperMonthView 月视图），起支持日/周/月切换。
  * - 视图切换控件（日|周|月）+ 换页箭头 + 回今按钮，全部 Teleport 到壳层内容头右侧
- *   （#head-actions，融入 final-calendar 的 content-head 控件区风格：.seg 分段控件）
- *   头部不放日期区间文本（纸面刊头已完整展示，重复即挤折内容头——M6 修复）；
+ *   （位于 #head-actions）
+ *   头部不放日期区间文本（纸面刊头已完整展示，重复即挤折内容头——修复）；
  *   控件满行时随壳层 .content-head 整体折到第二行，绝不挤压成竖排
  * - 三种视图数据同源：GET /api/schedule/events/expand（RRULE 后端展开）
  * - 点击课程/事件块 → EventDetailCard 详情便签（RRULE 人类可读）；月历点击某天 → 日视图
@@ -141,7 +141,7 @@ onMounted(() => {
   if (!schedule.weekAnchor) void schedule.loadWeek()
 })
 
-/* ---- 日历视图专属键（M4e，仅 /calendar 生效）----
+/* ---- 日历视图专属键（仅 /calendar 生效）----
  * ←/→/t 走 useViewHotkeys：本视图挂载时注册、卸载即注销（router 离开后绝不再触发），
  * 输入守卫/IME 守卫与全局键同一套。键位数据取自 keymap.ts（速查浮层的日历分组同源）。 */
 useViewHotkeys(
@@ -220,7 +220,7 @@ useViewHotkeys(
   display: flex;
   flex-direction: column;
 }
-/* 视图分段控件（final-calendar content-head 的 .seg 语言）。
+/* 视图分段控件。
  * 全部 flex:none + 不折行：壳层 .content-head 已允许整体换行，控件宁换行不挤压
  * （挤压会把「本周」「日历」等文字压成竖排——修前 800px 走查实锤）。 */
 .seg {

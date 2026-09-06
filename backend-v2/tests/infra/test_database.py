@@ -1,4 +1,3 @@
-# tests/infra/test_database.py
 import sqlalchemy as sa
 from zhishi.infra.database import make_engine, create_all
 

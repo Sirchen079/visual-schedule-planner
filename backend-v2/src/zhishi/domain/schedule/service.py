@@ -1,6 +1,5 @@
-# src/zhishi/domain/schedule/service.py
 """任务排期：task+date 唯一（同日重复 assign = 更新时间）。
-day/month/range 聚合视图供前端与（M2）AI 排程共用。"""
+day/month/range 聚合视图供前端与AI 排程共用。"""
 from __future__ import annotations
 import json
 from collections import defaultdict
@@ -52,7 +51,7 @@ def delete_entry(db: Session, entry_id: int) -> None:
 def list_entries(db: Session, *, task_id: int | None = None,
                  date_from: date | None = None,
                  date_to: date | None = None) -> list[TaskScheduleEntry]:
-    """entries 读取面（re #B5）：默认近 30 天窗口 [今天-29, 今天]；
+    """entries 读取面：默认近 30 天窗口 [今天-29, 今天]；
     只给一端时另一端按 30 天窗推算。不过滤任务软删态——清理/管理工具需要看到全部行。"""
     if date_to is None and date_from is None:
         date_to = date.today()
@@ -93,7 +92,7 @@ def month_schedule(db: Session, year: int, month: int) -> list[dict]:
     by_date: dict[date, int] = defaultdict(int)
     for e, _t in _entries_between(db, start, end):
         by_date[e.date] += 1
-    # re #020 事项3：独立日程按 RRULE 月窗展开计数（单双周课隔周 +1）
+    # 独立日程按 RRULE 月窗展开计数（单双周课隔周 +1）
     events_by_date: dict[date, int] = defaultdict(int)
     for item in expand_events_between(db, start, end):
         events_by_date[date.fromisoformat(item["date"])] += 1
@@ -210,7 +209,7 @@ def expand_events_between(db: Session, start: date, end: date) -> list[dict]:
 
 
 def unified_day(db: Session, day: date) -> dict:
-    """统一日程视图：任务排期 + 独立日程合并（M2 的 list_day_schedule 工具直接复用）。"""
+    """统一日程视图：任务排期 + 独立日程合并（的 list_day_schedule 工具直接复用）。"""
     items = [{"kind": "event", **e} for e in expand_events_between(db, day, day)]
     items += [{"kind": "task", "task_id": i["task_id"], "title": i["title"],
                "start_time": i["start_time"], "end_time": i["end_time"]}

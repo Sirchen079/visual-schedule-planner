@@ -1,4 +1,3 @@
-# src/zhishi/domain/goals/service.py
 """OKR：KR 三种进度模式——manual 手动填值；tag_task_count 标签任务完成数；
 habit_checkins 习惯打卡数（后两类实时滚动计算）。"""
 from __future__ import annotations
@@ -29,7 +28,7 @@ def get_goal(db: Session, goal_id: int, include_deleted: bool = False) -> Goal:
 
 def list_goals(db: Session, include_deleted: bool = False) -> list[Goal]:
     """include_deleted 只控制「是否含软删行」——已删行 status 保持原值，以 deleted_at 辨识
-    （re #B2：参数语义由 include_archived 改名对齐，行为不再混入归档含义）。"""
+    （参数语义由 include_archived 改名对齐，行为不再混入归档含义）。"""
     stmt = select(Goal).options(selectinload(Goal.key_results))
     if not include_deleted:
         stmt = stmt.where(Goal.deleted_at.is_(None))
@@ -66,7 +65,7 @@ def restore_goal(db: Session, goal_id: int) -> Goal:
 
 
 def purge_goal(db: Session, goal_id: int) -> None:
-    """硬删目标（对齐 tasks 回收站模式，re #B2）：仅回收站中的可 purge；
+    """硬删目标（对齐 tasks 回收站模式）：仅回收站中的可 purge；
     key_results 随 ORM cascade（all, delete-orphan）级联删除。"""
     goal = get_goal(db, goal_id, include_deleted=True)
     if goal.deleted_at is None:

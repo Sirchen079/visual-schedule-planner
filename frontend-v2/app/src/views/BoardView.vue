@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /**
- * 看板视图（/board，任务域）：B×C 暗色。
+ * 看板视图（/board，任务域）。
  * - 分组切换：按状态（待办/进行中/已完成三列）| 按截止日期（逾期/今天/明天/七天内/以后/无日期）
- * - 完成态切换：勾选框走 PATCH（乐观更新 + 失败回滚，回滚消息行内可见，约束①）
- * - 子任务清单（re #B4）：任务带 subtasks 时卡片内渲染，点击勾选切换 done（乐观 + 失败回滚）
+ * - 完成态切换：勾选框走 PATCH（乐观更新 + 失败回滚，回滚消息行内可见）
+ * - 子任务清单：任务带 subtasks 时卡片内渲染，点击勾选切换 done（乐观 + 失败回滚）
  * - 新建任务：POST /api/tasks（标题必填，截止日/优先级可选）；软删除入回收站
  * - 数据：GET /api/tasks；run done 后由壳层自动刷新（App.vue 接线）
  */
@@ -118,7 +118,7 @@ onMounted(() => {
       <span v-if="tasks.lastRefreshedAt" class="refreshed">已就绪 · AI 写操作后自动刷新</span>
     </div>
 
-    <!-- 操作失败（回滚）提示：不沉默 -->
+    <!-- 操作失败后的回滚提示 -->
     <div v-if="tasks.actionError" class="action-error" role="alert">
       <AppIcon name="alert" :size="14" />
       <span>{{ tasks.actionError }}</span>
@@ -541,7 +541,7 @@ onMounted(() => {
   padding: 0 7px;
 }
 
-/* 子任务清单（父任务带 subtasks 时才渲染；点击勾选切换完成态，re #B4） */
+/* 子任务清单（父任务带 subtasks 时才渲染；点击勾选切换完成态） */
 .subs {
   list-style: none;
   margin: 7px 0 0;

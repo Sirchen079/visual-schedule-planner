@@ -1,15 +1,7 @@
 /**
- * run 状态机（Pinia store）。
- *
- * 协议要点（FRONTEND_HANDBOOK §4/§5 与 DESIGN-PLAN §2，四条非协商约束）：
- * 1. 等待不沉默：stage_changed 八阶段中文标签 + heartbeat 已耗时 + usage 实时累计。
- * 2. 工具调用可见：started → args_delta 流式填参 → result 落定。
- * 3. 审批是安全边界：批准前绝不显示为已完成；批准/拒绝后走 resume 新流。
- * 4. done 是唯一权威终点：run_completed/run_error 只是终态预告，done 前保持进行中。
- *
- * 其余：同会话单 run（409 → 冲突提示，禁发新消息）、取消幂等、resume 新流续接同一段内容。
- *
- * 事件归约逻辑抽成纯函数 applyEvent（mutation 式 draft），便于单测；store 只是薄壳。
+ * 管理对话执行状态并归约 SSE 事件。
+ * 工具审批完成后通过 resume 续接执行；只有 done 事件关闭当前流。
+ * 同一会话只允许一个执行，恢复流保留现有文本与审批记录。
  */
 import { defineStore } from 'pinia'
 import type { SSEEvent } from '../api/contracts/events'
@@ -26,7 +18,7 @@ export type RunPhase =
   | 'error'
   | 'cancelled'
 
-/** stage_changed 八阶段 → 中文标签（约束 1：等待不沉默） */
+/** stage_changed 八阶段 → 中文标签 */
 export const STAGE_LABELS = {
   preparing: '准备中',
   connecting: '连接中',
@@ -106,10 +98,10 @@ export interface RunState {
   toolCalls: ToolCallItem[]
   pendingApproval: PendingApproval | null
   /**
-   * 审批账目：本 run 内请求过的全部审批（M2.5）。协议上 run 在每个审批门前暂停，
+   * 审批账目：本 run 内请求过的全部审批。协议上 run 在每个审批门前暂停，
    * pendingApproval 只持有当前待决的一个；账目则累积历史请求，供日历把多个
    * create_event 幽灵块并存投影（批准未落地/待决的都留在纸面上）。
-   * resume 新流不清账（幽灵块要留到数据实体化）；非 resume 的新 run 清账。
+   * 恢复流保留审批预览，直到对应日程加载；新消息清空旧预览。
    */
   approvalLedger: PendingApproval[]
   planCard: PlanCardItem | null
@@ -196,17 +188,13 @@ export function formatResumeBlocked(pending: ResumeBlockedItem[]): string {
   return `本轮仍有 ${pending.length} 项待批操作（${parts.join('、')}），请先批准或拒绝全部审批卡，知时才能继续。`
 }
 
-/**
- * approve/reject 端点（POST /ai/actions/{id}/{approve,reject}）返回体 =
- * 生成 ActionResolveOut（含 ready_to_resume；2026-09-05 rest.d.ts 已再生成，re #023 建议③）。
- * 运行时仍按「字段可能缺失」向后兼容：旧后端无 ready_to_resume → undefined ≠ false →
- * 立即 resume（run.test「向后兼容」用例覆盖），pending 残留由 resume 400 兜底。
- */
+/** 审批结果来自 ActionResolveOut。ready_to_resume 为 false 时等待其他审批；
+ * 字段缺失时尝试恢复，由服务端检查是否仍有待决操作。 */
 export type ActionResolveResult = components['schemas']['ActionResolveOut']
 
 /**
  * resume 400 且 consumed=true：该审批批次已被 resume 消费（重复 resume 的幂等拒绝，
- * re #023④）。按信息处理、不计错误。纯函数便于单测。
+ * ）。按信息处理、不计错误。纯函数便于单测。
  */
 export function resumeConsumed(err: SSERequestError): boolean {
   if (err.status !== 400) return false
@@ -483,15 +471,15 @@ export const useRunStore = defineStore('run', {
         this.conflict = true
         return
       }
-      // resume 被拒（re #020）：本轮还有未决审批卡。审批确实仍待决，相位保留
-      // awaiting_approval；把 400 的 pending 清单落成可读文案 —— 等待不沉默
+      // resume 被拒：本轮还有未决审批卡。审批确实仍待决，相位保留
+      // awaiting_approval；把 400 的 pending 清单落成可读文案
       // （修复前该错误只写进 store.error，UI 仍显示常规等待提示，用户无感知卡死）。
       const blocked = resumeBlockedPending(err)
       if (blocked.length) {
         this.error = { message: formatResumeBlocked(blocked), retryable: false }
         return
       }
-      // consumed=true（re #023④）：批次已被 resume 消费（重复 resume 的幂等拒绝）。
+      // consumed=true：批次已被 resume 消费（重复 resume 的幂等拒绝）。
       // 按信息级呈现，不计入错误（不写 error、不动相位）。
       if (resumeConsumed(err)) {
         this.notice = '该批次已被消费：本轮审批已续跑过，无需重复操作。'
@@ -579,7 +567,7 @@ export const useRunStore = defineStore('run', {
     },
 
     /**
-     * 结案后的 resume 决策（approve/reject 共用，re #023 建议③）：
+     * 结案后的 resume 决策（approve/reject 共用）：
      * ready_to_resume === false（同批还有待决）→ 不开 resume 流，信息微文本提示剩余数；
      * true（最后一项结清）→ 自动开 resume 流；响应无该字段（旧后端兼容）→ 维持现状
      * 立即 resume，本轮仍有 pending 时由 resume 400 的 formatResumeBlocked 兜底。

@@ -1,4 +1,3 @@
-# src/zhishi/domain/journal/service.py
 """日记：一天一篇（date upsert）。"""
 from __future__ import annotations
 from datetime import date

@@ -1,12 +1,6 @@
-# src/zhishi/adapters/mcp_client.py
-"""MCP 客户端适配器：基于 pydantic-ai 2.38 的 MCPToolset（fastmcp client 栈）。
-API 适配说明（与旧文档命名不同，以本地 site-packages 实测为准）：
-- 旧版 MCPServerStdio/MCPServerStreamableHTTP 已被 MCPToolset 取代：
-  stdio → fastmcp.client.transports.StdioTransport(command, args, env)；
-  http  → URL 字符串 + headers（Streamable HTTP 传输自动推断）。
-- MCPToolset.list_tools()/direct_call_tool() 自带会话生命周期（async with self），
-  单次 list/call 无需手工管理连接。
-错误一律脱敏（env/headers 值不得出现在错误文本）并截 300 字符。"""
+"""MCP 客户端适配器，使用 MCPToolset 管理 stdio 与 HTTP 连接。
+
+工具列表和调用由 SDK 管理连接生命周期；错误文本脱敏并限制长度。"""
 from __future__ import annotations
 
 import json
@@ -19,11 +13,11 @@ ERROR_MAX_CHARS = 300
 TOOLS_CACHE_TTL_SECONDS = 60
 
 # 工具清单缓存 {server_id: (expires_at, tools)}：runtime 每次 run 装配与
-# GET /ai/mcp/servers/{sid}/tools 都会真实连接，慢服务器拖启动（清账 B2）。
+# GET /ai/mcp/servers/{sid}/tools 都会真实连接，慢服务器拖启动。
 _tools_cache: dict[int, tuple[float, list[dict]]] = {}
 
-# 缓存世代号（re #063 major）：list_tools 在 miss 后要 await 网络，若等待期间
-# 发生 invalidate()（PUT/DELETE 失效钩子），旧结果无条件写回会把已删除/已改配的
+# 缓存世代号：list_tools 在 miss 后要 await 网络，若等待期间
+# 发生 invalidate（PUT/DELETE 失效钩子），旧结果无条件写回会把已删除/已改配的
 # 服务器工具（含 readOnlyHint，参与免审分类）污染回缓存 60s。进入时捕获世代，
 # 网络返回后世代未变才写回；变了则丢弃，下次查询真连。
 _cache_generation: int = 0
@@ -106,7 +100,7 @@ async def list_tools(server_row: MCPServer, timeout: float | None = None, *,
     """连接服务器并列出工具：[{name, description, input_schema, read_only}]。
     60s TTL 模块级缓存（按 server_id）：命中且未过期直接返回。
     use_cache=False（/test 连通性测试）强制真连——不读也不写缓存。
-    写回前校验缓存世代（re #063 major）：网络等待期间发生过 invalidate 则丢弃
+    写回前校验缓存世代：网络等待期间发生过 invalidate 则丢弃
     本次结果，防止旧服务器工具（含 readOnlyHint）回填污染。"""
     global _cache_generation
     key = server_row.id

@@ -1,4 +1,3 @@
-# src/zhishi/domain/models.py
 """七域全部表。跨域外键集中在一个文件定义（task_tag/task_file 是关联表）。"""
 from __future__ import annotations
 import json
@@ -155,7 +154,7 @@ class Event(Base):
     location: Mapped[str] = mapped_column(String(200), default="")
     category: Mapped[str] = mapped_column(String(30), default="general")
     recur_rrule: Mapped[str | None] = mapped_column(Text)  # 如 FREQ=WEEKLY;INTERVAL=2（单双周）
-    repeat_note: Mapped[str | None] = mapped_column(Text)  # 人类可读周次规则，如「双周课（第2-16周）」（re #020 事项2）
+    repeat_note: Mapped[str | None] = mapped_column(Text)  # 人类可读周次规则，如「双周课（第2-16周）」
     notes: Mapped[str] = mapped_column(Text, default="")
     remind_offsets: Mapped[str] = mapped_column(Text, default='[]')
     reminder_time: Mapped[str | None] = mapped_column(String(5))
@@ -236,7 +235,7 @@ class TimeLog(Base):
 
 
 class LibraryFile(Base):
-    """资料库文件/链接。M1 只管存储与关联；extracted_text 由 M3 解析管道回填。"""
+    """资料库文件/链接。只管存储与关联；extracted_text 由 解析管道回填。"""
     __tablename__ = "library_files"
     id: Mapped[int] = mapped_column(primary_key=True)
     original_name: Mapped[str] = mapped_column(String(255))
@@ -450,7 +449,7 @@ class AppSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
-# ---- AI 层（M2）----
+# ---- AI 层----
 
 class AIConfig(Base):
     """AI 模型配置。api_key_ref 指 keyring 条目名，库内不存明文。"""

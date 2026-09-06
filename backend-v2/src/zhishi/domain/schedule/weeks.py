@@ -1,4 +1,3 @@
-# src/zhishi/domain/schedule/weeks.py
 """学期周次 → RRULE 引擎（课表导入的确定性核心）。
 semester_start 必须是第 1 周的周一；weekday 1=周一..7=周日。
 week_kind: range=连续周 / odd=单周(奇数学期周) / even=双周(偶数周)。"""
@@ -17,7 +16,7 @@ def _sunday(semester_start: date, week: int) -> date:
 
 
 def repeat_note(week_kind: str, start_week: int, end_week: int) -> str:
-    """周次规则的人类可读描述（re #020 事项2）：单周课（第1-16周）/ 双周课（第2-16周）/ 每周（第1-16周）。"""
+    """周次规则的人类可读描述：单周课（第1-16周）/ 双周课（第2-16周）/ 每周（第1-16周）。"""
     label = {"odd": "单周课", "even": "双周课"}.get(week_kind, "每周")
     return f"{label}（第{start_week}-{end_week}周）"
 

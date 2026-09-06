@@ -1,16 +1,7 @@
 <script setup lang="ts">
 /**
- * 纸质周历（A 的编辑出版纸面语言，视觉基准：design-demos/final-calendar.html，
- * 呈现为「深色书桌上摊开的一张纸质周历」——纸与桌母题）：
- * - 刊头：dateline / kicker / 大衬线 h1（Newsreader）/ folio 统计 / mast-rule 双规矩线
- * - 周视图：42px 时间轴 + 7 栏细线分栏，课程块按百分比定位（08:00–21:00 轴）
- * - 今日列高亮 --paper-hi；周末微染 --paper-tint；空栏「本版无课」斜体注
- * - 幽灵块：审批账目里的 schedule.create_event 以赤陶橙虚线投影在对应日栏
- *   （多个并存投影；拒绝即消失，批准后转实体块自动隐去虚线块）
- * - 窄列优雅降级：.paper 为 inline-size 容器，窄列下幽灵块/课程块文字单行省略 +
- *   title tooltip 兜底；短块（≈40 分钟内）只留标题一行；头部日期/星期窄窗堆叠
- * - 课程块可点击 → 弹出事件详情便签卡（RRULE 人类可读）
- * - 数据：GET /api/schedule/events/expand（后端 RRULE 展开），样式只消费 --paper-* token
+ * 周日历：展示后端展开的日程与待审批排期，支持打开事件详情。
+ * 全天及轴外事件单独排列，定时事件按时间轴定位。
  */
 import { fitsCalendarAxis, occurrenceTime } from '../../utils/eventPlacement'
 import { computed, onMounted, ref } from 'vue'

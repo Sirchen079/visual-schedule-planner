@@ -1,4 +1,3 @@
-# tests/server/test_approval_flow.py
 import json
 from fastapi.testclient import TestClient
 from pydantic_ai.messages import ModelRequest
@@ -40,7 +39,7 @@ def test_confirm_tool_triggers_approval_then_resume(tmp_path):
         approval = next(e for e in events if e["type"] == "tool_approval_requested")
         action_id = approval["action_id"]
 
-        # 拒绝 → resolved 事件 + 状态落库；单卡批次结案即 ready（re #023 建议③）
+        # 拒绝 → resolved 事件 + 状态落库；单卡批次结案即 ready
         r2 = c.post(f"/ai/actions/{action_id}/reject")
         assert r2.status_code == 200
         assert r2.json()["ready_to_resume"] is True
@@ -74,7 +73,7 @@ def _seed_pending_action(c, tool_name: str, args_json: str = "{}") -> int:
 
 
 def test_approve_grant_always_rejected_for_irrevocable(tmp_path):
-    """re #019 blocker：empty_trash 审批带 grant_always → 400（不可豁免），
+    """empty_trash 审批带 grant_always → 400（不可豁免），
     不创建 grant、审批保持 pending；去掉 grant_always 的常规批准照常放行。"""
     with TestClient(create_app(data_dir=tmp_path)) as c:
         from zhishi.domain.models import AIPendingAction, AIToolGrant
@@ -94,7 +93,7 @@ def test_approve_grant_always_rejected_for_irrevocable(tmp_path):
 
 
 def test_grant_always_still_works_for_revocable(tmp_path):
-    """普通 confirm 工具的 grant_always 行为不受 blocker 修复影响。"""
+    """普通确认级工具仍可授予永久授权。"""
     with TestClient(create_app(data_dir=tmp_path)) as c:
         from zhishi.domain.models import AIToolGrant
         action_id = _seed_pending_action(c, "delete_task", args_json='{"task_id": 9}')
@@ -107,7 +106,7 @@ def test_grant_always_still_works_for_revocable(tmp_path):
 
 
 def test_approval_event_grant_available_false_for_irrevocable(tmp_path):
-    """re #019：empty_trash 审批事件 grant_available=false（前端须隐藏「始终允许」）；
+    """empty_trash 审批事件 grant_available=false（前端须隐藏「始终允许」）；
     同流中普通工具 delete_task 的审批事件 grant_available=true。"""
     _CALLS = {"n": 0}
 
@@ -171,12 +170,8 @@ def _result_seen(messages, call_id: str) -> bool:
 
 
 def test_same_turn_multi_approvals_resume(tmp_path):
-    """re #020 k3 major：同轮 ≥2 个 confirm 级调用的 resume 回填。
-    ① FunctionModel 同轮发 2 个 create_event（careful 档均 confirm 级）→ 2 张审批卡；
-    ② 只批 1 张 → resume 返回 400，typed 响应体列出未决 action_id 清单；
-    ③ 两张都批 → resume 成功且两个日程都落库（expand 断言）。
-    re #023 建议③：approve 响应带 ready_to_resume——同批仍有 pending 时 false，
-    全部结案后才 true，前端只在 ready 后开 resume 流。"""
+    """一轮内有两个待审批调用时，仅在全部结案后允许恢复。
+    审批响应的 ready_to_resume 与待决数量一致，恢复后两个日程均写入。"""
     from pydantic_ai.models.function import DeltaToolCall
 
     async def stream_two_events(messages, info):
@@ -227,9 +222,7 @@ def test_same_turn_multi_approvals_resume(tmp_path):
 
 
 def test_resume_not_poisoned_by_earlier_turn_actions(tmp_path):
-    """re #020 k3 major 报告场景复现：上一轮已执行完结案（confirmed）的审批不得回填进
-    本轮 resume——旧实现把全会话已结案 action 一股脑回填，命中 pydantic-ai
-    「Expected 1, got 2」UserError，run 落 error。"""
+    """恢复当前轮次时不得重复回填上一轮已执行的审批结果。"""
     from pydantic_ai.models.function import DeltaToolCall
 
     async def stream_two_rounds(messages, info):
@@ -258,7 +251,7 @@ def test_resume_not_poisoned_by_earlier_turn_actions(tmp_path):
         from zhishi.domain.models import AIPendingAction
         with c.app.state.session_factory() as db:
             assert db.get(AIPendingAction, a1).status == "executed", (
-                "re #023④：resume 消费后该批 confirmed 应转 executed")
+                "resume 消费后该批 confirmed 应转 executed")
 
         # 第二轮：模型再发 delete_task → 新审批卡；批准后 resume 不得被 a1 的历史结案污染
         a2 = next(e for e in events_r1 if e["type"] == "tool_approval_requested")["action_id"]
@@ -353,7 +346,7 @@ def test_approve_then_resume_executes_tool(tmp_path):
 
 
 def test_resume_with_mixed_safe_and_deferred_calls(tmp_path):
-    """re #028 major：同一模型响应混合「safe 直行 + confirm 待审批」调用时 resume
+    """同一模型响应混合「safe 直行 + confirm 待审批」调用时 resume
     不得误报「审批数据不完整」。standard 档下一轮同时发 create_event（safe 直行，
     trailing ModelRequest 已有 ToolReturnPart、不落审批表）+ delete_event（confirm
     落审批卡）：① 流暂停只出 delete_event 一张审批卡，create_event 已直行落库；
@@ -416,7 +409,7 @@ def test_resume_with_mixed_safe_and_deferred_calls(tmp_path):
 
 
 def test_resume_marks_batch_executed_and_repeat_resume_idempotent(tmp_path):
-    """re #023④：resume 成功启动新执行后，该批 confirmed → executed（rejected 保持
+    """resume 成功启动新执行后，该批 confirmed → executed（rejected 保持
     rejected），源 AIRun.usage_json 记 resumed_by_runs 消费标记；同批重复 resume →
     400 typed（consumed=true），不重复回填、不产生新消息/新执行。"""
     from pydantic_ai.models.function import DeltaToolCall

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import ProjectLink from '../components/ProjectLink.vue'
 /**
- * 设置视图（/settings，次导航，M4a + M4c）：
+ * 设置视图（/settings，次导航，+ ）：
  * AI 助手（自治档位/工作时段）+ 永久授权 + MCP 服务器（可管理）+ AI 配置 + 技能管理。
  * - 自治档位：standard/careful 二选一，点选即存（PUT 部分更新，回包落定）；
  *   新档位对下一条消息起的 run 生效，进行中的 run 不受影响。
@@ -100,7 +100,7 @@ function grantDate(iso: string): string {
   return iso.slice(0, 10)
 }
 
-/* ---- MCP 添加/编辑共用内联表单（M4c） ---- */
+/* ---- MCP 添加/编辑共用内联表单 ---- */
 const MCP_TRANSPORTS = ['http', 'stdio'] as const
 
 interface McpFormModel {
@@ -399,7 +399,7 @@ async function submitConfigForm(): Promise<void> {
   if (ok) closeConfigForm()
 }
 
-/* ---- 技能添加表单与删除两段确认（M4c） ---- */
+/* ---- 技能添加表单与删除两段确认 ---- */
 const skillFormOpen = ref(false)
 const skillName = ref('')
 const skillDesc = ref('')
@@ -451,7 +451,7 @@ function removeSkill(sk: SkillInfo): void {
   void settings.removeSkill(sk.id)
 }
 
-/* ---- 外观主题（re #065：即点即生效走 applyTheme，跨端口持久化走后端 ui.theme 键） ---- */
+/* ---- 外观主题（即点即生效走 applyTheme，跨端口持久化走后端 ui.theme 键） ---- */
 const theme = ref<ThemeName>('dark')
 
 function setTheme(t: ThemeName): void {
@@ -1174,7 +1174,7 @@ const AUTONOMY_TIERS: Autonomy[] = ['standard', 'careful']
   line-height: 1.7;
 }
 
-/* 内联表单（MCP 添加/编辑、AI 配置、技能共用骨架） */
+/** MCP、AI 配置与技能共用的内联表单样式。 */
 .inline-form {
   display: flex;
   flex-direction: column;

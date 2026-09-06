@@ -1,4 +1,3 @@
-# src/zhishi/domain/tasks/schemas.py
 from __future__ import annotations
 from datetime import datetime
 from typing import Annotated
@@ -24,7 +23,7 @@ class TaskCreate(BaseModel):
 
 
 class SubtaskRead(BaseModel):
-    """子任务读取面（re #B4）：随 TaskRead 内嵌返回，REST 消费者可渲染子任务清单。"""
+    """子任务读取面：随 TaskRead 内嵌返回，REST 消费者可渲染子任务清单。"""
     id: int
     title: str
     done: bool
@@ -33,7 +32,7 @@ class SubtaskRead(BaseModel):
 
 
 class TagOut(BaseModel):
-    """标签项（re #048：GET /api/tasks/tags 实形）。"""
+    """标签项（GET /api/tasks/tags 实形）。"""
     id: int
     name: str
     color: str

@@ -1,4 +1,3 @@
-# tests/agent/test_prompts.py
 from zhishi.agent import prompts
 
 
@@ -9,7 +8,7 @@ def test_instructions_contains_core_sections(db):
 
 
 def test_plan_mode_instruction_only_in_plan_mode(db):
-    """re #017 k3③：计划模式专用指令段仅在 plan_mode=True 时注入。"""
+    """计划模式专用指令段仅在 plan_mode=True 时注入。"""
     assert "【计划模式】" not in prompts.build_instructions(db)
     plan_text = prompts.build_instructions(db, plan_mode=True)
     assert "【计划模式】" in plan_text

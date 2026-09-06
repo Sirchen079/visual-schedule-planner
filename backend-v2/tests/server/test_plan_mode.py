@@ -1,4 +1,3 @@
-# tests/server/test_plan_mode.py
 """计划模式：plan_mode 下模型只挂只读工具 + propose_plan；
 propose_plan 触发 plan_card 事件；批准后以普通模式注入执行。"""
 import json
@@ -105,7 +104,7 @@ def _plan_status(c, cid):
 
 
 def test_approve_409_compensates_back_to_proposed(tmp_path, monkeypatch):
-    """re #013 major：批准时同会话已有 active run（409）→ 计划状态须回滚 proposed 可重试。"""
+    """批准时同会话已有 active run（409）→ 计划状态须回滚 proposed 可重试。"""
     with TestClient(create_app(data_dir=tmp_path)) as c:
         cid, plan_id = _propose_then(c, monkeypatch)
         c.app.state.active_runs[cid] = "running-other"          # 模拟并发 run
@@ -118,7 +117,7 @@ def test_approve_409_compensates_back_to_proposed(tmp_path, monkeypatch):
 
 
 def test_approve_model_failure_compensates_back_to_proposed(tmp_path, monkeypatch):
-    """re #013 major：批准后启动链异常（模型初始化失败）→ 计划回滚 proposed。"""
+    """批准后启动链异常（模型初始化失败）→ 计划回滚 proposed。"""
     with TestClient(create_app(data_dir=tmp_path)) as c:
         cid, plan_id = _propose_then(c, monkeypatch)
         import zhishi.server.routes.ai as ai_route
@@ -130,8 +129,8 @@ def test_approve_model_failure_compensates_back_to_proposed(tmp_path, monkeypatc
         r = c.post(f"/ai/conversations/{cid}/plans/{plan_id}/approve", json={})
         assert r.status_code in (500, 502)
         assert _plan_status(c, cid) == "proposed", "启动失败后计划被卡在 approved"
-        assert cid not in c.app.state.active_runs, "初始化失败后并发锁泄漏（re #016）"
-        # 注意：不能用 monkeypatch.undo()——它会把 build_model 漏出到真实实现
+        assert cid not in c.app.state.active_runs, "初始化失败后并发锁泄漏"
+        # 注意：不能用 monkeypatch.undo——它会把 build_model 漏出到真实实现
         # （测试配置无 API key，必然 500；全量跑能过只因前置测试泄漏了 stub）。
         # 这里显式重挂脚本化模型，保证测试自封闭、单独跑也成立。
         _patch_model(monkeypatch, tail_text="按计划执行完毕")
@@ -140,7 +139,7 @@ def test_approve_model_failure_compensates_back_to_proposed(tmp_path, monkeypatc
 
 
 def test_plan_lookup_scoped_by_conversation(tmp_path, monkeypatch):
-    """M2 回归：plan_id 在会话内自增，跨会话必然撞号——批准/拒绝必须按
+    """plan_id 在会话内自增，跨会话必然撞号——批准/拒绝必须按
     (conversation_id, plan_id) 定位，批准 A 的计划不得误动 B 的同名号计划。"""
     from zhishi.domain.models import AIConversation
     from zhishi.agent.tools import macro

@@ -1,3 +1,3 @@
 # 知时后端
 
-当前版本 2.14.2。统一构建、数据边界与使用说明见[仓库首页](../README.md)。接口与功能记录见 [docs](docs/)。
+当前版本 2.14.2。安装与构建见[仓库首页](../README.md)，开发流程见[开发指南](../docs/development.md)，生成的接口定义位于 [docs/contracts](docs/contracts/)。

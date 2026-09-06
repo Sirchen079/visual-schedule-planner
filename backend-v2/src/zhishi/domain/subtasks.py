@@ -1,4 +1,3 @@
-# src/zhishi/domain/subtasks.py
 """子任务 CRUD；每次变更按完成率重算父任务进度，全完成自动标完成。"""
 from __future__ import annotations
 from datetime import datetime

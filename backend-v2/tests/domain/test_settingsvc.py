@@ -1,4 +1,3 @@
-# tests/domain/test_settingsvc.py
 from zhishi.domain import settingsvc as sv
 
 def test_defaults_and_roundtrip(db):

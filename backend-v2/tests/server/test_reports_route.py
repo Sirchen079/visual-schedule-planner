@@ -1,4 +1,3 @@
-# tests/server/test_reports_route.py
 """报告路由：生成（TestModel 离线）/失败 422/列表/详情/删除/晨报幂等与规则降级。"""
 from datetime import date
 

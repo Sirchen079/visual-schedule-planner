@@ -1,4 +1,3 @@
-# src/zhishi/adapters/web.py
 """web_search / web_fetch 适配器（无浏览器依赖）。
 SSRF 双重校验：请求前做「scheme 白名单 + host 解析 + 公网 IP 校验」，
 重定向每一跳重新走同一校验（手动跟随重定向，杜绝 302 跳内网）。

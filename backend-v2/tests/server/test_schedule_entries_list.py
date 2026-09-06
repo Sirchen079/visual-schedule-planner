@@ -1,5 +1,4 @@
-# tests/server/test_schedule_entries_list.py
-"""re #B5：schedule entries 读取面——GET /api/schedule/entries 列表端点。
+"""schedule entries 读取面——GET /api/schedule/entries 列表端点。
 task_id / date_from / date_to 过滤，默认近 30 天窗口；条目形状与 POST/PATCH
 返回一致，entry_id 不再创建即失联。"""
 from datetime import date, timedelta

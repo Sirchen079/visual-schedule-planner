@@ -1,4 +1,3 @@
-# tests/server/test_ai_routes.py
 import json
 from fastapi.testclient import TestClient
 from zhishi.server.app import create_app
@@ -46,7 +45,7 @@ def test_conversations_crud(tmp_path):
 
 
 def test_delete_conversation_cascades_runs_and_actions(tmp_path):
-    """M3 回归：删会话须级联清理 AIRun/AIPendingAction（FK 开启下曾 IntegrityError）。"""
+    """删会话须级联清理 AIRun/AIPendingAction（FK 开启下曾 IntegrityError）。"""
     with TestClient(create_app(data_dir=tmp_path)) as c:
         from zhishi.domain.models import AIConversation, AIPendingAction, AIRun
         with c.app.state.session_factory() as db:
@@ -74,7 +73,7 @@ def test_skills_crud(tmp_path):
 
 
 def test_grants_list_and_revoke(tmp_path):
-    """re #019：「始终允许」规则必须可审计（列表）可撤销（删除）。"""
+    """「始终允许」规则必须可审计（列表）可撤销（删除）。"""
     with TestClient(create_app(data_dir=tmp_path)) as c:
         from zhishi.domain.models import AIToolGrant
         with c.app.state.session_factory() as db:
@@ -119,7 +118,7 @@ def test_chat_stream_concurrent_409(tmp_path):
 
 
 def test_chat_stream_second_turn_carries_history(tmp_path, monkeypatch):
-    """M1 回归：同一会话第二次 chat 时，模型输入必须包含第一轮的
+    """同一会话第二次 chat 时，模型输入必须包含第一轮的
     user/assistant 内容（多轮记忆）；新会话首轮无 history。"""
     from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
     import zhishi.server.routes.ai as ai_route

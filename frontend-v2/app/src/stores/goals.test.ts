@@ -13,7 +13,7 @@ function jsonResponse(payload: unknown, status = 200): Response {
   } as unknown as Response
 }
 
-/** 真实形状（2026-09-05 于 d0f5474 POST /api/goals 与 /key-results 实测）。 */
+/** 包含关键结果的目标测试样本。 */
 function makeKr(partial: Partial<KeyResult>): KeyResult {
   return {
     id: 1,
@@ -31,7 +31,7 @@ function makeKr(partial: Partial<KeyResult>): KeyResult {
 function makeGoal(partial: Partial<Goal>): Goal {
   return {
     id: 1,
-    title: 'M3测试目标',
+    title: '测试目标',
     notes: '',
     status: 'active',
     start_date: '2026-09-01',
@@ -43,7 +43,7 @@ function makeGoal(partial: Partial<Goal>): Goal {
 
 describe('goals 纯函数', () => {
   it('krPercent：current/target 百分比并钳制 0–100，target<=0 防除零', () => {
-    expect(krPercent(makeKr({ current_value: 78, target_value: 85 }))).toBe(92) // 与实测 /progress 端点一致
+    expect(krPercent(makeKr({ current_value: 78, target_value: 85 }))).toBe(92) // 与 /progress 端点的计算方式一致。
     expect(krPercent(makeKr({ current_value: 200, target_value: 100 }))).toBe(100)
     expect(krPercent(makeKr({ current_value: -5, target_value: 100 }))).toBe(0)
     expect(krPercent(makeKr({ current_value: 10, target_value: 0 }))).toBe(0)
@@ -85,7 +85,7 @@ describe('goals store', () => {
     vi.unstubAllGlobals()
   })
 
-  it('updateKrProgress 失败：回滚 current_value 且 actionError 可见（约束①）', async () => {
+  it('updateKrProgress 失败：回滚 current_value 且 actionError 可见', async () => {
     const store = useGoalsStore()
     const kr = makeKr({ id: 9, current_value: 20 })
     store.items = [makeGoal({ key_results: [kr] })]

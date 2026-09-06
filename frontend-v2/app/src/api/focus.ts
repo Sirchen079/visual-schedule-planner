@@ -8,7 +8,7 @@
  * - 历史：GET /api/focus/logs?days=7&task_id= → log[]
  * - 删除：DELETE /api/focus/logs/{log_id} → 204；409 = 该条仍在进行中不可删
  * - 统计：GET /api/focus/stats?days=7 → {by_day:[{date,minutes}], by_task:[{task_title,minutes}], total_minutes}
- * started_at/ended_at 为本地 naive ISO 字符串（无时区后缀），new Date() 按本地时区解析即与后端一致。
+ * started_at/ended_at 为本地 naive ISO 字符串（无时区后缀），new Date 按本地时区解析即与后端一致。
  */
 import type { components } from './contracts/rest'
 import { http } from './http'

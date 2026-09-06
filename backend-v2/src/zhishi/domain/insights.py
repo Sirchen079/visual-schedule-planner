@@ -1,5 +1,4 @@
-# src/zhishi/domain/insights.py
-"""幕僚洞察：跨域确定性观察，短句输出（M2 注入系统提示词'幕僚观察'段）。"""
+"""幕僚洞察：跨域确定性观察，短句输出（注入系统提示词'幕僚观察'段）。"""
 from __future__ import annotations
 from datetime import datetime, timedelta
 from sqlalchemy import select

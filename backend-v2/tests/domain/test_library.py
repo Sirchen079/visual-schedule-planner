@@ -1,4 +1,3 @@
-# tests/domain/test_library.py
 import io
 from zhishi.domain.library import service as ls
 from zhishi.domain.tasks import service as ts
@@ -40,7 +39,7 @@ def test_trash_and_purge(db, tmp_path):
 
 
 def test_purge_file_detaches_from_tasks(db, tmp_path):
-    """M3 回归：purge 文件先清 task_file 关联（FK 开启下曾被关联行阻断）。"""
+    """purge 文件先清 task_file 关联（FK 开启下曾被关联行阻断）。"""
     from zhishi.domain.models import task_file
     up = _Upload("a.txt", b"hello", "text/plain")
     f = ls.save_upload(db, storage_root=tmp_path / "files", upload=up)

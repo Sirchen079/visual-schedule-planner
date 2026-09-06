@@ -1,4 +1,3 @@
-# src/zhishi/domain/schedule/conflicts.py
 """冲突检测与空闲时段发现：仅对带起止时刻的项生效。"""
 from __future__ import annotations
 from datetime import date, timedelta

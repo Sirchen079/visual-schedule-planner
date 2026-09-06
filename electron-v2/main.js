@@ -1,9 +1,9 @@
 // 知时桌面主进程
 // 职责：单实例锁、以子进程拉起自包含后端（zhishi-backend.exe）、就绪探测后承载 SPA、
 //       系统托盘（关闭=隐藏到托盘）、未读通知轮询、优雅退出（POST /shutdown → kill）。
-// 进程契约（backend-v2 冻结，不可破坏）：`--port N`、`GET /health`、`POST /shutdown`、
+// 后端进程接口：`--port N`、`GET /health`、`POST /shutdown`、
 //       `ZHISHI_DATA_DIR` 定数据根；安全模型为 Host 回环白名单 + Origin 同源校验，
-//       前端已冻结无法携带请求头，故本壳不引入 token 认证。
+// 后端仅供本机桌面程序使用，依赖回环监听及 Host/Origin 校验。
 const { app, BrowserWindow, Tray, Menu, Notification, dialog, shell, nativeImage } = require('electron')
 const { spawn, exec } = require('child_process')
 const fs = require('fs')
@@ -17,7 +17,7 @@ const HEALTH_TRIES = 150 // 就绪探测：最多 150 次 × 200ms
 const HEALTH_INTERVAL = 200
 const SHUTDOWN_TIMEOUT = 2000 // /shutdown 2s 超时后强杀
 const NOTIFY_INTERVAL = 30_000 // 未读通知轮询周期
-const BG_COLOR = '#1c1815' // 遮挡 UI 底色：前端暗色书房主题 --bg-app（frontend/dist CSS 变量实测值）
+const BG_COLOR = '#1c1815' // 窗口初始背景，与前端 --bg-app 一致。
 
 let mainWindow = null
 let widget = null
@@ -30,7 +30,7 @@ let isQuitting = false
 let backendGaveUp = false // 启动失败已判定，避免 exit 事件再叠加弹框
 let notifyTimer = null
 let notifiedIds = new Set() // 已弹过系统通知的未读 id，防止每 30s 重复弹同一条
-let backendPid = 0 // 启动时记录本次后端子进程 PID（自检模式做 tasklist 断言用）
+let backendPid = 0 // 后端子进程 PID，用于退出检测和诊断。
 let smokePageLoaded = false // 自检步骤①等 did-finish-load 的事件到达标记
 
 // 自检模式：真断言链（加载→标题→可见→关闭隐藏→退出后 PID 消失），任一步失败非零退出
@@ -82,7 +82,7 @@ function backendExePath() {
 }
 
 // 数据根：打包态 userData/data（安装/卸载不会删除）；开发态壳仓库内 dev-data/
-// （与 backend-v2 仓库数据、旧版 E:\知时\data 完全隔离，绝不互染）。
+// 开发数据与安装版数据使用独立目录。
 // 环境变量 ZHISHI_SHELL_DATA_DIR 可显式覆盖（测试/多开隔离用）。
 function resolveDataRoot() {
   if (process.env.ZHISHI_SHELL_DATA_DIR) {
@@ -378,7 +378,7 @@ function stopNotifyPolling() {
 }
 
 // ---------- 优雅退出 ----------
-// 先 POST /shutdown（2s 超时）让后端备份落盘，等其自行退出；超时兜底 kill，最后 app.quit()。
+// 先 POST /shutdown（2s 超时）让后端备份落盘，等其自行退出；超时兜底 kill，最后 app.quit。
 // 托盘「退出」与 before-quit（系统关机等）统一走此路径。
 // opts.quit=false：自检模式复用同一关闭链（销毁托盘/窗口→/shutdown→等后端退出）但先不退出进程，
 // 留给调用方做 OS 级断言后显式退出，保证退出码语义确定。

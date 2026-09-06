@@ -1,4 +1,3 @@
-# src/zhishi/agent/tools/registry.py
 """工具注册表（单一数据源）：工具名/描述/安全分级/功能开关门控。
 工具函数签名：async def fn(ctx: RunContext[AgentDeps], **params) -> str（返回模型可读文本）。
 本文件只登记元数据；函数实体在 atomic_read/atomic_write。"""

@@ -1,4 +1,3 @@
-# src/zhishi/agent/tools/atomic_write.py
 """L1 写类工具（safe + confirm）：与只读同构（第一参数 db，返回 JSON 文本）。
 confirm 组函数体同样完整实现——审批通过后由 runtime 复用同一函数执行
 （审批不是授权边界，工具内部照常校验），安全分级只登记在 ToolSpec；
@@ -292,7 +291,7 @@ def empty_trash(db: Session) -> str:
         purged += 1
     files = ls.list_trash(db)
     for f in files:
-        ls.purge(db, f.id)  # 物理文件清理由 M3 解析管道统一处理
+        ls.purge(db, f.id)  # 物理文件清理由 解析管道统一处理
         purged += 1
     return _json({"ok": True, "purged": purged})
 
@@ -325,7 +324,7 @@ def bulk_delete_files(db: Session, file_ids: list[int]) -> str:
 
 def import_web_resources(db: Session, resources: list[dict]) -> str:
     """批量导入网页/链接资源（不可豁免高危，需确认）。每项 {title, url, notes?}，
-    url 必须以 http(s):// 开头；M2 仅登记链接，内容抓取解析在后续版本增强。"""
+    url 必须以 http(s):// 开头；仅登记链接，内容抓取解析在后续版本增强。"""
     from zhishi.domain.library import service as ls
     created = []
     for item in resources:

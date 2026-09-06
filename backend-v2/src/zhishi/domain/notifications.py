@@ -1,4 +1,3 @@
-# src/zhishi/domain/notifications.py
 """Task reminders, scanned every 30s while the backend runs.
 
 The durable scan cursor recovers up to seven days after sleep or restart.

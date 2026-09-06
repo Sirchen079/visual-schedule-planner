@@ -1,4 +1,3 @@
-# tests/agent/test_tools_read.py
 from zhishi.agent.tools.registry import REGISTRY, get_spec, readonly_names
 from zhishi.agent.tools import atomic_read
 

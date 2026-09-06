@@ -1,4 +1,3 @@
-# tests/server/test_routes_smoke.py
 from datetime import date
 from fastapi.testclient import TestClient
 from zhishi.server.app import create_app

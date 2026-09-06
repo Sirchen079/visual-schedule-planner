@@ -1,12 +1,6 @@
 <script setup lang="ts">
-/**
- * 时间轴视图（/timeline）：未来 14 天的「任务截止 + 排程负载」纵览，B×C 暗色。
- * - 排程负载来自 GET /api/schedule/range（任务负载视图，端点语义见 FRONTEND_HANDBOOK §3；
- *   它不含独立日程，课程仍在日历页），截止任务来自 GET /api/tasks（due_date 归日）
- * - 每日一行：日期刊头（今天/明天/周几）+ 排程条目（时间/标题/预估）+ 截止任务 + 负载条
- * - 截止任务带 subtasks 时行内渲染子任务清单，点击勾选切换 done（乐观 + 失败回滚，re #B4）
- * - 数据由 tasks store 统一持有，run done 自动刷新天然覆盖
- */
+/** 未来 14 天的任务截止日期与排期负载。
+ * /range 提供任务排期，独立日程显示在日历页。子任务支持乐观更新及失败回滚。 */
 import { onMounted } from 'vue'
 import AppIcon from '../components/AppIcon.vue'
 import DomainState from '../components/domain/DomainState.vue'
@@ -265,7 +259,7 @@ onMounted(() => {
   flex: none;
 }
 
-/* 子任务清单（父任务带 subtasks 时才渲染；点击勾选切换完成态，re #B4） */
+/* 子任务清单（父任务带 subtasks 时才渲染；点击勾选切换完成态） */
 .due-subs {
   flex: 1 1 100%;
   list-style: none;

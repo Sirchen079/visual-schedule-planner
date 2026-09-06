@@ -1,8 +1,6 @@
 <script setup lang="ts">
 /**
- * 应用壳（视觉基准：design-demos/final-shell.html）：
- * ① 60px 图标导航轨（B 的骨架 × C 的暖暗温度）② AI 对话列（常驻主角，570px）
- * ③ 标签内容区（RouterView）。图标为内联 SVG（AppIcon），无 emoji。
+ * 应用布局、导航与全局交互。负责快捷键注册、浮层管理和执行后的数据刷新。
  */
 import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
@@ -115,7 +113,7 @@ function refreshDesktopTasks() {
   void tasksStore.refreshAll()
 }
 
-/* ---- 全局键盘快捷键（M4e）：单一注册点在 useHotkeys 内，App 只负责接线与浮层开关 ---- */
+/* ---- 全局键盘快捷键：单一注册点在 useHotkeys 内，App 只负责接线与浮层开关 ---- */
 const router = useRouter()
 const shortcutsOpen = ref(false)
 
@@ -187,7 +185,7 @@ useHotkeys({
 })
 
 /**
- * run done（唯一权威流结束）后自动刷新全部已加载数据域（M3 扩展）：
+ * run done（唯一权威流结束）后自动刷新全部已加载数据域（扩展）：
  * AI 写操作（create_event/create_task/check_in_habit/write_journal/update_kr_progress/
  * bulk_delete_files 等裸名工具）落库发生在 done 之前，因此 phase 收敛到 completed
  * （或 cancelled——保守覆盖）时逐域拉一次；各 store 只刷「已加载过的部分」，

@@ -1,17 +1,4 @@
-/**
- * 目标（OKR）域 REST 封装（/api/goals/*）。类型已收敛到生成契约 rest.d.ts
- * （2026-09-05 契约批次 B1-B6 后全 typed，re #B2）：
- * - GET /api/goals?include_deleted → GoalOut[]（含 key_results 内嵌；旧参数名
- *   include_archived 后端兼容保留但已 deprecated）
- * - POST /api/goals {GoalCreate} → 201 GoalOut；PATCH /api/goals/{id} → GoalOut
- * - DELETE /api/goals/{id} → 204（软删除入回收站）；GET /api/goals/trash → GoalOut[]；
- *   POST /{id}/restore → GoalOut；DELETE /{id}/purge → 204（级联 KR，仅回收站可 purge）——
- *   回收站三件套后端已 typed，前端暂无消费方（TrashView 现只覆盖任务/文件）
- * - POST /api/goals/{id}/key-results {KeyResultCreate} → 201 KeyResultOut；
- *   PATCH /api/goals/key-results/{krId}（实测 {current_value} 可用）→ KeyResultOut；
- *   DELETE /api/goals/key-results/{krId} → 204
- * - GET /api/goals/{id}/progress → GoalProgressItemOut[]（progress 为 0–100 整数）
- */
+/** 目标与关键结果 REST 接口。支持软删除、恢复和永久删除。 */
 import type { components } from './contracts/rest'
 import { http } from './http'
 
@@ -23,7 +10,7 @@ export type GoalStatus = 'active' | 'paused' | 'done' | 'archived'
 /** 关键结果 = 生成 KeyResultOut（逐字段一致）。 */
 export type KeyResult = schemas['KeyResultOut']
 
-/** 目标 = 生成 GoalOut（re #B2：含回收站字段 deleted_at；start/end_date 生成面可选）。 */
+/** 目标 = 生成 GoalOut（含回收站字段 deleted_at；start/end_date 生成面可选）。 */
 export type Goal = schemas['GoalOut']
 
 /** 创建入参 = 生成 GoalCreate；notes 后端有缺省 → 保持可选。 */
@@ -47,7 +34,7 @@ export type KeyResultCreateInput = Partial<Omit<schemas['KeyResultCreate'], 'tit
 /** progress 端点条目 = 生成 GoalProgressItemOut（0–100 整数进度）。 */
 export type GoalProgressItem = schemas['GoalProgressItemOut']
 
-/** 列表（re #B2 改名 include_deleted；后端对旧名 include_archived 兼容保留）。 */
+/** 列表（改名 include_deleted；后端对旧名 include_archived 兼容保留）。 */
 export function listGoals(includeDeleted = false): Promise<Goal[]> {
   return http.get<Goal[]>('/api/goals', { include_deleted: includeDeleted || undefined })
 }

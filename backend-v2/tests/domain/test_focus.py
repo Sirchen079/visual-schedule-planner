@@ -1,4 +1,3 @@
-# tests/domain/test_focus.py
 from freezegun import freeze_time
 from zhishi.domain.focus import service as fs
 from zhishi.domain.focus.schemas import TimerStart

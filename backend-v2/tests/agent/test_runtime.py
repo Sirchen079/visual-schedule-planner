@@ -1,4 +1,3 @@
-# tests/agent/test_runtime.py
 import json
 import pytest
 from pydantic_ai.models.function import FunctionModel

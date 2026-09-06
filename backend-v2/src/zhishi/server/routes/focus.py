@@ -1,4 +1,3 @@
-# src/zhishi/server/routes/focus.py
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -12,7 +11,7 @@ from zhishi.server.deps import get_db
 router = APIRouter(prefix="/api/focus", tags=["focus"])
 
 
-# ---- typed 响应（re #047：前端 FocusLog/FocusStats 手写收敛依据；
+# ---- typed 响应（FocusLog/FocusStats 的接口定义；
 # started_at/ended_at 序列化为本地 naive ISO 串，与既有回包一致） ----
 
 class TimeLogOut(BaseModel):
@@ -79,7 +78,7 @@ def stats(days: int = 7, db: Session = Depends(get_db)):
 
 @router.delete("/logs/{log_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_log(log_id: int, db: Session = Depends(get_db)) -> None:
-    """删除一条已结束的计时记录（re k3#048 残留清理诉求）。
+    """删除一条已结束的计时记录。
     运行中的计时不可直接删（先停后删），409 防误删破坏 current 指针语义。"""
     log = db.get(TimeLog, log_id)
     if log is None:

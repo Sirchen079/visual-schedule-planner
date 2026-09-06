@@ -1,11 +1,9 @@
-/*
- * 知时 v2 设计 token —— 单一数据源。
- * 视觉基准：design-demos/final-shell.html（B 布局骨架 × C 暗色温度，夜间书房里的 claude.ai）。
- * 规则：组件样式只消费这里的变量，禁止硬编码色值；纸面色板（日历页用）作为作用域变量预留。
+/**
+ * 应用主题变量。组件通过语义变量引用颜色、字体、间距和状态样式。
+ * 日历与报告使用独立的纸面色板。
  */
-
 :root {
-  /* ---- 底面（C 的暖棕墨底系，由暗到亮） ---- */
+  /* ---- 背景色，由暗到亮 ---- */
   --bg-rail: #171310; /* 导航轨：书房最暗处 */
   --bg-app: #1c1815; /* 内容区桌面 */
   --bg-chat: #211b16; /* 对话列 */
@@ -111,9 +109,8 @@
   --radius-l: 12px;
   --radius-pill: 999px;
 
-  /* ---- 纸面色板（「纸与桌」母题：日历/报告页作用域使用，M2 启用） ----
-     取值与 design-demos/final-calendar.html 的 .paper 作用域逐一对齐，禁止漂移。 */
-  --paper-bg: #f0eee6; /* 纸面主色（final-calendar --paper） */
+  /* 日历与报告的纸面色板。 */
+  --paper-bg: #f0eee6; /* 纸面主色 */
   --paper-hi: #faf9f5; /* 纸面高光/今日列（--paper-hi） */
   --paper-kraft: #e8e6dc; /* 牛皮纸次面（--kraft） */
   --paper-line: #dcd6c4; /* 纸上分隔线（--pline） */
@@ -124,11 +121,10 @@
   --paper-accent-deep: #c6613f; /* 深赤陶，hover/强调（--pterra-deep） */
   --paper-accent-text: #a34d26; /* 赤陶文字色，纸底对比达标（--pterra-text） */
   --paper-tint: #ece6d6; /* 暖调晕染底（--ptint） */
-  /* 纸面展示衬线用 Newsreader（--serif-paper），M2 需在 index.html 字体链接中补 Newsreader */
+  /* 纸面展示衬线用 Newsreader（--serif-paper），需在 index.html 字体链接中补 Newsreader */
   --serif-paper: 'Newsreader', 'Noto Serif SC', Georgia, serif;
 
-  /* ---- 纸面质感（「纸与桌」母题的光影，取值与 final-calendar.html 逐一对应） ---- */
-  --paper-edge: rgba(255, 240, 214, 0.16); /* 纸外缘受光 */
+  /** 纸面阴影。 */  --paper-edge: rgba(255, 240, 214, 0.16); /* 纸外缘受光 */
   --paper-inset-hi: rgba(255, 255, 255, 0.55); /* 纸内顶部受光 */
   --paper-frame-line: rgba(20, 20, 19, 0.14); /* 裱边发丝印刷线 */
   --shadow-desk-near: rgba(0, 0, 0, 0.55); /* 桌面投影：近接触影 */
@@ -147,7 +143,7 @@
 /*
  * ---- 浅色主题「日间书房」（data-theme='light'，由 main.ts 挂载前引导、设置页切换） ----
  * 视觉直觉：暖纸书桌——底 #faf9f5/#f0eee6/#ece6d6 族（与 --paper-* 同族），
- * 墨 #2b241c/#57493a/#756551 族；线与 wash 改用深纸墨 rgba(60,45,30,…) 系；
+ * 墨 #2b241c/93a/551 族；线与 wash 改用深纸墨 rgba(60,45,30,…) 系；
  * 琥珀/赤陶整体加深（文字走已审对比达标的 #a34d26 / #8a5717 族），辉光收敛、投影变柔。
  * 仅覆盖颜色类变量；:root 的暗色取值与字体/尺寸/paper-* 全部原样保留（暗色仍是缺省主题）。
  */
@@ -167,22 +163,15 @@
 
   /* ---- 墨色（浅底反转：正文 ≥4.5:1、弱标签 ≥3:1，均按 #faf9f5/#f0eee6 校过） ----
    * --ink-3 按「最暗承载面」校准：今日/看板统计小卡底是 --bg-sink #ece5d4，
-   * 弱标签须在其上仍 ≥4.5:1（#756551 只有 4.48，故加深到 #6e5f4c ≈4.9:1）。 */
+   * 弱标签须在其上仍 ≥4.5:1（使用 #6e5f4c，在纸面底色上约 4.9:1）。 */
   --ink: #2b241c;
   --ink-2: #57493a;
   --ink-3: #6e5f4c; /* 弱标签，#ece5d4 底 ≈4.9:1、#faf9f5 底 ≈5.9:1 */
-  --ink-faint: #6f604b; /* 输入框占位（M8 口径：placeholder 按普通文本 ≥4.5:1；#ece5d4 底 ≈4.85:1、#fdfbf5 底 ≈5.8:1） */
-
-  /* ---- 禁用态控件（:disabled）整体不透明度：浅底上 0.45~0.6 会让琥珀/弱墨
-   * 掉到 3:1 以下（WCAG 禁用件下限），浅色统一抬到 0.75；:root 不定义，
-   * 暗色组件走各自 fallback（0.45/0.5/0.6），暗色渲染零变化。 ---- */
+  --ink-faint: #6f604b; /** 输入占位文字对比度：在 #ece5d4 底色上约 4.85:1，在 #fdfbf5 底色上约 5.8:1。 */
+  /* 浅色主题保留禁用控件的可读性；暗色主题使用组件默认透明度。 */
   --ctl-disabled-opacity: 0.75;
 
-  /* ---- 禁用态补充（M8，re reviewer「placeholder 按 4.5、不得自设豁免」）----
-   * --ctl-disabled-opacity-solid：实底填充按钮（--btn-new-bg 白字）禁用时白字在 0.75 下
-   *   只有 ≈2.4:1，实底件浅色抬到 0.9 才 ≥3:1；:root 不定义，暗色走组件 fallback（0.5）。
-   * --inputbox-disabled-opacity：会话输入框禁用是「整组 opacity」——0.75 会把占位文字一并
-   *   压到 ≈2.4:1（placeholder 按 4.5 审），浅色改为 1（禁用感由 textarea 墨色降级 + cursor 承载）。 */
+  /* 实底按钮单独设置禁用透明度；输入框保留不透明背景，通过文字颜色与光标区分禁用态。 */
   --ctl-disabled-opacity-solid: 0.9;
   --inputbox-disabled-opacity: 1;
 
@@ -261,8 +250,7 @@
   --shadow-panel: 0 14px 40px rgba(87, 60, 30, 0.18); /* 浮层面板投影 */
 }
 
-/* Webfonts（final-shell 基准字体栈）经 index.html 的 Google Fonts link 引入，
-   与 final-shell 一致；无网络时回退系统衬线/黑体栈，布局不破。 */
+/* 网络字体由 index.html 引入；无法加载时使用系统字体。 */
 
 /* ---- 全局基线 ---- */
 *,

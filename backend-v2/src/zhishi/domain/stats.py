@@ -1,4 +1,3 @@
-# src/zhishi/domain/stats.py
 """确定性统计：summary/daily/by_tag/by_priority + 逾期风险分。不依赖 AI。"""
 from __future__ import annotations
 from datetime import datetime, timedelta
@@ -8,7 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 from zhishi.domain.models import Task
 
 
-# ---- typed 响应面（re #048：openapi 200 schema 定型；字段即各函数回包实形） ----
+# ---- typed 响应面（openapi 200 schema 定型；字段即各函数回包实形） ----
 
 class StatsSummary(BaseModel):
     """任务面汇总计数。"""
@@ -43,7 +42,7 @@ class StatsPriorityItem(BaseModel):
 
 
 class RiskItem(BaseModel):
-    """逾期风险分条目（risk 序列项，score 降序；规则分见 risk()）。"""
+    """逾期风险分条目（risk 序列项，score 降序；规则分见 risk）。"""
     task_id: int
     title: str
     score: int

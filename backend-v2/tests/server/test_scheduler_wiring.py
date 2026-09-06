@@ -1,4 +1,3 @@
-# tests/server/test_scheduler_wiring.py
 """调度器接线：晨报与自动档任务已在 lifespan 注册（固定间隔轮询 + 自检幂等）。"""
 from fastapi.testclient import TestClient
 

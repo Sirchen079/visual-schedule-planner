@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { bydayLabel, categoryLabel, describeRrule, repeatRuleText, untilLabel } from './recurrence'
 
-describe('describeRrule（RRULE → 人类可读，取值以后端实测为准）', () => {
+describe('describeRrule（RRULE 转为中文说明）', () => {
   it('空规则 → 不重复 · 单次日程', () => {
     expect(describeRrule(null)).toBe('不重复 · 单次日程')
     expect(describeRrule('')).toBe('不重复 · 单次日程')
     expect(describeRrule('  ')).toBe('不重复 · 单次日程')
   })
 
-  it('每周课（真实课表：人工神经网络1班 周一）', () => {
+  it('每周一重复，包含结束日期', () => {
     expect(describeRrule('FREQ=WEEKLY;BYDAY=MO;UNTIL=20261108')).toBe('每周一，至 2026 年 11 月 8 日')
   })
 
-  it('单双周课（真实课表：海洋地震勘探 INTERVAL=2 周五）', () => {
+  it('每隔一周的周五重复', () => {
     expect(describeRrule('FREQ=WEEKLY;INTERVAL=2;BYDAY=FR;UNTIL=20261011')).toBe(
       '隔周的周五（单双周轮换），至 2026 年 10 月 11 日',
     )
@@ -59,7 +59,7 @@ describe('categoryLabel（类别 → 中文，未知原样）', () => {
   })
 })
 
-describe('repeatRuleText（M3.5：repeat_note 优先，describeRrule 回退）', () => {
+describe('repeatRuleText（repeat_note 优先，describeRrule 回退）', () => {
   it('repeat_note 非空 → 原样采用（后端教学周次权威，如「每周（第2-13周）」）', () => {
     expect(repeatRuleText('每周（第2-13周）', 'FREQ=WEEKLY;BYDAY=MO')).toBe('每周（第2-13周）')
     expect(repeatRuleText('双周课（第6-12周）', null)).toBe('双周课（第6-12周）')

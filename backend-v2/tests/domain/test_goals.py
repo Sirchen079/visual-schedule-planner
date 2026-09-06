@@ -1,4 +1,3 @@
-# tests/domain/test_goals.py
 from datetime import date
 from freezegun import freeze_time
 from zhishi.domain.goals import service as gs

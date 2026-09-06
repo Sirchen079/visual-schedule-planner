@@ -1,9 +1,6 @@
 <script setup lang="ts">
 /**
- * AI 对话列（常驻主角，570px ≈ 40%，替代 M0 的 ChatPanelPlaceholder）：
- * 会话头（标题/运行状态/会话列表）→ 消息流 → 活性状态条 → 输入区。
- * ≥1000px 常驻；<1000px 由 App.vue 下发抽屉态 class（chat-as-drawer / chat-drawer-hidden）
- * 变为 fixed 浮层，本组件不感知视口、只认 class。
+ * 对话侧栏：组合会话列表、消息时间线、执行状态和输入框。
  */
 import { computed, nextTick, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useConversationStore } from '../../stores/conversation'
@@ -37,7 +34,7 @@ watch(
     run.segments.map((s) => s.content.length).join(','),
     run.toolCalls.length,
     run.sentMessage,
-    run.approvalLedger.length, // 审批卡列表化（M3.5）：卡数与落章都要贴底
+    run.approvalLedger.length, // 审批卡列表化：卡数与落章都要贴底
     run.approvalLedger.map((x) => x.outcome ?? '').join(','),
     run.planCard?.planId,
   ],

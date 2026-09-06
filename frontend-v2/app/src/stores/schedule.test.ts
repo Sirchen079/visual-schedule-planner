@@ -21,13 +21,13 @@ function jsonResponse(payload: unknown, status = 200): Response {
   } as unknown as Response
 }
 
-/** 真实课表形状（2026-09-07 周，与后端 /api/schedule/events/expand 实测一致）。 */
+/** 按一周日期排列的合成课程样本。 */
 const WEEK: EventOccurrence[] = [
-  { event_id: 1, title: '新时代中国特色社会主义理论与实践4班', date: '2026-09-07', start_time: '08:55', end_time: '10:45', location: '五教102', category: 'course' },
-  { event_id: 13, title: '人工神经网络1班', date: '2026-09-07', start_time: '16:00', end_time: '17:40', location: '五教101', category: 'course' },
-  { event_id: 3, title: '数值分析5班', date: '2026-09-08', start_time: '08:55', end_time: '10:45', location: '五教201', category: 'course' },
-  { event_id: 9, title: '人工神经网络1班', date: '2026-09-09', start_time: '14:00', end_time: '15:40', location: '待定', category: 'course' },
-  { event_id: 5, title: '数值分析5班', date: '2026-09-10', start_time: '08:55', end_time: '10:45', location: '五教201', category: 'course' },
+  { event_id: 1, title: '示例课程B', date: '2026-09-07', start_time: '08:55', end_time: '10:45', location: '示例教室C', category: 'course' },
+  { event_id: 13, title: '示例课程C', date: '2026-09-07', start_time: '16:00', end_time: '17:40', location: '示例教室D', category: 'course' },
+  { event_id: 3, title: '示例课程A', date: '2026-09-08', start_time: '08:55', end_time: '10:45', location: '示例教室A', category: 'course' },
+  { event_id: 9, title: '示例课程C', date: '2026-09-09', start_time: '14:00', end_time: '15:40', location: '待定', category: 'course' },
+  { event_id: 5, title: '示例课程A', date: '2026-09-10', start_time: '08:55', end_time: '10:45', location: '示例教室A', category: 'course' },
 ]
 
 describe('schedule 纯函数', () => {
@@ -49,7 +49,7 @@ describe('schedule 纯函数', () => {
         args: { title: '羽毛球', date: '2026-09-11', start_time: '14:00', end_time: '16:00', location: '体育馆' },
       }),
     ).toEqual({ date: '2026-09-11', title: '羽毛球', start: '14:00', end: '16:00', location: '体育馆' })
-    // 工具实参的日期键是 day、工具名是裸名 create_event（2026-09-05 于 d0f5474 实测审批卡）；
+    // 工具参数使用 day，工具名为 create_event。
     // 历史录制另有 api__ 前缀形态 —— 一律按 /create_event$/ 后缀识别
     expect(
       ghostFromApproval({
@@ -82,7 +82,7 @@ describe('schedule 纯函数', () => {
   })
 })
 
-describe('projectGhosts（M2.5：审批账目 → 幽灵块投影，支持多个并存）', () => {
+describe('projectGhosts（审批账目 → 幽灵块投影，支持多个并存）', () => {
   const entry = (actionId: number, overrides: Record<string, unknown> = {}) => ({
     actionId,
     tool: 'schedule.create_event',
@@ -164,7 +164,7 @@ describe('schedule store', () => {
           return jsonResponse({
             date: '2026-09-07',
             items: [
-              { kind: 'event', event_id: 1, title: '新时代中国特色社会主义理论与实践4班', date: '2026-09-07', start_time: '08:55', end_time: '10:45', location: '五教102', category: 'course' },
+              { kind: 'event', event_id: 1, title: '示例课程B', date: '2026-09-07', start_time: '08:55', end_time: '10:45', location: '示例教室C', category: 'course' },
             ],
           })
         }
@@ -210,7 +210,7 @@ describe('schedule store', () => {
     await s.shiftWeek(-1)
     expect(s.weekAnchor).toBe('2026-09-07')
     await s.shiftWeek(0)
-    // 本测试环境的「今天」是真实时钟（2026-09 前后），只断言换周动作完成且状态健康
+    // 使用实际时钟，仅验证换周完成且状态正常。
     expect(s.weekAnchor).not.toBe('')
     expect(s.error).toBeNull()
   })
@@ -282,7 +282,7 @@ describe('schedule store', () => {
   })
 })
 
-describe('conflicts / freeSlots（M2 验收缺口：冲突与空闲展示）', () => {
+describe('conflicts / freeSlots（冲突与空闲展示）', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
   })
@@ -306,7 +306,7 @@ describe('conflicts / freeSlots（M2 验收缺口：冲突与空闲展示）', (
             {
               date: today,
               items: [
-                { event_id: 1, title: '数值分析5班', date: today, start_time: '08:55', end_time: '10:45', location: '五教201' },
+                { event_id: 1, title: '示例课程A', date: today, start_time: '08:55', end_time: '10:45', location: '示例教室A' },
                 { task_id: 9, title: '组会汇报', date: today, start_time: '09:30', end_time: '11:00' },
               ],
             },
@@ -319,7 +319,7 @@ describe('conflicts / freeSlots（M2 验收缺口：冲突与空闲展示）', (
     await s.loadConflicts()
     expect(urls[0]).toContain(`start=${today}&end=${addDays(today, 6)}`) // 今日起 7 日窗
     expect(s.conflicts).toHaveLength(3)
-    expect(s.todayConflicts.map((i) => i.title)).toEqual(['数值分析5班', '组会汇报'])
+    expect(s.todayConflicts.map((i) => i.title)).toEqual(['示例课程A', '组会汇报'])
     expect(s.upcomingConflictDays.map((d) => d.date)).toEqual([tomorrow]) // 空 items 日被过滤
     expect(s.conflictsError).toBeNull()
     expect(s.loadingConflicts).toBe(false)
@@ -420,7 +420,7 @@ describe('conflicts / freeSlots（M2 验收缺口：冲突与空闲展示）', (
   })
 })
 
-describe('projectGhosts 重复规则文案（M3.5：审批 args 带 recur_rrule 时给出 repeat 行）', () => {
+describe('projectGhosts 重复规则文案（审批 args 带 recur_rrule 时给出 repeat 行）', () => {
   it('args 带 recur_rrule → repeatText 经 repeatRuleText 生成（rrule 回退路径）', () => {
     const ghosts = projectGhosts(
       [

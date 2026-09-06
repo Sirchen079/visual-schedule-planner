@@ -1,4 +1,3 @@
-# tests/domain/schedule/test_service.py
 from datetime import date
 from zhishi.domain.tasks import service as ts
 from zhishi.domain.tasks.schemas import TaskCreate

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 回收站视图（/trash，次导航）：任务回收站 + 资料回收站，B×C 暗色。
+ * 回收站视图（/trash，次导航）：任务回收站 + 资料回收站。
  * - 数据：GET /api/tasks/trash + GET /api/files/trash（本页局部状态，进页拉取）
  * - 恢复（restore）与彻底删除（purge，不可恢复）逐条进行 —— 后端无批量 purge 的 REST 端点
  *   （AI 工具 empty_trash 走审批门，不在本页），契约现状已记录

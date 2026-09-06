@@ -1,4 +1,3 @@
-# tests/domain/schedule/test_conflicts.py
 from datetime import date
 from zhishi.domain.schedule import conflicts as cf
 from zhishi.domain.schedule import service as ss
@@ -14,7 +13,7 @@ def test_overlap_detected(db):
     _mk(db, d, "09:30", "10:10", title="冲突课")
     cs = cf.check_conflicts(db, d, d)
     assert len(cs) == 1
-    # 冲突条目形如 {"date":…, "items":[a,b]}，无 title 顶层键；.get() 使 or 兜底可评估
+    # 冲突条目形如 {"date":…, "items":[a,b]}，无 title 顶层键；.get 使 or 兜底可评估
     assert {c.get("title") for c in cs} == {"课", "冲突课"} or len(cs[0]["items"]) == 2
 
 

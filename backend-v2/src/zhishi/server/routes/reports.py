@@ -1,4 +1,3 @@
-# src/zhishi/server/routes/reports.py
 """AI 报告端点：日报/周报生成（失败 422）、报告列表/详情/删除、晨报（同日幂等 + 规则降级）。"""
 from __future__ import annotations
 
@@ -22,8 +21,8 @@ class ReportBody(BaseModel):
 
 
 class ReportOut(BaseModel):
-    """报告实形（re #047：前端 Report 手写类型收敛依据）。
-    period_start/end 为 ISO 日期串、created_at 为 ISO 时间串——与 _out() 既有回包一致。"""
+    """报告实形（前端 Report 手写类型收敛依据）。
+    period_start/end 为 ISO 日期串、created_at 为 ISO 时间串——与 _out 既有回包一致。"""
     id: int
     report_type: str
     period_start: str                       # YYYY-MM-DD

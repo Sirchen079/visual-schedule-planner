@@ -1,4 +1,3 @@
-# tests/domain/test_autopilot.py
 """秘书自动档：确定性排程（负载最轻/日上限/总量上限）+ 高优拆解 + 幂等 + 开关。"""
 import json
 from datetime import date, datetime, timedelta
@@ -35,7 +34,7 @@ def test_disabled_by_default_returns_disabled(db):
 
 def test_gate_requires_after_0800(db):
     enable(db)
-    today = date.today().isoformat()   # 动态日期：与 run_autopilot 的 date.today() 同源，防跨日错位
+    today = date.today().isoformat()   # 动态日期：与 run_autopilot 的 date.today 同源，防跨日错位
     with freeze_time(f"{today} 07:55:00"):
         assert autopilot.should_run_now(db) is False
     with freeze_time(f"{today} 08:05:00"):

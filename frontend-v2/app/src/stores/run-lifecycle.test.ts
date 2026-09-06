@@ -4,11 +4,8 @@ import { SSERequestError } from '../api/sse'
 import { useRunStore } from './run'
 import type { SSEEvent } from '../api/contracts/events'
 
-/**
- * M1 增量：seq 时序、本地回显、reset、conflict 关闭、计划批准/拒绝。
- * approvePlan 的端点直接返回 SSE 流——流消费本身由 sse.test.ts/联调覆盖，
- * 这里用 fetch stub 验证 URL/调用编排与状态变化。
- */
+/** 对话状态测试：事件顺序、本地回显、重置、并发冲突和计划审批。
+ * 使用 fetch 替身验证请求路径、调用顺序和状态变化。 */
 
 function jsonResponse(payload: unknown, status = 200): Response {
   const text = JSON.stringify(payload)
@@ -20,7 +17,7 @@ function jsonResponse(payload: unknown, status = 200): Response {
   } as unknown as Response
 }
 
-describe('run store M1 增量', () => {
+describe('run store 增量', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
   })
@@ -59,7 +56,7 @@ describe('run store M1 增量', () => {
     }
   })
 
-  it('run_started 不清空 sentMessage（本地回显贯穿整个 run，M2 修复）', () => {
+  it('run_started 不清空 sentMessage（本地回显贯穿整个 run，修复）', () => {
     const store = useRunStore()
     store.sentMessage = '帮我建个日程'
     store.consume({ v: 1, type: 'run_started', run_id: 'r9', conversation_id: 3 })

@@ -1,4 +1,3 @@
-# src/zhishi/server/routes/library.py
 from datetime import datetime
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel
@@ -10,7 +9,7 @@ from zhishi.server.deps import get_db
 router = APIRouter(prefix="/api/files", tags=["library"])
 
 
-# ---- typed 响应（re #B1：openapi 从空 schema 变 $ref，字段与实际返回形状一致） ----
+# ---- typed 响应（openapi 从空 schema 变 $ref，字段与实际返回形状一致） ----
 
 class FileOut(BaseModel):
     id: int
@@ -32,7 +31,7 @@ class OkOut(BaseModel):
 @router.post("", status_code=201, response_model=FileOut)
 def upload(file: UploadFile, notes: str = Form(""),
            db: Session = Depends(get_db), request: Request = None):
-    """上传文件。notes 为 multipart 表单域（re #B6：原 query 传法表单域会被静默忽略）。"""
+    """上传文件。notes 为 multipart 表单域。"""
     storage_root = request.app.state.storage_root
     row = service.save_upload(db, storage_root=storage_root, upload=file, notes=notes)
     return _file_dict(row)

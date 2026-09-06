@@ -1,4 +1,3 @@
-# src/zhishi/server/routes/ai.py
 """AI 端点：会话 CRUD / 配置 CRUD / SSE 流 / 审批 / 取消。
 SSE 生成器：runtime 事件进 asyncio.Queue，消费端 wait_for 超时 5s → yield heartbeat。"""
 from __future__ import annotations
@@ -26,8 +25,8 @@ class EventStreamResponse(StreamingResponse):
 
 
 class ActionResolveOut(BaseModel):
-    """审批/计划结案端点的统一返回体（re #013 minor：typed schema）。
-    re #023 建议③：ready_to_resume=该 action 所属 run 批次内已无 pending
+    """审批/计划结案端点的统一返回体（typed schema）。
+    ready_to_resume=该 action 所属 run 批次内已无 pending
     （全部 confirmed/rejected/executed）——前端只在 ready 后才开 resume 流。"""
     ok: bool = True
     resume: str = ""
@@ -35,18 +34,18 @@ class ActionResolveOut(BaseModel):
 
 
 class EnableOut(BaseModel):
-    """启用/切换类端点的统一回包（re #038：McpEnableResult 手写收敛依据）。"""
+    """启用/切换类端点的统一回包。"""
     ok: bool = True
     enabled: bool | None = None
 
 
 class CreatedOut(BaseModel):
-    """创建类端点的最小回包：只回新行 id，调用方随后重拉列表（re #047）。"""
+    """创建类端点的最小回包：只回新行 id，调用方随后重拉列表。"""
     id: int
 
 
 class AttachmentOut(BaseModel):
-    """对话附件上传回包（re #048）：file_id 供聊天 attachment_ids 引用。"""
+    """对话附件上传回包：file_id 供聊天 attachment_ids 引用。"""
     file_id: int
     name: str
     kind: str
@@ -54,14 +53,14 @@ class AttachmentOut(BaseModel):
 
 
 class ConversationOut(BaseModel):
-    """会话列表项（re #048）：updated_at 为 ISO 串。"""
+    """会话列表项：updated_at 为 ISO 串。"""
     id: int
     title: str
     updated_at: str
 
 
 class MessageOut(BaseModel):
-    """会话消息项（re #048）：display 为展示元数据对象（{"text": ...}）。"""
+    """会话消息项：display 为展示元数据对象（{"text": ...}）。"""
     id: int
     role: str
     display: dict
@@ -69,12 +68,12 @@ class MessageOut(BaseModel):
 
 
 class CancelOut(BaseModel):
-    """运行取消回包（re #048）：无该 run 令牌时 ok=false。"""
+    """运行取消回包：无该 run 令牌时 ok=false。"""
     ok: bool
 
 
 class ConfigOut(BaseModel):
-    """AI 配置列表项（re #047：前端 AiConfigInfo 手写收敛依据；api_key 敏感永不回显）。"""
+    """AI 配置列表项（api_key 敏感永不回显）。"""
     id: int
     name: str
     provider_kind: str
@@ -92,7 +91,7 @@ class ConfigOut(BaseModel):
 
 
 class SkillOut(BaseModel):
-    """AI 技能列表项（re #047：前端 SkillInfo 手写收敛依据）。"""
+    """AI 技能列表项。"""
     id: int
     name: str
     description: str
@@ -101,7 +100,7 @@ class SkillOut(BaseModel):
 
 
 class ToolGrantOut(BaseModel):
-    """「始终允许」规则（re #019：可审计、可撤销）。"""
+    """「始终允许」规则（可审计、可撤销）。"""
     id: int
     tool_name: str
     arg_pattern: str
@@ -109,7 +108,7 @@ class ToolGrantOut(BaseModel):
 
 
 class PlanRejectOut(BaseModel):
-    """计划拒绝：无可续跑流，不提供 resume（re #016 minor）。"""
+    """计划拒绝：无可续跑流，不提供 resume。"""
     ok: bool = True
 
 
@@ -120,10 +119,8 @@ class ResumeBlockedPending(BaseModel):
 
 
 class ResumeBlockedOut(BaseModel):
-    """resume 拒绝体（re #020 k3 major）：本轮仍有未决审批卡。
-    前端按 pending 清单提示用户逐张批准/拒绝后再续跑。
-    re #023④：consumed=true 表示该轮审批批次已被 resume 消费（confirmed 已转
-    executed，源 run 已记 resumed_by_runs）——重复 resume 幂等拒绝，不会重复回填。"""
+    """恢复请求被拒绝时的响应。pending 列出尚未处理的审批；
+    consumed 表示该批次已恢复过，用于防止重复执行。"""
     pending: list[ResumeBlockedPending]
     consumed: bool = False
     message: str = ""
@@ -256,12 +253,9 @@ def _raw_conversation_history(db: Session, cid: int):
 
 
 def load_conversation_history(db: Session, cid: int, config: AIConfig | None = None):
-    """取会话最近一条带 history 的 assistant 消息 → ModelMessage 列表。
-    config 给定时先做摘要压缩（清账 11：轮数超 compaction_threshold → 最旧一半
-    轮次折叠为【会话摘要】对，结果持久化 meta_json.summary 供重放优先注入；
-    模型失败降级原样），再轮边界硬截断兜底。
-    chat 续轮与审批恢复共用；无历史时返回 None（新会话首轮）。
-    同步入口；异步路由必须使用 _load_conversation_history_async，不能把请求 Session 交给线程。"""
+    """读取最近保存的模型历史，按配置执行摘要压缩；失败时保留原历史。
+    对话续轮和审批恢复共用，无历史时返回 None。
+    异步路由使用 _load_conversation_history_async，避免跨线程共享请求 Session。"""
     messages = _raw_conversation_history(db, cid)
     if messages is None:
         return None
@@ -326,7 +320,7 @@ async def _load_conversation_history_async(db: Session, cid: int, config):
 
 
 def _compact_history(db: Session, cid: int, config, messages):
-    """摘要压缩 + meta_json 持久化（re #066 major1：摘要随存折叠集指纹；
+    """摘要压缩 + meta_json 持久化（摘要随存折叠集指纹；
     同一历史重放（指纹命中）复用不调模型；继续聊天后再次压缩走合并生成新摘要）。
     超时/失败时 summary 为 None，绝不补写 meta（下次重试）。"""
     from zhishi.agent import compaction
@@ -342,7 +336,7 @@ def _compact_history(db: Session, cid: int, config, messages):
 
 
 def _release_run_slot(app, run_id: str, conversation_id: int | None) -> None:
-    """释放并发锁与取消令牌（初始化失败路径与流结束路径共用，re #016）。"""
+    """释放并发锁与取消令牌（初始化失败路径与流结束路径共用）。"""
     app.state.cancel_tokens.pop(run_id, None)
     if conversation_id is not None and app.state.active_runs.get(conversation_id) == run_id:
         app.state.active_runs.pop(conversation_id, None)
@@ -385,7 +379,7 @@ async def _start_run(app, *, message: str, conversation_id: int | None,
                                model_config=cfg,
                                session_factory=app.state.session_factory,
                                storage_root=app.state.storage_root)
-        # M1：续轮加载既有会话历史（多轮记忆），首轮为 None
+        # 续轮加载既有会话历史（多轮记忆），首轮为 None
         # 后台只计算摘要，Session 与写库仍归当前请求所有。
         history = (await _load_conversation_history_async(db, conversation_id, cfg)
                    if conversation_id is not None else None)
@@ -395,7 +389,7 @@ async def _start_run(app, *, message: str, conversation_id: int | None,
         raise
     except HTTPException:
         db.close()
-        _release_run_slot(app, run_id, conversation_id)   # 锁不随初始化异常泄漏（re #016）
+        _release_run_slot(app, run_id, conversation_id)   # 锁不随初始化异常泄漏
         raise
     except Exception as exc:
         db.close()
@@ -456,7 +450,7 @@ def delete_conversation(cid: int, request: Request, db: Session = Depends(get_db
         AIRun.conversation_id == cid))).delete(synchronize_session=False)
     for m in db.scalars(select(AIMessage).where(AIMessage.conversation_id == cid)).all():
         db.delete(m)
-    # M3：AIRun/AIPendingAction 挂会话 FK，硬删会话须一并清理
+    # AIRun/AIPendingAction 挂会话 FK，硬删会话须一并清理
     db.query(AIRun).filter(AIRun.conversation_id == cid).delete(synchronize_session=False)
     db.query(AIPendingAction).filter(
         AIPendingAction.conversation_id == cid).delete(synchronize_session=False)
@@ -492,7 +486,7 @@ class ConfigBody(BaseModel):
     @field_validator("request_limit")
     @classmethod
     def _non_positive_falls_back_to_default(cls, v: int) -> int:
-        """re k3#049 观察②：前端表单硬编码显式传 0（bundle 实证），0/负值直穿
+        """前端表单硬编码显式传 0（bundle 实证），0/负值直穿
         pydantic 默认落库，与列默认 30 分裂。非正值一律回退 30（步数预算 >=1 才合法）。"""
         return v if v > 0 else 30
 
@@ -589,7 +583,7 @@ def update_config(cid: int, body: ConfigBody, db: Session = Depends(get_db)):
 
 @router.post("/configs/{cid}/enable", response_model=EnableOut)
 def enable_config(cid: int, db: Session = Depends(get_db)):
-    # re #036 major：无效 ID 先 404——否则会把原启用配置全部关闭，AI 功能整体瘫痪
+    # 无效 ID 先 404——否则会把原启用配置全部关闭，AI 功能整体瘫痪
     target = db.get(AIConfig, cid)
     if target is None:
         raise HTTPException(404, "AI 配置不存在")
@@ -615,7 +609,7 @@ from zhishi.domain.models import AIPendingAction, AIRun  # noqa: E402
 
 
 def _batch_ready(db: Session, run_id: str) -> bool:
-    """re #023③：该审批批次（同 run_id 发起的全部 deferred 调用）内是否已无
+    """该审批批次（同 run_id 发起的全部 deferred 调用）内是否已无
     pending——全部 confirmed/rejected/executed 才算 ready，前端据此放行 resume。"""
     remaining = db.scalar(select(func.count()).select_from(AIPendingAction).where(
         AIPendingAction.run_id == run_id, AIPendingAction.status == "pending"))
@@ -623,7 +617,7 @@ def _batch_ready(db: Session, run_id: str) -> bool:
 
 
 def _batch_consumed(db: Session, run_ids: set[str]) -> bool:
-    """re #023④：源 AIRun.usage_json meta 里是否已记 resumed_by_runs（该批审批
+    """源 AIRun.usage_json meta 里是否已记 resumed_by_runs（该批审批
     已被某次 resume 消费）。"""
     for rid in run_ids:
         row = db.get(AIRun, rid)
@@ -640,7 +634,7 @@ def _batch_consumed(db: Session, run_ids: set[str]) -> bool:
 
 def _mark_batch_consumed(db: Session, involved: list[AIPendingAction],
                          resumed_by: str) -> None:
-    """re #023④：resume 已组装 DeferredToolResults 并通过并发锁（即将驱动新
+    """resume 已组装 DeferredToolResults 并通过并发锁（即将驱动新
     execution）时落消费标记：该批 confirmed → executed（rejected 保持 rejected），
     并在源 AIRun.usage_json 记 resumed_by_runs=[新 run_id]。
     落点选择：usage_json 本就是自由 dict meta 且在源 run 终态后不再被改写，加
@@ -676,7 +670,7 @@ async def approve_action(action_id: int, request: Request, body: dict | None = N
     if action.conversation_id in request.app.state.active_runs:
         raise HTTPException(409, '本轮仍在保存，请稍后处理审批。')
     if (body or {}).get("grant_always") and action.tool_name in IRREVOCABLE_TOOLS:
-        # re #019 blocker：不可豁免高危操作不得建「始终允许」，整请求拒绝（不改任何状态）
+        # 不可豁免高危操作不得建「始终允许」，整请求拒绝（不改任何状态）
         raise HTTPException(400, "不可豁免操作不支持始终允许")
     action.status, action.resolved_at = "confirmed", datetime.now()
     if (body or {}).get("grant_always"):
@@ -714,7 +708,7 @@ def _atomic_pattern(args_json: str) -> bool:
                             "subtask_id", "kr_id", "file_id"))
 
 
-# ---- 「始终允许」grant 管理（re #019：可审计、可撤销） ----
+# ---- 「始终允许」grant 管理（可审计、可撤销） ----
 
 @router.get("/grants", response_model=list[ToolGrantOut])
 def list_grants(db: Session = Depends(get_db)):
@@ -737,22 +731,15 @@ def delete_grant(grant_id: int, db: Session = Depends(get_db)) -> None:
              responses={400: {
                  "model": ResumeBlockedOut,
                  "description": "拒绝续跑：pending 非空=本轮仍有未决审批卡（按清单逐张处理）；"
-                                "consumed=true=该批次已被消费，无可恢复审批（幂等拒绝，re #023④）",
+                                "consumed=true=该批次已被消费，无可恢复审批（幂等拒绝）",
                  # 显式 application/json：response_class 的 text/event-stream 只属于 200 流
                  "content": {"application/json": {
                      "schema": {"$ref": "#/components/schemas/ResumeBlockedOut"}}},
              }})
 async def resume_stream(cid: int, request: Request):
-    """审批结案后恢复：取会话最后 assistant 消息的 history + 该轮全部 deferred 调用的
-    结案结果，构造 DeferredToolResults 重启新 execution。
-    回填范围 = history 末条模型响应中「尚未结算」的工具调用（re #028：同响应可混合
-    safe/readonly 直行调用——其结果已在 trailing ModelRequest 里、不落审批表，须从
-    末条响应的调用中扣除；pydantic-ai 恢复时对已结算调用自动以 skip 覆盖，路由层若
-    重复回填反而触发「already executed」UserError。剩余 open 调用一个不漏，缺任一
-    即 UserError 崩流，re #020 k3 major）；
-    仍有 pending 审批卡 → 400 + 未决清单（typed），不启动流；
-    该批次已被消费（confirmed 已转 executed / 源 run 已记 resumed_by_runs）→
-    400 typed consumed，幂等拒绝，不重复回填（re #023④）。"""
+    """审批结束后恢复执行。仅为末条模型响应中尚未结算的调用回填结果，
+    已在历史中存在结果的调用不再回填。仍有待决审批或批次已被消费时
+    返回 400；其余请求在获得会话锁后启动新的执行流。"""
     app = request.app
     run_id = uuid.uuid4().hex
     active = app.state.active_runs
@@ -776,7 +763,7 @@ async def resume_stream(cid: int, request: Request):
                         needed[part.tool_call_id] = part.tool_name
                 break
             if isinstance(msg, ModelRequest):
-                # re #028：末个 ModelResponse 之后的 trailing request 里已有
+                # 末个 ModelResponse 之后的 trailing request 里已有
                 # ToolReturnPart/RetryPromptPart 的调用 = 同轮 safe/readonly 直行
                 # （或上轮 resume 已结算）——判定口径与 pydantic-ai
                 # _handle_deferred_tool_results 的 skip 集合一致。
@@ -808,7 +795,7 @@ async def resume_stream(cid: int, request: Request):
             raise HTTPException(
                 400, "审批数据不完整：该轮存在未落审批卡的调用，无法回填")
         if any(a.status == "expired" for a in involved):
-            # re #063：MCP 服务器 DELETE/连接语义字段变更已把旧 pending 卡置
+            # MCP 服务器 DELETE/连接语义字段变更已把旧 pending 卡置
             # expired——批次作废，不再回填（旧卡若续命，resume 会以
             # tool_call_approved 绕过权限门直执行同 sid 新服务器的同名工具）
             db.close()
@@ -818,7 +805,7 @@ async def resume_stream(cid: int, request: Request):
                 message="该审批批次已过期：对应 MCP 服务器已被删除或配置变更，旧审批不再回填").model_dump())
         if (any(a.status == "executed" for a in involved)
                 or _batch_consumed(db, {a.run_id for a in involved})):
-            # re #023④：该批已由上次 resume 消费——幂等拒绝，防重复回填重复执行
+            # 该批已由上次 resume 消费——幂等拒绝，防重复回填重复执行
             db.close()
             _release_run_slot(app, run_id, cid)
             return JSONResponse(status_code=400, content=ResumeBlockedOut(
@@ -860,7 +847,7 @@ async def resume_stream(cid: int, request: Request):
                                                        "provider": cfg.provider_kind,
                                                        "model": cfg.model}), db)
     # 恢复轮放行边界：只有本轮回填 ToolApproved 的调用经 ctx.tool_call_approved
-    # 跳过权限门；模型随后对同名工具的全新调用照常落审批门（re #020 k3 A3 验证）。
+    # 跳过权限门；模型随后对同名工具的全新调用照常落审批门（A3 验证）。
     return await _stream_response(aiter, app, run_id, cid)
 
 
@@ -868,7 +855,7 @@ async def resume_stream(cid: int, request: Request):
 
 def _find_plan(db: Session, cid: int, plan_id: int):
     """在指定会话的 meta 中定位计划（v1 plans 存 AIConversation.meta_json，不建新表）。
-    M2：plan_id 仅会话内唯一，查找必须限定 (conversation_id, plan_id)，
+    plan_id 仅会话内唯一，查找必须限定 (conversation_id, plan_id)，
     否则跨会话撞号会误批准/误拒绝别人的计划。"""
     conv = db.get(AIConversation, cid)
     if conv is None:
@@ -902,7 +889,7 @@ async def approve_plan(cid: int, plan_id: int, request: Request, body: dict | No
     try:
         return await _start_run(app, message=message, conversation_id=cid, plan_mode=False)
     except Exception:
-        # 补偿（re #013）：启动失败（409 并发锁/模型初始化等）时回滚计划状态为
+        # 补偿：启动失败（409 并发锁/模型初始化等）时回滚计划状态为
         # proposed，保证可重试——否则再次批准 404，计划永久卡死。
         with app.state.session_factory() as db2:
             found = _find_plan(db2, cid, plan_id)
@@ -966,7 +953,7 @@ def enable_skill(sid: int, db: Session = Depends(get_db)):
 @router.post("/skills/disable-active", response_model=EnableOut,
              response_model_exclude_none=True)
 def disable_active_skill(db: Session = Depends(get_db)):
-    """停用当前激活的用户技能（内置技能不动；无激活技能时幂等 ok，re k3#049 观察①）。
+    """停用当前激活的用户技能（内置技能不动；无激活技能时幂等 ok）。
     instructions 组装按 enabled 过滤（prompts._skill_text），停用后其内容自然
     退出系统提示，无需另行清理。"""
     from zhishi.domain.models import AISkill
@@ -1001,7 +988,7 @@ class MCPServerBody(BaseModel):
     timeout_sec: int = 30
     enabled: bool = False
     auto_approve_readonly: bool = False
-    trusted: bool = False                  # B1：stdio 须显式信任才可连接/装配
+    trusted: bool = False                  # stdio 须显式信任才可连接/装配
 
 
 class MCPServerUpdate(BaseModel):
@@ -1019,7 +1006,7 @@ class MCPServerUpdate(BaseModel):
     trusted: bool | None = None
 
 
-# 连接语义字段（re #063）：任一实际变更 = 「同一 sid 指向了另一个服务器」，
+# 连接语义字段：任一实际变更 = 「同一 sid 指向了另一个服务器」，
 # 该 sid 的 grants 与 pending 审批卡必须随旧端点作废（enable/timeout/name 等
 # 只影响装配或展示，不改授权语义，不在其列）。
 _MCP_CONNECTION_FIELDS = ("url", "command", "args_json", "env_json",
@@ -1027,7 +1014,7 @@ _MCP_CONNECTION_FIELDS = ("url", "command", "args_json", "env_json",
 
 
 class MCPServerOut(BaseModel):
-    """MCP 服务器元数据（re #035）：敏感值 env/headers 不回显。"""
+    """MCP 服务器元数据：敏感值 env/headers 不回显。"""
     id: int
     name: str
     transport: str
@@ -1044,13 +1031,13 @@ class MCPServerOut(BaseModel):
 
 
 class MCPToolSummary(BaseModel):
-    """连通性测试回包里的工具摘要（实形只有 name/description，re #048）。"""
+    """连通性测试回包里的工具摘要（实形只有 name/description）。"""
     name: str
     description: str
 
 
 class MCPToolOut(BaseModel):
-    """MCP 工具清单项（re #048：/tools 直连查询实形）。"""
+    """MCP 工具清单项（/tools 直连查询实形）。"""
     name: str
     description: str
     input_schema: dict = {}
@@ -1058,7 +1045,7 @@ class MCPToolOut(BaseModel):
 
 
 class MCPTestOut(BaseModel):
-    """MCP 连通性测试回包（re #048）：成功/失败同形收敛；
+    """MCP 连通性测试回包：成功/失败同形收敛；
     exclude_none 保证两路实形各键守恒（成功无 error、失败无 tools）。"""
     ok: bool
     tool_count: int = 0
@@ -1077,7 +1064,7 @@ def _mcp_row_out(r) -> dict:
 
 
 def _ensure_stdio_trusted(row) -> None:
-    """B1：stdio 服务器须显式信任后才允许真实连接（/test、/tools 都会拉起子进程）。"""
+    """stdio 服务器须显式信任后才允许真实连接（/test、/tools 都会拉起子进程）。"""
     if row.transport == "stdio" and not row.trusted:
         raise HTTPException(
             403, "stdio MCP 服务器需先在配置中显式信任（trusted=true）后才能连接；"
@@ -1108,7 +1095,7 @@ def update_mcp_server(sid: int, body: MCPServerUpdate, db: Session = Depends(get
     if row is None:
         raise HTTPException(404, "MCP 服务器不存在")
     updates = body.model_dump(exclude_unset=True)
-    # 连接语义字段实际变更 = sid 指向了另一个服务器（re #063）：旧端点的授权与
+    # 连接语义字段实际变更 = sid 指向了另一个服务器：旧端点的授权与
     # pending 审批卡在 commit 前同事务作废，否则新服务器同名工具免审/旧卡续命
     reauth = any(k in updates and updates[k] != getattr(row, k)
                  for k in _MCP_CONNECTION_FIELDS)
@@ -1130,7 +1117,7 @@ def delete_mcp_server(sid: int, db: Session = Depends(get_db)):
     row = db.get(MCPServer, sid)
     if row is None:
         raise HTTPException(404, "MCP 服务器不存在")
-    # commit 前同事务撤销该 sid 的授权与 pending 审批卡（re #063）：sid 是 sqlite
+    # commit 前同事务撤销该 sid 的授权与 pending 审批卡：sid 是 sqlite
     # rowid 可被新行复用，grant/pending 以 mcp__{sid}__ 为键会跨服务器继承
     revoke_mcp_grants(db, sid)
     expire_mcp_pending_actions(db, sid)
@@ -1159,7 +1146,7 @@ def enable_mcp_server(sid: int, body: MCPEnableBody | None = None, db: Session =
              response_model_exclude_none=True)
 async def test_mcp_server(sid: int, db: Session = Depends(get_db)):
     """连通性测试：连接 + list_tools，回写 last_status/last_error（错误已脱敏截断）。
-    B1：untrusted 的 stdio 服务器直接 403，不拉起子进程。"""
+    untrusted 的 stdio 服务器直接 403，不拉起子进程。"""
     from zhishi.adapters import mcp_client
     from zhishi.domain.models import MCPServer
     row = db.get(MCPServer, sid)
@@ -1181,8 +1168,8 @@ async def test_mcp_server(sid: int, db: Session = Depends(get_db)):
 
 @router.get("/mcp/servers/{sid}/tools", response_model=list[MCPToolOut])
 async def list_mcp_server_tools(sid: int, db: Session = Depends(get_db)):
-    """工具清单（60s TTL 缓存；PUT/enable/DELETE 时主动失效，清账 B2）。
-    B1：untrusted 的 stdio 服务器直接 403，不拉起子进程。"""
+    """工具清单（60s TTL 缓存；PUT/enable/DELETE 时主动失效）。
+    untrusted 的 stdio 服务器直接 403，不拉起子进程。"""
     from zhishi.adapters import mcp_client
     from zhishi.domain.models import MCPServer
     row = db.get(MCPServer, sid)

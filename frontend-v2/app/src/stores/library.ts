@@ -2,7 +2,7 @@
  * 资料库 store：文件列表 + 上传 + 备注编辑 + 回收站（/library、/trash 视图共用）。
  *
  * - 搜索走 GET /api/files?q（后端过滤）；软删除/恢复/清除走 trash 三件套。
- * - 软删除乐观移除 + 失败回滚（约束①）。
+ * - 软删除乐观移除 + 失败回滚。
  * - refreshAll 供 run done 自动刷新（AI 工具 bulk_delete_files/import_web_resources 等）。
  */
 import { defineStore } from 'pinia'
@@ -23,7 +23,7 @@ export function humanSize(bytes: number): string {
   return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[i]}`
 }
 
-/** 解析状态徽标文案（实测枚举 parsed/pending；未知原样显示）。 */
+/** 文件解析状态标签，未知状态保留原值。 */
 export function parseStatusLabel(status: string): string {
   const map: Record<string, string> = {
     parsed: '已解析',
@@ -135,7 +135,7 @@ export const useLibraryStore = defineStore('library', {
       }
     },
 
-    /** 从回收站恢复：trash 列表移除；主列表已加载时头部插回（实测 restore 返回完整行）。 */
+    /** 恢复后从回收站移除，并更新已加载的主列表。 */
     async restore(fileId: number): Promise<boolean> {
       this.actionError = null
       try {

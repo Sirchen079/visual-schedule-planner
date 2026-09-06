@@ -1,4 +1,3 @@
-# scripts/build.py
 """PyInstaller 打包 + 自动冒烟。
 
 流程：

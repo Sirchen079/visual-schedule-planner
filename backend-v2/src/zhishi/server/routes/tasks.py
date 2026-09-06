@@ -1,4 +1,3 @@
-# src/zhishi/server/routes/tasks.py
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -12,7 +11,7 @@ router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 
 class SubtaskWriteOut(SubtaskRead):
-    """子任务写端点响应（re #033）：SubtaskRead + task_id（写返回历来带归属，载荷守恒）。"""
+    """子任务写端点响应：SubtaskRead + task_id（写返回历来带归属，载荷守恒）。"""
     task_id: int
 
 

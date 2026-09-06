@@ -1,6 +1,4 @@
-# tests/server/test_electron_contract.py
-"""Electron 进程契约验收：--port 拉起、/health、/shutdown、ZHISHI_DATA_DIR、
-前端静态目录托管（新后端必须能被现有知时.exe 壳原样驱动）。"""
+"""桌面后端进程接口测试：指定端口启动、健康检查、关闭、数据目录隔离与静态资源托管。"""
 from fastapi.testclient import TestClient
 from zhishi.server.app import create_app
 

@@ -1,11 +1,7 @@
-# tests/e2e/test_timetable_e2e.py
-"""核心验收：课表导入全链 ≤4 次工具调用。
-路径：上传 docx（真实解析）→ import_document（读表）→ 模型提取条目 →
-import_timetable（批量建+冲突报告）→ RRULE 落库。
-真实模型成功率验收（≥95%）属 CI 外手动项，本测试锁定协议与调用数上限。
-偏差（对计划）：FunctionModel 无 ctx.tool_function_from_json API——按 pydantic-ai 2.38
-stream_function 脚本化（计划自检条款允许）；agent_autonomy=autonomous 使 confirm 级
-import_timetable 在 E2E 中直接执行（等价于用户授予自主档，不破坏生产审批语义）。"""
+"""课表导入端到端测试：上传合成 DOCX、提取条目、批量导入并核对 RRULE。
+
+FunctionModel 固定模型输出，验证工具协议及调用次数。测试显式启用自主档，
+使批量导入直接执行；生产审批行为另由权限和审批测试覆盖。"""
 import io
 import json
 from fastapi.testclient import TestClient
@@ -17,9 +13,9 @@ DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.docu
 
 # FunctionModel 无理解能力，条目由测试代行"模型提取"，与 docx 单元格内容一致
 ENTRIES = [
-    {"title": "数值分析", "weekday": 2, "periods": [2, 3], "location": "五教201",
+    {"title": "示例课程A", "weekday": 2, "periods": [2, 3], "location": "示例教室A",
      "week_kind": "range", "start_week": 2, "end_week": 13},
-    {"title": "双周实验", "weekday": 4, "periods": [3, 4], "location": "东教503",
+    {"title": "双周实验", "weekday": 4, "periods": [3, 4], "location": "示例教室B",
      "week_kind": "even", "start_week": 6, "end_week": 12},
 ]
 
@@ -30,9 +26,9 @@ def _make_timetable_docx() -> bytes:
     t = doc.add_table(rows=4, cols=3)
     t.cell(0, 0).text = "节次"; t.cell(0, 1).text = "星期二"; t.cell(0, 2).text = "星期四"
     t.cell(1, 0).text = "2"
-    t.cell(1, 1).text = "数值分析5班[连续周2-13周]卢欣[五教201]"
+    t.cell(1, 1).text = "示例课程A[连续周2-13周]示例教师甲[示例教室A]"
     t.cell(2, 0).text = "3"
-    t.cell(2, 2).text = "双周实验[双周6-12周]王强[东教503]"
+    t.cell(2, 2).text = "双周实验[双周6-12周]示例教师乙[示例教室B]"
     buf = io.BytesIO(); doc.save(buf)
     return buf.getvalue()
 
@@ -92,11 +88,11 @@ def test_timetable_e2e_within_4_tool_calls(tmp_path, monkeypatch):
         with c.app.state.session_factory() as db:
             events_db = db.query(Event).all()
         titles = {e.title for e in events_db}
-        assert {"数值分析", "双周实验"} <= titles
+        assert {"示例课程A", "双周实验"} <= titles
         shiyan = next(e for e in events_db if e.title == "双周实验")
         assert "INTERVAL=2" in (shiyan.recur_rrule or "")
         # 附件解析文本确已注入模型输入（read-before-write 前提）
         from zhishi.domain.models import AIMessage
         with c.app.state.session_factory() as db:
             user_msg = db.query(AIMessage).filter_by(role="user").first()
-        assert "数值分析" in user_msg.display_json
+        assert "示例课程A" in user_msg.display_json

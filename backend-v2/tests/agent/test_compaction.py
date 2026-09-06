@@ -1,4 +1,3 @@
-# tests/agent/test_compaction.py
 import json
 
 import pytest
@@ -51,7 +50,7 @@ def test_window_model_messages_cuts_at_user_boundary():
     assert kept[0].parts[0].content == "u7"  # 从倒数第 3 个 user 轮起
 
 
-# ---- 摘要压缩（清账 11：BLOCKED.md 唯一条——自研 maybe_summarize） ----
+# 会话摘要压缩。
 
 def _round_msgs(i: int, with_tools: bool = False) -> list:
     """一轮对话：user 起，可选工具链（调用→结果），assistant 文本收尾。"""
@@ -206,7 +205,7 @@ def test_stored_summary_without_fingerprint_merges(db, monkeypatch):
 
 
 def test_second_compaction_merges_old_summary_with_new_facts(db, monkeypatch):
-    """re #066 major1 确定性例子：二次压缩的摘要输入必须同时包含
+    """确定性例子：二次压缩的摘要输入必须同时包含
     旧摘要全文与新折叠段的中段唯一事实，不得丢弃后静默复用旧摘要。"""
     from zhishi.agent.compaction import summarize_history
     calls = _capture_oneshot(monkeypatch, reply="合并摘要")
@@ -239,7 +238,7 @@ def test_compaction_timeout_setting(db):
 
 
 def test_compaction_timeout_falls_back_and_writes_nothing(db, monkeypatch):
-    """re #066 major2：摘要调用超时 → 返回原 history，meta_json 不写任何摘要/指纹，
+    """摘要调用超时 → 返回原 history，meta_json 不写任何摘要/指纹，
     后续请求（重试）仍可正常压缩。"""
     import time
     from pydantic_ai.messages import ModelMessagesTypeAdapter
@@ -280,7 +279,7 @@ def test_compaction_timeout_falls_back_and_writes_nothing(db, monkeypatch):
 
 
 def test_window_keep_tracks_threshold(db, monkeypatch):
-    """re #066：硬截断 keep=max(12, compaction_threshold)，高阈值下摘要触发条件可达。"""
+    """硬截断 keep=max(12, compaction_threshold)，高阈值下摘要触发条件可达。"""
     from zhishi.domain.settingsvc import set_setting
     from pydantic_ai.messages import ModelMessagesTypeAdapter
     from zhishi.domain.models import AIConversation, AIMessage

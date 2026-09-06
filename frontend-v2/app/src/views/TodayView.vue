@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 今日视图（默认落地页，B×C 暗色夜间书房语言，消费 --bg/--ink token）：
+ * 今日视图（默认落地页夜间书房语言，消费 --bg/--ink token）：
  * - 左侧「现在」面板：衬线大时钟 + 长日期 + 下一节日程 + 今日统计（高密度 ≥3 处差异信息）
  * - 冲突警示带（--terra 系 token）：今日有冲突时出现在「现在」卡下方，可展开列出冲突项
  *   （含近 7 日窗内未来冲突日）；无冲突不渲染。数据随 loadToday 同源刷新
@@ -127,7 +127,7 @@ function isNowBlock(start: string, end: string): boolean {
 
 const hourTicks = hourLines()
 
-/* ---- 冲突警示带 / 今日空闲（M2 验收缺口「冲突与空闲展示」） ---- */
+/** 当天冲突提示和空闲时段。 */
 
 /** 警示带展开态（今日冲突项 + 近 7 日窗内未来冲突日） */
 const conflictsOpen = ref(false)

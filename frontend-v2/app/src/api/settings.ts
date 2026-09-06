@@ -1,19 +1,5 @@
-/**
- * 设置与 AI 管理面板 REST 封装（/api/settings、/ai/grants、/ai/mcp/servers、/ai/configs、/ai/skills）。
- * - GET /api/settings → 平铺 Record<string, string>（值全是字符串，"true"/"480" 需自行解析）；
- *   PUT /api/settings 体为 {settings: {key: value}} 部分更新，回包为更新后全量
- *   （载荷形状 2026-09-05 m25r 脚本实测）。
- * - GET /ai/grants → GrantOut[]（生成类型）；DELETE /ai/grants/{id} → 204。
- *   授权由审批卡「始终允许」产生，收回后该工具回到逐次审批。
- * - MCP /ai/mcp/servers：清单已 typed（MCPServerOut，env/headers 不回显）；
- *   POST 创建 201 只回 {"id": n}（不是完整对象，创建后必须重拉列表）；PUT /{sid} 部分更新
- *   回完整 MCPServerOut；DELETE → 204；POST /{sid}/test 业务失败也是 200，看回包 ok 字段
- *   （失败 {ok:false, error, tool_count:0}），并回写 last_status/last_error；GET /{sid}/tools
- *   为实时工具清单，untrusted 的 stdio 服务器两处都 403（2026-09-05 探针 + #037/#039 批次核实）。
- * - /ai/configs 与 /ai/skills 的响应已 typed（ConfigOut/SkillOut，生成类型派生）；
- *   api_key 永不回显；启用均为单选语义：
- *   配置启用一个会把其余置为未启用，用户技能启用一个会停用其余用户技能（内置技能不可操作，404）。
- */
+/** 设置与 AI 管理接口。应用设置值使用字符串，PUT 提交部分更新。
+ * MCP 的 env/headers 和模型密钥只写入，不回显敏感值。 */
 import type { components } from './contracts/rest'
 import { http } from './http'
 
@@ -23,11 +9,10 @@ export type Grant = components['schemas']['ToolGrantOut']
 /** 平铺设置表。已知键见 SettingsView 的消费；未知键原样保留（PUT 只交补丁）。 */
 export type SettingsMap = Record<string, string>
 
-/** MCP 服务器清单项 = 生成 MCPServerOut（2026-09-05 #037 批次 typed；敏感值 env/headers 不回显）。
- *  与 2026-09-05 探针实测形状逐字段一致（command 生成面可空，视图为 `|| '—'` 兜底）。 */
+/** MCP 服务器列表项。env/headers 不回显；command 可为空。 */
 export type MCPServerInfo = components['schemas']['MCPServerOut']
 
-/** enable 回包 = 生成 EnableOut（2026-09-05 #039 批次 typed；AI configs enable 无 enabled 字段故可选）。 */
+/** 启用操作结果。AI 配置接口可能不包含 enabled 字段。 */
 export type McpEnableResult = components['schemas']['EnableOut']
 
 /** MCP 创建体 = 生成 MCPServerBody（全字段带后端缺省，UI 总是显式传齐避免歧义）。 */

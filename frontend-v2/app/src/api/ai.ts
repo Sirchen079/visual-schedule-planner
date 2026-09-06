@@ -1,11 +1,4 @@
-/**
- * AI 管理面 REST 封装（/ai/conversations、/ai/attachments）。
- * 响应形状以后端实测为准（openapi.json 未标注 schema）：
- * - GET /ai/conversations → [{id, title, updated_at}]
- * - GET /ai/conversations/{cid} → [{id, role, display: {text, attachments?}, created_at}]
- *   注意：历史消息只有 text 与附件元数据，不含工具调用记录（工具证据只活在 run 流里）。
- * - POST /ai/attachments (multipart) → {file_id, name, kind, parse_status}
- */
+/** AI 会话与附件 REST 接口。历史消息包含展示文本、附件及持久化的执行元数据。 */
 import { HttpError, http } from './http'
 
 export interface ConversationSummary {
@@ -20,7 +13,7 @@ export interface AttachmentMeta {
   excerpt?: string
 }
 
-/** display_json 解析后的结构（runtime.py 落库时只有 text / attachments 两个字段）。 */
+/** 持久化消息的展示数据，包括文本、附件、推理和工具执行记录。 */
 export interface ConversationMessageDisplay {
   text: string
   run_id?: string

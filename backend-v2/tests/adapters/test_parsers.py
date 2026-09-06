@@ -1,4 +1,3 @@
-# tests/adapters/test_parsers.py
 import pytest
 from zhishi.adapters.parsers import parse_file, ParsedDoc
 
@@ -26,7 +25,7 @@ def test_docx_real_timetable_fixture():
     assert doc.kind == "docx"
     assert len(doc.tables) >= 1
     head = doc.tables[0][0]
-    # 偏差（对计划）：真实 fixture 表头首列为空（['', '节次', '星期一', ...]），
+    # 样本表头首列为空（['', '节次', '星期一', ...]），
     # 故由 head[0]/head[1] 单元格断言放宽为行内包含断言，测试意图不变
     assert "节次" in head and "星期一" in head
     body = "".join("".join(r[2:]) for r in doc.tables[0][1:])

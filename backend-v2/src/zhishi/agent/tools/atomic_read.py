@@ -1,5 +1,4 @@
-# src/zhishi/agent/tools/atomic_read.py
-"""L1 只读工具：包装 M1 领域服务，返回模型可读的紧凑文本。
+"""L1 只读工具：包装 领域服务，返回模型可读的紧凑文本。
 签名约定：第一参数 db: Session（runtime 负责注入），其余参数即工具 schema。"""
 from __future__ import annotations
 import json

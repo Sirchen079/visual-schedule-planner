@@ -1,4 +1,3 @@
-# src/zhishi/server/routes/notifications.py
 from datetime import datetime
 
 from fastapi import APIRouter, Depends
@@ -13,7 +12,7 @@ router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
 
 class NotificationOut(BaseModel):
-    """通知实形（re #047：前端 Notification 手写收敛依据）。task_id/read_at 可空，
+    """通知响应模型。task_id/read_at 可空，
     read_at 为 null 即未读；remind_at/read_at 序列化为 ISO 串（与既有回包一致）。"""
     id: int
     task_id: int | None = None

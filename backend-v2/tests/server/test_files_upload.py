@@ -1,5 +1,4 @@
-# tests/server/test_files_upload.py
-"""re #B6：POST /api/files 的 notes 从 query 参数改为 multipart 表单域。
+"""POST /api/files 的 notes 从 query 参数改为 multipart 表单域。
 表单传法此前被静默忽略；openapi requestBody 如实标注 multipart + notes 字段。"""
 from fastapi.testclient import TestClient
 from zhishi.server.app import create_app

@@ -1,4 +1,3 @@
-# tests/server/test_origin_guard.py
 """B1 安全加固回归：
 1) Origin 防护中间件：带 Origin 且 host 与请求 Host 不一致 → 403
    （防 DNS rebinding / 恶意网页跨站读取）；同源与无 Origin（Electron/curl）放行；
@@ -43,7 +42,7 @@ def test_electron_static_contract_survives_guard(tmp_path, monkeypatch):
 
 
 def test_dns_rebinding_host_blocked(tmp_path):
-    """re #010 blocker1：Host 与 Origin 同为攻击域名（DNS rebinding）也必须拦截——
+    """1：Host 与 Origin 同为攻击域名（DNS rebinding）也必须拦截——
     Host hostname 钉死在回环白名单（127.0.0.1/localhost/::1），非白名单一律 403。"""
     app = create_app(data_dir=tmp_path)
     with TestClient(app, base_url="http://rebind.evil:8421") as c:

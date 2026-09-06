@@ -1,4 +1,3 @@
-# src/zhishi/domain/reports.py
 """AI 报告：日报/周报/晨报。数据收集是确定性的（stats/insights/focus），
 模型只做一次性文本生成（oneshot，不走 agent 工具循环）。
 失败语义：daily/weekly 抛错由路由转 422；briefing 绝不静默失败——

@@ -1,7 +1,4 @@
-# tests/server/test_schema_migration.py
-"""re #010 blocker2：存量库幂等 schema 迁移——
-78e2cc3 给 mcp_servers 加了 trusted 列，但 create_all 不会 ALTER 旧表，
-现网库启动即 500。启动时必须自动补列。"""
+"""已有数据库的幂等结构升级：启动时为旧表补充缺失列。"""
 import sqlite3
 
 OLD_MCP_SCHEMA = """
@@ -70,7 +67,7 @@ VALUES ('旧库课程', '2026-09-07', 'A101', 'course', '');
 
 
 def test_existing_db_gets_repeat_note_column(tmp_path):
-    """re #020 事项2：events 表补 repeat_note 列——存量课表库启动自动迁移，
+    """events 表补 repeat_note 列——存量课表库启动自动迁移，
     旧行该列为 NULL，expand 视图照常可用（repeat_note 可空）。"""
     data_dir = tmp_path / "d"
     (data_dir / "v2").mkdir(parents=True)

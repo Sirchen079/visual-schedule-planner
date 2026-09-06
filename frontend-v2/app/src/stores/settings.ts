@@ -1,6 +1,6 @@
 /**
- * 设置页 store（M4a，M4c 扩展）：应用设置、AI 永久授权、MCP 服务器、AI 配置、AI 技能。
- * - 五路数据进页拉取，失败各自可见（约束①）；动作错误统一进 actionError。
+ * 设置页 store（扩展）：应用设置、AI 永久授权、MCP 服务器、AI 配置、AI 技能。
+ * - 五路数据进页拉取，失败各自可见；动作错误统一进 actionError。
  * - setAutonomy / saveWorkingHours：PUT 部分更新后以回包全量落定（不乐观猜）。
  * - revokeGrant：收回即移除出行；失败保留并可见。
  * - MCP：enable 以回包 {enabled} 落定；创建 201 只回 {id} 故重拉列表；编辑以回包完整
@@ -9,7 +9,7 @@
  * - AI 配置：创建后重拉；启用为单选语义（其余落为未启用），以回包 ok 校验后本地落定。
  * - AI 技能：创建后重拉；启用即单选激活（其余用户技能停用、内置不动）；启用中可一键停用
  *   （disable-active，幂等）；删除成功后出列。
- * - 主题：reconcileTheme 以后端 ui.theme 调和跨端口偏好（re #065）；saveThemePref 落库。
+ * - 主题：reconcileTheme 以后端 ui.theme 调和跨端口偏好；saveThemePref 落库。
  */
 import { defineStore } from 'pinia'
 import { applyTheme, currentTheme, type ThemeName } from '../utils/theme'
@@ -111,8 +111,8 @@ export const useSettingsStore = defineStore('settings', {
 
   actions: {
     /**
-     * 主题跨端口调和（re #065 契约：ui.theme 存后端 settings KV 作跨端口权威源，
-     * localStorage 只是本 origin 首帧缓存；re gpt6astra #063 major）。main.ts 挂载后
+     * 主题跨端口调和（契约：ui.theme 存后端 settings KV 作跨端口权威源，
+     * localStorage 只是本 origin 首帧缓存）。main.ts 挂载后
      * 调用：远端有值且与本地生效值不一致 → 以远端为准重刷并写缓存；远端无键而本地
      * 非缺省 → 播种回后端（升级前已选浅色的用户换端口不丢）。后端不可达保持本地，静默。
      */
@@ -252,7 +252,7 @@ export const useSettingsStore = defineStore('settings', {
       }
     },
 
-    /* ---- MCP 服务器管理（M4c） ---- */
+    /* ---- MCP 服务器管理 ---- */
 
     /** 开关 MCP 服务器：以回包 enabled 落定。 */
     async toggleMcpServer(sid: number, enabled: boolean): Promise<boolean> {
@@ -261,7 +261,7 @@ export const useSettingsStore = defineStore('settings', {
       try {
         const res = await setMcpServerEnabled(sid, enabled)
         const row = (this.mcpServers ?? []).find((s) => s.id === sid)
-        // EnableOut.enabled 生成面可选（AI configs enable 无此字段）；MCP 实测恒回显，缺省回落请求目标态
+        // enabled 缺失时使用请求的目标状态。
         if (row) row.enabled = res.enabled ?? enabled
         return true
       } catch (e) {
@@ -358,7 +358,7 @@ export const useSettingsStore = defineStore('settings', {
       }
     },
 
-    /* ---- AI 配置管理（M4c） ---- */
+    /* ---- AI 配置管理 ---- */
 
     /** 添加配置：201 只回 {id}，重拉列表落定。 */
     async addConfig(body: AiConfigCreateBody): Promise<boolean> {
@@ -412,7 +412,7 @@ export const useSettingsStore = defineStore('settings', {
       }
     },
 
-    /* ---- AI 技能管理（M4c） ---- */
+    /* ---- AI 技能管理 ---- */
 
     /** 添加技能：201 只回 {id}，重拉列表落定。 */
     async addSkill(body: SkillCreateBody): Promise<boolean> {

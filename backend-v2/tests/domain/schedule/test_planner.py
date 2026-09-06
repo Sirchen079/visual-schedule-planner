@@ -1,4 +1,3 @@
-# tests/domain/schedule/test_planner.py
 from datetime import date, datetime
 from freezegun import freeze_time
 from zhishi.domain.schedule import planner
@@ -39,8 +38,7 @@ def test_reschedule_overdue(db):
     with freeze_time("2026-09-08 09:00"):
         t = _mk(db, "过期任务", due=datetime(2026, 9, 6, 18), est=60)
         out = __import__("json").loads(macro.reschedule_overdue(db))
-    # 偏差（对计划）：实现返回 moved 列表（与 import_timetable 的 skipped/conflicts
-    # 列表风格一致），原断言 moved >= 1 假设为数字，改为长度断言
+    # 至少有一条逾期任务被重新排期。
     assert len(out["moved"]) >= 1
     from zhishi.domain.schedule import service as ss
     day = ss.day_schedule(db, date(2026, 9, 8))

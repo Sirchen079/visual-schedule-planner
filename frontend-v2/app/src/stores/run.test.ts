@@ -55,7 +55,7 @@ describe('run store 状态机（录制序列）', () => {
     expect(store.conversationId).toBe(7)
   })
 
-  it('阶段八标签中文映射（约束 1：等待不沉默）', () => {
+  it('阶段八标签中文映射', () => {
     feed(store, RECORDED.slice(0, 5))
     expect(store.stage).toBe('streaming_reasoning')
     expect(store.stageLabel).toBe(STAGE_LABELS.streaming_reasoning)
@@ -186,7 +186,7 @@ describe('run store 状态机（录制序列）', () => {
     await store.cancel() // 幂等
     expect(store.phase).toBe('cancelled')
 
-    // 同一 pinia 下 useRunStore() 返回同一实例；开新 pinia 才是全新 store
+    // 同一 pinia 下 useRunStore 返回同一实例；开新 pinia 才是全新 store
     setActivePinia(createPinia())
     const fresh = useRunStore()
     await fresh.cancel() // idle 下 no-op
@@ -224,7 +224,7 @@ describe('run store 409 与防重入', () => {
   })
 })
 
-describe('run store 审批账目（M2.5：多幽灵块并存投影的数据源）', () => {
+describe('run store 审批账目（多幽灵块并存投影的数据源）', () => {
   const APPROVAL_A = {
     v: 1 as const,
     type: 'tool_approval_requested' as const,
@@ -270,7 +270,7 @@ describe('run store 审批账目（M2.5：多幽灵块并存投影的数据源�
     store.consume({ v: 1, type: 'run_started', run_id: 'r1', conversation_id: 7 })
     store.consume(APPROVAL_A)
     store.consume({ v: 1, type: 'tool_approval_resolved', action_id: 101, outcome: 'denied' })
-    // M1 语义：解决后 pendingApproval 保留对象并带 outcome（resume 的 run_started 才清空）
+    // 语义：解决后 pendingApproval 保留对象并带 outcome（resume 的 run_started 才清空）
     expect(store.pendingApproval?.outcome).toBe('denied')
     expect(store.approvalLedger[0].outcome).toBe('denied')
     // 账目与待决卡是同一份对象：落章一处、两处可见
@@ -285,7 +285,7 @@ describe('run store 审批账目（M2.5：多幽灵块并存投影的数据源�
     expect(store.approvalLedger).toHaveLength(1)
   })
 
-  it('非 resume 的新 run 清账（新消息 = 新一轮提案）；resume 保留', () => {
+  it('新消息清空旧审批预览，恢复执行保留预览', () => {
     const store = useRunStore()
     store.consume({ v: 1, type: 'run_started', run_id: 'r1', conversation_id: 7 })
     store.consume(APPROVAL_A)
@@ -293,28 +293,28 @@ describe('run store 审批账目（M2.5：多幽灵块并存投影的数据源�
     store.resuming = true
     store.consume({ v: 1, type: 'run_started', run_id: 'r2', conversation_id: 7 })
     expect(store.approvalLedger).toHaveLength(1)
-    // 新 run（用户发了新消息）：清账
+    // 新消息开始时清空旧审批预览。
     store.consume({ v: 1, type: 'run_started', run_id: 'r3', conversation_id: 7 })
     expect(store.approvalLedger).toEqual([])
   })
 })
 
-describe('run store resume 拒绝体（ResumeBlockedOut，re #020 回归）', () => {
+describe('run store resume 拒绝体（ResumeBlockedOut，回归）', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
   })
 
-  /** 双 deferred 场景：一轮内两个 tool_approval_requested（同 m25r 实测序列）。 */
+  /** 同一轮产生两个待审批工具调用。 */
   function dualPending(store: ReturnType<typeof useRunStore>): void {
     store.consume({ v: 1, type: 'run_started', run_id: 'r1', conversation_id: 7 })
     store.consume({
       v: 1, type: 'tool_approval_requested', action_id: 20, tool: 'create_event',
-      args: { title: 'M25R测试·晨跑', day: '2026-09-05', start_time: '09:00', end_time: '10:00' },
+      args: { title: '测试·晨跑', day: '2026-09-05', start_time: '09:00', end_time: '10:00' },
       preview: '', grant_available: true,
     })
     store.consume({
       v: 1, type: 'tool_approval_requested', action_id: 21, tool: 'create_event',
-      args: { title: 'M25R测试·自习', day: '2026-09-05', start_time: '15:00', end_time: '16:00' },
+      args: { title: '测试·自习', day: '2026-09-05', start_time: '15:00', end_time: '16:00' },
       preview: '', grant_available: true,
     })
   }
@@ -411,7 +411,7 @@ describe('run store resume 拒绝体（ResumeBlockedOut，re #020 回归）', ()
   })
 })
 
-describe('run store ready_to_resume 接线（re #023 建议③，M3.5）', () => {
+describe('run store ready_to_resume 接线', () => {
   function jsonResponse(payload: unknown, status = 200): Response {
     const text = JSON.stringify(payload)
     return {
@@ -445,12 +445,12 @@ describe('run store ready_to_resume 接线（re #023 建议③，M3.5）', () =>
     store.consume({ v: 1, type: 'run_started', run_id: 'r1', conversation_id: 7 })
     store.consume({
       v: 1, type: 'tool_approval_requested', action_id: 20, tool: 'create_event',
-      args: { title: 'M35测试·晨跑', day: '2026-09-05', start_time: '09:00', end_time: '10:00' },
+      args: { title: '测试·晨跑', day: '2026-09-05', start_time: '09:00', end_time: '10:00' },
       preview: '', grant_available: true,
     })
     store.consume({
       v: 1, type: 'tool_approval_requested', action_id: 21, tool: 'create_event',
-      args: { title: 'M35测试·自习', day: '2026-09-05', start_time: '15:00', end_time: '16:00' },
+      args: { title: '测试·自习', day: '2026-09-05', start_time: '15:00', end_time: '16:00' },
       preview: '', grant_available: true,
     })
   }

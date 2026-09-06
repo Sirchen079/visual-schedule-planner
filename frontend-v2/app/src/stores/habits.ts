@@ -2,7 +2,7 @@
  * 习惯 store：习惯卡 + 今日打卡 + 连续天数 + 近 14 天打卡带（/habits 视图）。
  *
  * - 打卡/撤销走 API：check-in 后端返回当日累计 count；撤销 uncheck 显式带 date
- *   （re #B3 后 date 可省略=今天，这里仍显式传以明确语义）。两者都乐观更新
+ *   （后 date 可省略=今天，这里仍显式传以明确语义）。两者都乐观更新
  *   status（done_today/today_count/streak）+ 失败回滚。
  * - logs 按习惯懒加载（进入视图后逐卡拉取近 14 天），纯函数 logsToCountMap 供打卡带渲染。
  * - refreshAll 供 run done 自动刷新（AI 工具 check_in_habit 等）。
@@ -74,7 +74,7 @@ export const useHabitsStore = defineStore('habits', {
     async create(input: Parameters<typeof createHabit>[0]): Promise<Habit | null> {
       this.actionError = null
       try {
-        // create 回包不携带 status（实测），归一化补零值后再入列表（视图依赖非空 status）
+        // 创建响应可能缺少 status，补充初始状态以满足视图要求。
         const habit = normalizeHabit(await createHabit(input))
         this.items = [...(this.items ?? []), habit]
         return habit
@@ -105,7 +105,7 @@ export const useHabitsStore = defineStore('habits', {
 
     /**
      * 今日打卡：乐观 status.done_today=true / today_count+1；后端 count 为准回填；
-     * 失败回滚并落 actionError（约束①）。
+     * 失败回滚并落 actionError。
      */
     async checkInToday(habitId: number): Promise<boolean> {
       const habit = this.items?.find((h) => h.id === habitId)
@@ -133,7 +133,7 @@ export const useHabitsStore = defineStore('habits', {
       }
     },
 
-    /** 撤销今日打卡：显式带 date（re #B3 后可省略，这里显式传）。乐观回退 + 失败回滚。 */
+    /** 撤销今日打卡：显式带 date（后可省略，这里显式传）。乐观回退 + 失败回滚。 */
     async uncheckToday(habitId: number): Promise<boolean> {
       const habit = this.items?.find((h) => h.id === habitId)
       if (!habit || !habit.status.done_today) return true

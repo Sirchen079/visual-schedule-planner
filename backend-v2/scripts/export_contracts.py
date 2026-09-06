@@ -1,4 +1,3 @@
-# scripts/export_contracts.py
 """运行：python scripts/export_contracts.py —— 生成契约物料：
 docs/contracts/events.schema.json（权威 JSON Schema）
 docs/contracts/events.d.ts（前端 TypeScript 类型，原生生成器，零外部依赖）
@@ -80,7 +79,7 @@ def export_typescript() -> Path:
 
 def _strip_leaked_sse_media_type(spec: dict) -> None:
     """FastAPI 会把 route.response_class 的媒体类型泄漏进 route.responses 声明的
-    错误响应（re #020 k3：resume 400 实为 JSON body，SSE 只属于 200 流）。
+    错误响应（resume 400 实为 JSON body，SSE 只属于 200 流）。
     非流式状态码的 content 若同时出现 application/json 与 text/event-stream，删后者。"""
     for path_item in spec.get("paths", {}).values():
         for method in ("get", "post", "put", "patch", "delete"):

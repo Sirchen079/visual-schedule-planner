@@ -1,4 +1,3 @@
-# tests/infra/test_logsetup.py
 import logging
 from zhishi.infra.logsetup import setup_logging
 

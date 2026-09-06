@@ -1,7 +1,4 @@
-# tests/server/test_schedule_contracts.py
-"""re #017(k3)① + #019 minor：schedule 只读端点与 plan reject 的 200 响应必须 typed
-（此前 openapi schema 全空 → 前端手写类型漂移）。同时锁定真实载荷关键字段：
-response_model 序列化不得丢弃实际返回的字段（如 day 视图 event 条目的 date）。"""
+"""日程只读接口和计划拒绝接口提供明确的响应模型，序列化保留必要字段。"""
 from fastapi.testclient import TestClient
 from zhishi.server.app import create_app
 
@@ -71,7 +68,7 @@ def test_schedule_payload_fields_survive_response_model(tmp_path):
 
 
 def test_month_view_counts_events_and_tasks(tmp_path):
-    """re #020 事项3：month 视图在 task_count 之外增加 event_count
+    """month 视图在 task_count 之外增加 event_count
     （当日独立日程 RRULE 展开计数）。双周课的月份 event_count 隔周 +1。"""
     with TestClient(create_app(data_dir=tmp_path)) as c:
         tid = c.post("/api/tasks", json={"title": "周任务"}).json()["id"]
@@ -96,7 +93,7 @@ def test_month_view_counts_events_and_tasks(tmp_path):
 
 
 def test_expand_and_day_views_carry_repeat_note(tmp_path):
-    """re #020 事项2：events/expand 与 day 视图 typed model 带 repeat_note（可空）。"""
+    """events/expand 与 day 视图 typed model 带 repeat_note（可空）。"""
     with TestClient(create_app(data_dir=tmp_path)) as c:
         c.post("/api/schedule/events", json={"title": "单周课", "date": "2026-09-07",
                                              "start_time": "08:00", "end_time": "09:40",

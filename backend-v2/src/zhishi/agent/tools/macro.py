@@ -1,4 +1,3 @@
-# src/zhishi/agent/tools/macro.py
 """L2 大颗粒工具：一次调用完成旧版需十几个连环调用的任务。
 分工原则：LLM 管意图与脏文本理解，算法管 RRULE/调度。
 事件通道与子代理模型工厂均为 per-run 注入（runtime 经 AgentDeps 传入 ctx.deps），
@@ -124,7 +123,7 @@ def import_timetable(db: Session, semester_start: str, entries: list[dict],
                 start_time=start_t, end_time=end_t,
                 location=ent.get("location") or "", category=category,
                 recur_rrule=spec["recur_rrule"],
-                repeat_note=spec["repeat_note"])   # 人类可读周次规则（re #020 事项2）
+                repeat_note=spec["repeat_note"])   # 人类可读周次规则
             created.append(key)
             existing.add(key)
             _ = event
@@ -133,8 +132,7 @@ def import_timetable(db: Session, semester_start: str, entries: list[dict],
     first = anchor
     last = anchor + timedelta(weeks=max(
         (int(e.get("end_week", 1)) for e in entries), default=1))
-    # 偏差（对计划）：check_conflicts 逐日报告，重复日程每周重现会产生 N 条同一对
-    # 冲突；按重叠对去重只保留首日一条（同一冲突对的稳定语义，见 _conflict_pair_key）
+    # 重复日程按事件对去重，仅保留每对冲突首次出现的记录。
     seen_pairs: set[tuple] = set()
     conflicts = []
     for c in check_conflicts(db, first, last):

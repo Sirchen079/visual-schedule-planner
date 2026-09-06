@@ -83,7 +83,7 @@ describe('settings store', () => {
     vi.unstubAllGlobals()
   })
 
-  it('loadSettings 失败：settingsError 可见（约束①）', async () => {
+  it('loadSettings 失败：settingsError 可见', async () => {
     const store = useSettingsStore()
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: '炸了' }, 500)))
     await store.loadSettings()
@@ -466,7 +466,7 @@ describe('settings store', () => {
   })
 })
 
-describe('主题跨端口持久化（re #065：ui.theme 契约）', () => {
+describe('主题跨端口持久化（ui.theme 契约）', () => {
   let dataset: Record<string, string>
   let storage: Record<string, string>
 

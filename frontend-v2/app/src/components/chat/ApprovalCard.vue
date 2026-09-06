@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /**
- * 审批卡（安全边界，final-shell 里的「台灯下待签字的单据」）：
- * tool_approval_requested 渲染（M3.5 起以审批账目驱动，同流多卡并存，每张独立批准/拒绝）；
+ * 审批卡：
+ * tool_approval_requested 渲染（起以审批账目驱动，同流多卡并存，每张独立批准/拒绝）；
  * 批准前绝不显示为已完成；批准/始终允许/拒绝 → run store 按卡上的 actionId 调对应端点，
  * ready_to_resume=false 时停留等待（显示图章），同批结清后才开 resume 新流续跑。
- * 已批准/已拒绝卡保留图章（与日历幽灵块图章语言一致），直到下一轮新 run 清账。
+ * 已批准/已拒绝卡保留图章（与日历幽灵块图章语言一致），直到下一轮新 run 。
  */
 import { computed, ref } from 'vue'
 import type { PendingApproval } from '../../stores/run'

@@ -1,93 +1,55 @@
-# Python
-__pycache__/
-*.py[cod]
+# Dependencies and build output
 .venv/
 venv/
-*.egg-info/
-
-# 私人数据与备份（永不入库）
-data/
-backup/
-
-# 环境与密钥
-.env
-*.key
-
-# 系统
-.DS_Store
-Thumbs.db
-
-# 前端依赖（不入库，体积大；构建产物 dist 入库以便双击即用，无需 Node）
 node_modules/
-
-# 设计参考截图与临时测试产物（不入库）
-/*.png
-/.playwright-mcp/
-frontend/test-results/
-
-# Git worktrees for isolated feature work
-.worktrees/
-
-# 桌面打包产物（不入库）
-desktop/node_modules/
-desktop/release/
-desktop/build/backend-dist/
-desktop/build/*.png
-desktop/build/*.ico
-desktop/release-inno/
-desktop/tools/
-backend/dist/
-backend/build/
-
-# 内部设计文档（本地保留，不入库）
-docs/superpowers/
-
-# 本地开发计划文档（不入库，不推送）
-/CODING_PLAN.md
-/CODING_PLAN_*.md
-/EXECUTION_REPORT.md
-
-# 测试与工具临时产物
-.pytest_cache/
-.pytest-tmp/
-.pytest_tmp/
-.superpowers/
-.test-runtime-data/
-.zcode/
-frontend/scripts/month-overflow-check.png
-
-
-# Current source-only releases: credentials and personal/runtime data never belong in commits.
-dist/
-dist2/
-dist3/
+__pycache__/
+*.py[cod]
+*.egg-info/
 build/
+dist/
 release/
-dev-data/
-backups/
-logs/
-attachments/
-*.db
-*.db-journal
-*.db-wal
-*.db-shm
-*.sqlite
-*.sqlite3
-*.log
+*.tsbuildinfo
+
+# Credentials and local data
+.env
 .env.*
 !.env.example
+*.key
 *.pem
 *.p12
 *.pfx
-.mimosa/
-.codex/
-.agents/
-.zcode/
-.vite/
-.ruff_cache/
-.mypy_cache/
-.coverage
-*.tsbuildinfo
+data/
+dev-data/
+attachments/
+backup/
+backups/
+logs/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.log
 backend-v2/tests/fixtures/timetables/*.doc
 backend-v2/tests/fixtures/timetables/*.docx
 backend-v2/tests/fixtures/timetables/*.pdf
+
+# Local tools, caches and temporary artifacts
+.codex/
+.agents/
+.mimosa/
+.zcode/
+.superpowers/
+.worktrees/
+.playwright-mcp/
+.pytest_cache/
+.pytest-tmp/
+.pytest_tmp/
+.ruff_cache/
+.mypy_cache/
+.vite/
+.coverage
+coverage/
+test-results/
+.test-runtime-data/
+.DS_Store
+Thumbs.db

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * 目标（OKR）视图（/goals）：目标卡 + 关键结果进度条 + 进度登记，B×C 暗色。
+ * 目标（OKR）视图（/goals）：目标卡 + 关键结果进度条 + 进度登记。
  * - 进度百分比本地推导（current/target，纯函数 krPercent/goalPercent 可单测）；
- *   KR 进度登记走 PATCH（乐观更新 + 失败回滚，约束①）
+ *   KR 进度登记走 PATCH（乐观更新 + 失败回滚）
  * - 新建目标 / 添加关键结果 / 删除 KR / 归档目标 / 删除目标，全部走真实 API
  * - run done 后由壳层自动刷新（App.vue 接线，覆盖 AI update_goal/update_kr_progress）
  */

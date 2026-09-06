@@ -22,11 +22,11 @@ function jsonResponse(payload: unknown, status = 200): Response {
   } as unknown as Response
 }
 
-/** 真实形状（2026-09-05 于 d0f5474 POST /api/tasks 实测；subtasks 为 re #B4 内嵌面）。 */
+/** 包含内嵌子任务的合成任务样本。 */
 function makeTask(partial: Partial<Task>): Task {
   return {
     id: 1,
-    title: 'M3测试任务',
+    title: '测试任务',
     notes: '',
     due_date: null,
     due_time: null,
@@ -155,7 +155,7 @@ describe('tasks store（乐观更新 + 回滚）', () => {
     vi.unstubAllGlobals()
   })
 
-  it('setStatus 失败：回滚到原状态且 actionError 可见（约束①）', async () => {
+  it('setStatus 失败：回滚到原状态且 actionError 可见', async () => {
     const store = useTasksStore()
     store.items = [makeTask({ id: 7, status: 'todo' })]
     vi.stubGlobal(
@@ -216,7 +216,7 @@ describe('tasks store（乐观更新 + 回滚）', () => {
     vi.unstubAllGlobals()
   })
 
-  it('toggleSubtask 失败：回滚 done 且 actionError 可见，不触发父任务重取（约束①）', async () => {
+  it('toggleSubtask 失败：回滚 done 且 actionError 可见，不触发父任务重取', async () => {
     const store = useTasksStore()
     store.items = [
       makeTask({

@@ -1,4 +1,3 @@
-# src/zhishi/server/app.py
 """应用工厂。进程契约（Electron 拉起约定，不可破坏）：
 --port 参数、/health、/shutdown、ZHISHI_DATA_DIR、静态目录托管。"""
 from __future__ import annotations
@@ -35,7 +34,7 @@ _SCHEMA_PATCHES: list[tuple[str, str, str]] = [
     ("mcp_servers", "trusted",
      "ALTER TABLE mcp_servers ADD COLUMN trusted BOOLEAN NOT NULL DEFAULT 0"),
     ("events", "repeat_note",
-     "ALTER TABLE events ADD COLUMN repeat_note TEXT"),   # re #020 事项2
+     "ALTER TABLE events ADD COLUMN repeat_note TEXT"),
 ]
 
 

@@ -1,4 +1,3 @@
-# tests/adapters/test_web.py
 """web 工具适配器：Bing RSS 检索 / 正文提取 / SSRF 双重校验。
 httpx MockTransport 全程无真实网络（DNS 校验仅解析公网样例域）。"""
 import httpx

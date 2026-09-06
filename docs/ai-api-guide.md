@@ -1,111 +1,75 @@
 # AI 接入新手指南
 
-本指南面向第一次接触 AI 接口的用户，把几个必要概念讲清楚，再说明三种接口格式的区别，最后一步步把它们填进知时。
+这份指南保留了知时原版接入教程的基础概念和三种接口格式说明，操作步骤按 2.14.2 的设置界面更新。你不需要写代码，只需从模型服务商处取得几个配置值，再填入知时。
 
----
+[返回首页](../README.md)
 
-## 一、几个基本概念
+## 先认识四个名词
 
-### 什么是 API
-
-API（Application Programming Interface，应用程序接口）是一套预先约定好的通信规则，让一个程序可以向另一个程序发送请求并接收结果。在知时里，你发出一段文字，知时按这套规则把请求发给 AI 服务，AI 服务处理后再把回复传回来，显示在对话窗口里。
-
-### 什么是 API Key
-
-API Key 是一串用于身份验证的字符串（通常以 `sk-` 开头），作用类似于账户密码：服务方靠它识别这次请求来自哪个账户，并据此计费。每个账户的 Key 都是独立的，**不要泄露给他人**——拿到你的 Key 的人可以用你的额度。
-
-如何获取：
-
-- **OpenAI 系列（GPT 等）**：在 [platform.openai.com](https://platform.openai.com) 注册后，于「API Keys」页面创建。
-- **Claude**：在 [console.anthropic.com](https://console.anthropic.com) 创建。
-- **国内模型**（通义千问、智谱、DeepSeek、Kimi 等）：到各自的开放平台注册创建，大多按实际用量计费，国内网络可直接访问。
-- **聚合服务**（如 [OpenRouter](https://openrouter.ai)）：用一个 Key 调用多种模型，免于在多个平台分别注册。
-
-### 什么是 URL
-
-URL（统一资源定位符）就是请求要发往的网络地址，对应服务方提供 API 的具体位置。知时支持两种填法：
-
-| 填法 | 示例 | 知时的行为 |
+| 名词 | 可以怎样理解 | 从哪里获取 |
 | --- | --- | --- |
-| **Base URL（基地址）** | `https://api.openai.com/v1` | 按所选接口格式自动补全后缀路径 |
-| **Full URL（完整地址）** | `https://api.openai.com/v1/chat/completions` | 直接使用，不再拼接 |
+| API | 知时与模型服务通信的接口 | 无须自行编写，由应用调用 |
+| API Key | 允许应用使用你账户额度的密钥，类似密码 | 服务商控制台的密钥管理页面 |
+| Base URL | 模型接口的基础地址 | 服务商的接入文档 |
+| 模型名称 | 要调用哪个模型的准确标识 | 服务商文档或知时的“获取模型列表” |
 
-通常只需填 Base URL；如果你拿到的是带完整路径的地址，也可以直接填到 Full URL 一栏。
+API Key 的格式因服务商而异，不一定以 `sk-` 开头。不要把它发到群聊、截图或 GitHub Issue 中，也不要填入不认识的服务地址。密钥和地址必须来自同一服务；某个平台申请的 Key 通常不能用于另一个平台。
 
----
+可以从模型官方开放平台申请 Key，也可以使用兼容接口的服务。申请前查看服务方的计费、可用地区、模型权限和数据处理说明；知时不会替你购买额度。OpenAI 密钥的鉴权方式见 [官方 API 说明](https://developers.openai.com/api/reference/overview)。
 
-## 二、三种接口格式，怎么选
+## 三种接口格式怎么选
 
-不同公司、不同模型所采用的接口规范并不相同。知时支持三种，**选对格式**是成功的前提。
+**以你实际使用的服务商文档为准。模型名称相同，不代表接口格式也相同。**
 
-| 格式 | 适用范围 | 默认路径 | 如何判断 |
-| --- | --- | --- | --- |
-| **OpenAI Chat** | GPT 系列、DeepSeek、通义千问、智谱、Kimi，以及绝大多数国内服务和聚合服务 | `/v1/chat/completions` | 最通用的格式，**不确定时优先选它** |
-| **OpenAI Responses** | OpenAI 较新的接口，内置联网搜索、代码执行等工具 | `/v1/responses` | 当服务方文档明确写明使用 Responses 时才选 |
-| **Anthropic（Claude Messages）** | Claude 官方及原生兼容服务 | `/v1/messages` | 模型名是 `claude-*`、且服务方声明采用原生 Anthropic 格式时选 |
+| 知时中的选项 | 什么时候选 | 请求路径示意 |
+| --- | --- | --- |
+| OpenAI Chat Completions | 服务商明确说明兼容 Chat Completions | 基础地址后追加 `/chat/completions` |
+| OpenAI Responses | 服务商明确支持 Responses API | 基础地址后追加 `/responses` |
+| Anthropic | 服务商明确使用 Anthropic Messages 格式 | Anthropic 官方接口使用 `/v1/messages` |
 
-三者的主要差异在于请求体结构和请求头：
+Chat Completions 与 Responses 的请求结构不同，不能只换模型名称而忽略格式。Responses 支持不同的输入输出结构和工具能力，具体取决于模型、服务商与应用接入方式；选中它并不等于自动启用所有联网或代码执行能力。参见 [OpenAI 的接口比较](https://developers.openai.com/api/docs/guides/migrate-to-responses)。
 
-- **OpenAI Chat**：对话内容放在 `messages` 数组里，每条消息标注角色（`system` / `user` / `assistant`）。
-- **OpenAI Responses**：采用事件流式（streaming events）结构，对工具调用的支持更原生。
-- **Anthropic Messages**：`system` 提示放在顶层而不是消息数组内，消息体采用 `content` 块结构，且请求头需要附带 `anthropic-version` 字段。
+基础地址和完整请求地址也有区别。例如 OpenAI 官方 Base URL 为 `https://api.openai.com/v1`，`https://api.openai.com/v1/chat/completions` 则是完整请求地址。**当前知时界面填写 Base URL，不要把 `/chat/completions`、`/responses` 或 `/messages` 一并填进去。** 第三方服务可能使用自己的路径前缀，应照其文档填写。
 
-**你不必手动构造这些请求**——知时会根据你选择的格式自动打包。你只需要：选对格式 + 填对 Key 和地址。
+## 一步步配置
 
----
+1. 打开 **设置 → AI 模型 → 添加配置**。
+2. 在“配置名称”中写一个方便辨认的名字，例如“日常助手”。这个名字由你决定，不是模型名称。
+3. 选择“接口格式”，填写服务商给出的 **Base URL**。
+4. 在 **API Key** 中粘贴密钥，注意不要带多余空格或换行。
+5. 点击 **获取模型列表**，再从“可用模型”中选择；如果服务商不支持列表接口，可以手动填写“模型名称”。名称必须与服务商提供的标识一致。
+6. 首次接入先保留其他参数的默认值。若需调整上下文窗口、最大输出或输入能力，请按服务商对该模型的说明填写。勾选图片等能力不会让原本不支持它的模型获得该能力。
+7. 点击 **添加**。回到配置列表，对新配置点击 **启用**，确认出现“启用中”。同一时间只有一个配置生效。
+8. 回到对话区发一句“你好”。基本对话成功后，再尝试“列出今天的任务”等工具调用。
 
-## 三、在知时里一步步配置
+“获取模型列表”不会保存配置，也不能替代一次真实对话测试。部分服务允许列出模型，但你的账户可能没有某个模型的调用权限，或该模型不支持应用需要的工具调用。
 
-1. 打开主界面右下角「知时助手」→ 顶部「设置」→ 新增模型配置。
-2. **选 Provider**：按上表判断，不确定就选 **OpenAI Chat**。
-3. **填 API Key**：粘贴你申请到的 Key。
-4. **填 URL**：
-   - 使用官方或标准兼容服务，填 **Base URL**，例如：
-     - OpenAI：`https://api.openai.com/v1`
-     - Anthropic：`https://api.anthropic.com`
-     - DeepSeek：`https://api.deepseek.com/v1`
-   - 使用自建或第三方代理：按对方文档给出的地址填写。
-5. **填模型名**：例如 `gpt-4o-mini`、`claude-3-5-sonnet-20241022`、`deepseek-chat`。可点击「获取模型列表」由知时自动拉取该服务支持的全部模型名。
-6. 保存后发送一句话测试，能正常收到回复即配置成功。
+编辑已有配置时，Key 留空会保留原密钥；填写新的 Key 才会替换。更换接口格式或地址后，获取列表前需重新填写对应服务的密钥。
 
----
+## 联网、图片和外部工具
 
-## 四、常见问题
+基本对话配置完成后，可以按需设置 **联网与视觉** 或 **外部工具**。这些是独立能力，可能需要额外服务、密钥或权限。不要仅根据模型名称判断它是否支持图片、联网或工具调用。
 
-| 现象 | 原因与处理 |
+MCP 可以把外部服务的工具提供给知时。本地 stdio 类型会运行你填写的程序，仅为你了解并信任的服务勾选信任选项。需要确认的操作会显示审批卡；在“授权”中可查看和撤回已保存的永久授权。
+
+## 常见问题
+
+| 现象 | 按这个顺序检查 |
 | --- | --- |
-| 连不上 / 超时 | 多为网络问题。OpenAI、Anthropic 官方接口在国内通常需要代理，在配置中填写 **HTTP Proxy**（如 `http://127.0.0.1:7890`）。国内服务一般可直接访问 |
-| 401 鉴权失败 | API Key 填写错误或已失效，重新复制粘贴 |
-| 404 路径不对 | Base URL 与 Provider 不匹配（例如把 Anthropic 的地址配成了 OpenAI Chat 格式）。核对格式与地址是否对应 |
-| 模型名报错 | 各服务支持的模型名不同，用「获取模型列表」确认准确名称 |
-| 需要额外鉴权头 | 部分服务要求自定义请求头，在「额外请求头」一栏以 JSON 格式填写（知时会自动过滤敏感头，并在备份时清除） |
+| 提示未配置模型 | 是否已点击“添加”，并在列表中“启用”对应配置？ |
+| 连接失败或超时 | 本机能否访问服务商接口？地址是否完整且无空格？防火墙或网络设置是否阻止请求？ |
+| 401 / 403 | 核对 Key 是否正确、是否失效，以及账户是否有对应模型权限。不要公开粘贴 Key 排错。 |
+| 404 | 检查 Base URL、接口格式和模型名称。常见原因是把完整请求路径填进 Base URL，或选择了服务商不支持的格式。 |
+| 429 / 额度错误 | 到服务商控制台检查余额、调用频率和额度限制；稍后重试或减少并发请求。 |
+| 获取不到模型列表 | 可能是不支持列表接口，也可能是鉴权或网络问题。先核对连接信息，必要时按文档手动填模型名称。 |
+| 能聊天，但不能执行操作 | 模型或服务商可能不支持原生工具调用，或操作正在等待审批。检查对话中的状态和审批卡。 |
+| 图片或推理参数报错 | 核对服务商是否支持相应能力和参数；关闭不支持的选项，再从简单文字对话开始测试。 |
 
----
+旧版教程中提到的 **Full URL、模型 HTTP Proxy 和模型额外请求头** 并不是当前模型配置页的输入项，请勿按旧界面寻找或填写。若服务商要求这些额外参数，需要先确认当前版本是否适配。
 
-## 五、延伸阅读
+## 继续阅读
 
-- [Hoper-J/AI-Guide-and-Demos-zh_CN](https://github.com/Hoper-J/AI-Guide-and-Demos-zh_CN)（3.6k★）—— 系统的中文 AI / LLM 入门教程，从 API 调用讲起，包含 OpenAI SDK 用法，并演示 DeepSeek、通义等国内服务的 Key 获取流程。
-- [Anthropic 官方文档（中文）](https://platform.claude.com/docs/zh-CN/build-with-claude/working-with-messages) —— Claude Messages API 的权威说明。
-- [OpenAI API 参考](https://developers.openai.com/api/reference/chat-completions/overview/) —— Chat Completions 与 Responses 的官方规范。
-
----
-
-## 六、聊天流式接口事件（/ai/chat/stream 与 /ai/chat/resume）
-
-前端通过 SSE 消费以下事件（每帧 `event` 为事件名、`data` 为 JSON）。协议只增不改，新增事件需同步本表。
-
-| 事件 | 时机 | data 关键字段 |
-| --- | --- | --- |
-| meta | 流开始 | conversation_id、run_id |
-| text_delta | 正文增量 | delta |
-| reasoning_delta | 思维链增量（需配置开启 show_reasoning） | delta |
-| tool_call_start | 工具调用开始（同一 call_id 可能先 name 后 args 两帧） | call_id、name、args |
-| tool_result | 工具执行结束 | call_id、name、ok、skipped、pending、error、preview |
-| pending_confirmation | 危险操作等待用户确认 | step、actions[{action_type, summary}] |
-| usage | 每个 agent 步骤后（累计值，provider 不回则为 0） | prompt_tokens、completion_tokens、total_tokens、calls、step |
-| step_finish | 一个 agent 步骤结束 | step |
-| error | 出错 | message、fatal |
-| done | 流结束（权威收敛帧） | reply、tool_results、pending_actions、usage、elapsed_ms、reasoning |
-
-消息的 usage / elapsed_ms / reasoning 同时会写入 `AIMessage.meta`，会话详情接口
-（GET /ai/conversations/{id}）通过消息的 `meta` 字段白名单透出这三个键，供历史消息展示。
+- [OpenAI API 参考](https://developers.openai.com/api/reference/overview)：鉴权与接口定义。
+- [OpenAI Chat Completions 与 Responses 比较](https://developers.openai.com/api/docs/guides/migrate-to-responses)：两种格式的区别。
+- [Anthropic Messages 文档](https://platform.claude.com/docs/zh-CN/build-with-claude/working-with-messages)：原生 Claude 接口说明。
+- [AI-Guide-and-Demos-zh_CN](https://github.com/Hoper-J/AI-Guide-and-Demos-zh_CN)：原教程保留的中文入门阅读，服务地址和模型名称仍以对应平台当前文档为准。

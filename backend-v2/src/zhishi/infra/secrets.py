@@ -1,4 +1,3 @@
-# src/zhishi/infra/secrets.py
 """API key 加密存储：Windows DPAPI（keyring）。库内只存 keyring 引用名。"""
 from __future__ import annotations
 _SERVICE = "zhishi-backend-v2"

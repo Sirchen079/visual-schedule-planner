@@ -1,4 +1,3 @@
-# tests/server/test_attachments.py
 """对话附件：POST /ai/attachments 上传即解析（缓存落库）；
 聊天时 attachment_ids 把解析文本注入模型输入，excerpt 落 display_json。"""
 import json

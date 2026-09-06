@@ -1,4 +1,3 @@
-# src/zhishi/domain/schedule/schemas.py
 # 注意：字段名 date 与类型 datetime.date 同名——类体内 `date: date | None = None`
 # 求值注解时默认值已绑入类局部命名空间，LOAD_NAME 会命中 None 而非类型。
 # 故以 Date 别名引入类型，字段名保持 date（API 契约）。
@@ -48,7 +47,7 @@ class EventCreate(BaseModel):
     location: str = ""
     category: str = "general"
     recur_rrule: str | None = None
-    repeat_note: str | None = None   # 人类可读周次规则（课表导入写入，re #020 事项2）
+    repeat_note: str | None = None   # 人类可读周次规则（课表导入写入）
     notes: str = ""
     remind_offsets: ReminderOffsets = Field(default_factory=list)
     reminder_time: ReminderTime | None = None

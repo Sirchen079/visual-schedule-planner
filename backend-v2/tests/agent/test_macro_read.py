@@ -1,4 +1,3 @@
-# tests/agent/test_macro_read.py
 import json
 from zhishi.adapters.parsers import ParsedDoc
 

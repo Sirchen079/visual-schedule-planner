@@ -1,4 +1,3 @@
-# src/zhishi/agent/runtime.py
 """AgentRuntime：PydanticAI 基座之上的组装与事件翻译。
 run_stream 是唯一驱动入口：yield 契约事件 dict（events.py 的模型 dump），
 落库消息与 run trace。审批暂停时以 awaiting_approval 结束并返回；
@@ -28,7 +27,7 @@ from zhishi.agent.permissions import IRREVOCABLE_TOOLS, classify
 class AgentDeps:
     db: Session
     emit: Any                      # asyncio.Queue：子代理/工具/计划卡片事件外发（per-run 隔离）
-    sub_model_factory: Any = None  # () -> Model：task 子代理模型工厂（per-run）
+    sub_model_factory: Any = None  #  -> Model：task 子代理模型工厂（per-run）
     conversation_id: int | None = None
     run_id: str | None = None
     capture_key: str = ""
@@ -148,7 +147,7 @@ class AgentRuntime:
 
     def _mcp_toolsets(self) -> list:
         """对每个 enabled 的 MCP 服务器构造带权限门的 toolset。
-        B1：stdio 服务器须 trusted=True 才装配（连 client 都不构造 → 不可能拉起
+        stdio 服务器须 trusted=True 才装配（连 client 都不构造 → 不可能拉起
         子进程）；http 传输不受限。
         列取工具发生在 run 内（toolset.get_tools 由 pydantic-ai 异步调用）；
         服务器不可达时该 run 以 failed 收口并透出 RunError（v1 不静默跳过）。"""
@@ -194,7 +193,7 @@ class AgentRuntime:
                 if verdict == "confirm":
                     from pydantic_ai.exceptions import ApprovalRequired
                     raise ApprovalRequired(metadata={"tool": spec.name, "args": kw})
-            token = _run_ctx_var.set(ctx)   # macro.task 经 current_run_usage() 并入用量
+            token = _run_ctx_var.set(ctx)   # macro.task 经 current_run_usage 并入用量
 
             async def _invoke(tool_db: Session):
                 call_args = (tool_db, ctx) if takes_ctx else (tool_db,)
@@ -465,7 +464,7 @@ class AgentRuntime:
         attempt_input: Any = model_input
         saw_plan_card = False
         step_count = 0
-        plan_retry_pending = plan_mode   # 计划模式受控重试：至多追加一轮（re #017 k3③）
+        plan_retry_pending = plan_mode   # 计划模式受控重试：至多追加一轮
         current_run = None
         last_checkpoint = time.monotonic()
         from pydantic_ai.messages import TextPart
@@ -535,7 +534,7 @@ class AgentRuntime:
                 if current_run is not None:
                     final_messages = snapshot()
                 if isinstance(exc, RunCancelled):
-                    # 取消：exc.all_messages() 保留部分输出，落库后以 interrupted 收尾
+                    # 取消：exc.all_messages 保留部分输出，落库后以 interrupted 收尾
                     done_reason = "cancelled"
                     usage = getattr(exc, "usage", None)
                     break
@@ -618,7 +617,7 @@ class AgentRuntime:
 
 def _safe_rollback(db: Session) -> None:
     """失败会话必须回滚：flush 中途异常后 Session 滞留「待回滚」态，后续任何
-    commit 都会连环崩（Method 'commit()' can't be called here）。回滚自身失败
+    commit 都会连环崩（Method 'commit' can't be called here）。回滚自身失败
     不掩盖原异常；已关闭/无事务的 Session 回滚为无害空操作。"""
     try:
         db.rollback()
@@ -691,7 +690,7 @@ class _MCPGatedToolset(MCPToolset):
     - 权限门与内置工具同路径：classify 判 confirm 时在 call 包装里 raise
       ApprovalRequired（deferred 恢复轮 ctx.tool_call_approved 直接放行）；
     - classify 的 mcp 分支需要 server 行与 readOnlyHint，均由本类持有传入；
-    - 工具清单复用 mcp_client 模块级 60s TTL 缓存（清账 B2 尾巴）：toolset 每 run
+    - 工具清单复用 mcp_client 模块级 60s TTL 缓存：toolset 每 run
       新建，框架实例级 cache_tools 随 __aexit__ 失效、且框架每 run 都 __aenter__
       toolset（真实连接）——本类改为查模块级缓存：命中不连接，未命中真连后回写；
       工具调用不缓存（必要行为），无活动会话时按需真连、用完即断。失效钩子
@@ -743,9 +742,8 @@ class _MCPGatedToolset(MCPToolset):
 
     async def list_tools(self) -> list:
         """跨 run 工具清单缓存：先查 mcp_client._tools_cache（键 server_id，60s TTL
-        与 /tools 端点同源），命中还原 Tool 对象直接返回；未命中 super() 真连后
-        以记录格式回写缓存。写回前校验 mcp_client 缓存世代（re #063 major，
-        与 list_tools 端点同一规则）：网络等待期间发生过 invalidate 则丢弃本次
+        与 /tools 端点同源），命中还原 Tool 对象直接返回；未命中 super 真连后
+        以记录格式回写缓存。写回前校验 mcp_client 缓存世代（与 list_tools 端点同一规则）：网络等待期间发生过 invalidate 则丢弃本次
         结果，防止旧服务器工具（含 readOnlyHint）回填污染。"""
         from time import monotonic
         from zhishi.adapters import mcp_client

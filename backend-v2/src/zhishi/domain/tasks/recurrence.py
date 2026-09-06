@@ -1,4 +1,3 @@
-# src/zhishi/domain/tasks/recurrence.py
 """重复规则推进：简单枚举 + RFC5545 RRULE（dateutil）。
 规则：从原截止推进；结果早于 after 则继续推进（补卡不生成已逾期实例）。"""
 from __future__ import annotations

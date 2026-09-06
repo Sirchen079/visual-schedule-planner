@@ -1,4 +1,3 @@
-# src/zhishi/agent/permissions.py
 """权限门：全部判定走这一条路径（流式循环/恢复执行/未来计划模式共用）。
 返回 'allow'（直接执行）/ 'confirm'（落审批卡片）/ 'deny'（未知工具，直接拒绝）。"""
 from __future__ import annotations
@@ -34,7 +33,7 @@ def _mcp_server_id_of(tool_name: str) -> int | None:
 
 
 def revoke_mcp_grants(db: Session, server_id: int) -> int:
-    """撤销某 MCP 服务器的全部「始终允许」授权（re #063 blocker）。
+    """撤销某 MCP 服务器的全部「始终允许」授权。
     grants 键 mcp__{sid}__{name} 里的 sid 是 sqlite rowid 可复用：删 A 建 B 得同
     sid、或 PUT 把端点整个换掉，B 的同名工具不得沿用 A 的授权——DELETE 与
     PUT（连接语义字段实际变更）必须在 commit 前调用本函数同事务撤销。
@@ -48,7 +47,7 @@ def revoke_mcp_grants(db: Session, server_id: int) -> int:
 
 
 def expire_mcp_pending_actions(db: Session, server_id: int) -> int:
-    """将某 MCP 服务器的 pending 与未消费 confirmed 审批卡置 expired（re #063/#072）。
+    """将某 MCP 服务器的 pending 与未消费 confirmed 审批卡置 expired（/）。
     旧卡一旦被批准并 resume，会经 ctx.tool_call_approved 绕过权限门直执行
     「同 sid 新服务器」的同名工具——DELETE/PUT 变更连接语义字段后旧卡必须作废。
     状态机 pending → confirmed（approve）→ executed（resume 消费）：approved 但尚未
@@ -84,7 +83,7 @@ def classify(db: Session, tool_name: str, args: dict, *,
     """判定顺序：MCP 前缀分支 → 注册表存在性 → readonly/safe → autonomy 档位 → grant → confirm。
     careful 档：readonly 放行、safe/confirm 全确认（safe 且 careful 落到 confirm）。
     MCP 动态工具（mcp__ 前缀）：不进 registry，按 server.auto_approve_readonly +
-    工具 readOnlyHint 判定；确认判定前查 grants（清账 v1 简化）——审批「始终允许」
+    工具 readOnlyHint 判定；确认判定前查 grants（简化）——审批「始终允许」
     落库的 tool_name 即命名空间全名 mcp__{sid}__{name}，天然对齐，arg_pattern
     子集匹配语义与内置工具一致；careful 档 grants 一律不生效（与内置同边界）。
     MCP 工具不属于 IRREVOCABLE_TOOLS（集合只含内置四件），无不可豁免问题。"""
@@ -120,7 +119,7 @@ def classify(db: Session, tool_name: str, args: dict, *,
     if autonomy == "autonomous" and tool_name not in IRREVOCABLE_TOOLS:
         return "allow"
     if tool_name in IRREVOCABLE_TOOLS:
-        # 不可豁免（re #019 blocker）：任何途径（含历史遗留 grant）都不得免确认，
+        # 不可豁免：任何途径（含历史遗留 grant）都不得免确认，
         # 必须早于 grant 检查短路，否则 (tool, "") 空模式 grant 会永久放行。
         return "confirm"
     if autonomy in ("standard", "autonomous") and _grant_hit(db, tool_name, args):

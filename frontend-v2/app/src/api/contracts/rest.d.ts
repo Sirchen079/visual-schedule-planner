@@ -148,7 +148,7 @@ export interface paths {
         };
         /**
          * List Entries
-         * @description 排期条目列表（re #B5）：默认近 30 天（[今天-29, 今天]），只给一端按 30 天窗推算；
+         * @description 排期条目列表：默认近 30 天（[今天-29, 今天]），只给一端按 30 天窗推算；
          *     可按 task_id 过滤。entry_id 不再创建即失联。
          */
         get: operations["list_entries_api_schedule_entries_get"];
@@ -344,7 +344,7 @@ export interface paths {
         };
         /**
          * List Trash
-         * @description 回收站：软删目标列表（含 key_results 与 deleted_at，re #B2）。
+         * @description 回收站：软删目标列表（含 key_results 与 deleted_at）。
          */
         get: operations["list_trash_api_goals_trash_get"];
         put?: never;
@@ -509,7 +509,7 @@ export interface paths {
         put?: never;
         /**
          * Uncheck
-         * @description 撤销一笔打卡：date 缺省=今天（re #B3，openapi schema 与实现对齐）。
+         * @description 撤销一笔打卡：date 缺省=今天（openapi schema 与实现对齐）。
          */
         post: operations["uncheck_api_habits__habit_id__uncheck_post"];
         delete?: never;
@@ -702,7 +702,7 @@ export interface paths {
         post?: never;
         /**
          * Delete Log
-         * @description 删除一条已结束的计时记录（re k3#048 残留清理诉求）。
+         * @description 删除一条已结束的计时记录。
          *     运行中的计时不可直接删（先停后删），409 防误删破坏 current 指针语义。
          */
         delete: operations["delete_log_api_focus_logs__log_id__delete"];
@@ -723,7 +723,7 @@ export interface paths {
         put?: never;
         /**
          * Upload
-         * @description 上传文件。notes 为 multipart 表单域（re #B6：原 query 传法表单域会被静默忽略）。
+         * @description 上传文件。notes 为 multipart 表单域。
          */
         post: operations["upload_api_files_post"];
         delete?: never;
@@ -1051,7 +1051,7 @@ export interface paths {
         /**
          * Export
          * @description response_class=Response（media_type None）：openapi 不再自动误标
-         *     application/json 空 schema，200 只声明 text/calendar（re #048）。
+         *     application/json 空 schema，200 只声明 text/calendar。
          */
         get: operations["export_api_ical_export_get"];
         put?: never;
@@ -1317,16 +1317,9 @@ export interface paths {
         put?: never;
         /**
          * Resume Stream
-         * @description 审批结案后恢复：取会话最后 assistant 消息的 history + 该轮全部 deferred 调用的
-         *     结案结果，构造 DeferredToolResults 重启新 execution。
-         *     回填范围 = history 末条模型响应中「尚未结算」的工具调用（re #028：同响应可混合
-         *     safe/readonly 直行调用——其结果已在 trailing ModelRequest 里、不落审批表，须从
-         *     末条响应的调用中扣除；pydantic-ai 恢复时对已结算调用自动以 skip 覆盖，路由层若
-         *     重复回填反而触发「already executed」UserError。剩余 open 调用一个不漏，缺任一
-         *     即 UserError 崩流，re #020 k3 major）；
-         *     仍有 pending 审批卡 → 400 + 未决清单（typed），不启动流；
-         *     该批次已被消费（confirmed 已转 executed / 源 run 已记 resumed_by_runs）→
-         *     400 typed consumed，幂等拒绝，不重复回填（re #023④）。
+         * @description 审批结束后恢复执行。仅为末条模型响应中尚未结算的调用回填结果，
+         *     已在历史中存在结果的调用不再回填。仍有待决审批或批次已被消费时
+         *     返回 400；其余请求在获得会话锁后启动新的执行流。
          */
         post: operations["resume_stream_ai_conversations__cid__resume_stream_post"];
         delete?: never;
@@ -1418,7 +1411,7 @@ export interface paths {
         put?: never;
         /**
          * Disable Active Skill
-         * @description 停用当前激活的用户技能（内置技能不动；无激活技能时幂等 ok，re k3#049 观察①）。
+         * @description 停用当前激活的用户技能（内置技能不动；无激活技能时幂等 ok）。
          *     instructions 组装按 enabled 过滤（prompts._skill_text），停用后其内容自然
          *     退出系统提示，无需另行清理。
          */
@@ -1511,7 +1504,7 @@ export interface paths {
         /**
          * Test Mcp Server
          * @description 连通性测试：连接 + list_tools，回写 last_status/last_error（错误已脱敏截断）。
-         *     B1：untrusted 的 stdio 服务器直接 403，不拉起子进程。
+         *     untrusted 的 stdio 服务器直接 403，不拉起子进程。
          */
         post: operations["test_mcp_server_ai_mcp_servers__sid__test_post"];
         delete?: never;
@@ -1529,8 +1522,8 @@ export interface paths {
         };
         /**
          * List Mcp Server Tools
-         * @description 工具清单（60s TTL 缓存；PUT/enable/DELETE 时主动失效，清账 B2）。
-         *     B1：untrusted 的 stdio 服务器直接 403，不拉起子进程。
+         * @description 工具清单（60s TTL 缓存；PUT/enable/DELETE 时主动失效）。
+         *     untrusted 的 stdio 服务器直接 403，不拉起子进程。
          */
         get: operations["list_mcp_server_tools_ai_mcp_servers__sid__tools_get"];
         put?: never;
@@ -2486,8 +2479,8 @@ export interface components {
     schemas: {
         /**
          * ActionResolveOut
-         * @description 审批/计划结案端点的统一返回体（re #013 minor：typed schema）。
-         *     re #023 建议③：ready_to_resume=该 action 所属 run 批次内已无 pending
+         * @description 审批/计划结案端点的统一返回体（typed schema）。
+         *     ready_to_resume=该 action 所属 run 批次内已无 pending
          *     （全部 confirmed/rejected/executed）——前端只在 ready 后才开 resume 流。
          */
         ActionResolveOut: {
@@ -2545,7 +2538,7 @@ export interface components {
         };
         /**
          * AttachmentOut
-         * @description 对话附件上传回包（re #048）：file_id 供聊天 attachment_ids 引用。
+         * @description 对话附件上传回包：file_id 供聊天 attachment_ids 引用。
          */
         AttachmentOut: {
             /** File Id */
@@ -2830,7 +2823,7 @@ export interface components {
         };
         /**
          * CancelOut
-         * @description 运行取消回包（re #048）：无该 run 令牌时 ok=false。
+         * @description 运行取消回包：无该 run 令牌时 ok=false。
          */
         CancelOut: {
             /** Ok */
@@ -2979,7 +2972,7 @@ export interface components {
         };
         /**
          * ConfigOut
-         * @description AI 配置列表项（re #047：前端 AiConfigInfo 手写收敛依据；api_key 敏感永不回显）。
+         * @description AI 配置列表项（api_key 敏感永不回显）。
          */
         ConfigOut: {
             /** Id */
@@ -3067,7 +3060,7 @@ export interface components {
         };
         /**
          * ConversationOut
-         * @description 会话列表项（re #048）：updated_at 为 ISO 串。
+         * @description 会话列表项：updated_at 为 ISO 串。
          */
         ConversationOut: {
             /** Id */
@@ -3112,7 +3105,7 @@ export interface components {
         };
         /**
          * CreatedOut
-         * @description 创建类端点的最小回包：只回新行 id，调用方随后重拉列表（re #047）。
+         * @description 创建类端点的最小回包：只回新行 id，调用方随后重拉列表。
          */
         CreatedOut: {
             /** Id */
@@ -3205,7 +3198,7 @@ export interface components {
         };
         /**
          * EnableOut
-         * @description 启用/切换类端点的统一回包（re #038：McpEnableResult 手写收敛依据）。
+         * @description 启用/切换类端点的统一回包。
          */
         EnableOut: {
             /**
@@ -3379,7 +3372,7 @@ export interface components {
         };
         /**
          * EventDetailOut
-         * @description 独立日程详情（re #033）：date 为 ISO 字符串（与既有消费面一致）；repeat_note 透出。
+         * @description 独立日程详情：date 为 ISO 字符串（与既有消费面一致）；repeat_note 透出。
          */
         EventDetailOut: {
             /** Id */
@@ -3894,7 +3887,7 @@ export interface components {
         };
         /**
          * IcalImportOut
-         * @description ICS 导入回包（re #048）：created=新建日程数。
+         * @description ICS 导入回包：created=新建日程数。
          */
         IcalImportOut: {
             /** Created */
@@ -4290,7 +4283,7 @@ export interface components {
         };
         /**
          * MCPServerOut
-         * @description MCP 服务器元数据（re #035）：敏感值 env/headers 不回显。
+         * @description MCP 服务器元数据：敏感值 env/headers 不回显。
          */
         MCPServerOut: {
             /** Id */
@@ -4350,7 +4343,7 @@ export interface components {
         };
         /**
          * MCPTestOut
-         * @description MCP 连通性测试回包（re #048）：成功/失败同形收敛；
+         * @description MCP 连通性测试回包：成功/失败同形收敛；
          *     exclude_none 保证两路实形各键守恒（成功无 error、失败无 tools）。
          */
         MCPTestOut: {
@@ -4368,7 +4361,7 @@ export interface components {
         };
         /**
          * MCPToolOut
-         * @description MCP 工具清单项（re #048：/tools 直连查询实形）。
+         * @description MCP 工具清单项（/tools 直连查询实形）。
          */
         MCPToolOut: {
             /** Name */
@@ -4390,7 +4383,7 @@ export interface components {
         };
         /**
          * MCPToolSummary
-         * @description 连通性测试回包里的工具摘要（实形只有 name/description，re #048）。
+         * @description 连通性测试回包里的工具摘要（实形只有 name/description）。
          */
         MCPToolSummary: {
             /** Name */
@@ -4493,7 +4486,7 @@ export interface components {
         };
         /**
          * MessageOut
-         * @description 会话消息项（re #048）：display 为展示元数据对象（{"text": ...}）。
+         * @description 会话消息项：display 为展示元数据对象（{"text": ...}）。
          */
         MessageOut: {
             /** Id */
@@ -4537,7 +4530,7 @@ export interface components {
         };
         /**
          * MonthDayOut
-         * @description month 视图单日条目（re #020 事项3）：task_count=当日任务排期数；
+         * @description month 视图单日条目：task_count=当日任务排期数；
          *     event_count=当日独立日程 RRULE 展开计数（双周课隔周 +1）。
          */
         MonthDayOut: {
@@ -4553,7 +4546,7 @@ export interface components {
         };
         /**
          * NotificationOut
-         * @description 通知实形（re #047：前端 Notification 手写收敛依据）。task_id/read_at 可空，
+         * @description 通知响应模型。task_id/read_at 可空，
          *     read_at 为 null 即未读；remind_at/read_at 序列化为 ISO 串（与既有回包一致）。
          */
         NotificationOut: {
@@ -4648,7 +4641,7 @@ export interface components {
         };
         /**
          * PlanRejectOut
-         * @description 计划拒绝：无可续跑流，不提供 resume（re #016 minor）。
+         * @description 计划拒绝：无可续跑流，不提供 resume。
          */
         PlanRejectOut: {
             /**
@@ -4903,8 +4896,8 @@ export interface components {
         };
         /**
          * ReportOut
-         * @description 报告实形（re #047：前端 Report 手写类型收敛依据）。
-         *     period_start/end 为 ISO 日期串、created_at 为 ISO 时间串——与 _out() 既有回包一致。
+         * @description 报告实形（前端 Report 手写类型收敛依据）。
+         *     period_start/end 为 ISO 日期串、created_at 为 ISO 时间串——与 _out 既有回包一致。
          */
         ReportOut: {
             /** Id */
@@ -4926,10 +4919,8 @@ export interface components {
         };
         /**
          * ResumeBlockedOut
-         * @description resume 拒绝体（re #020 k3 major）：本轮仍有未决审批卡。
-         *     前端按 pending 清单提示用户逐张批准/拒绝后再续跑。
-         *     re #023④：consumed=true 表示该轮审批批次已被 resume 消费（confirmed 已转
-         *     executed，源 run 已记 resumed_by_runs）——重复 resume 幂等拒绝，不会重复回填。
+         * @description 恢复请求被拒绝时的响应。pending 列出尚未处理的审批；
+         *     consumed 表示该批次已恢复过，用于防止重复执行。
          */
         ResumeBlockedOut: {
             /** Pending */
@@ -5037,7 +5028,7 @@ export interface components {
         };
         /**
          * RiskItem
-         * @description 逾期风险分条目（risk 序列项，score 降序；规则分见 risk()）。
+         * @description 逾期风险分条目（risk 序列项，score 降序；规则分见 risk）。
          */
         RiskItem: {
             /** Task Id */
@@ -5075,7 +5066,7 @@ export interface components {
         };
         /**
          * ScheduleEntryOut
-         * @description 排期条目本体（re #B5）：列表/创建/更新端点共用同一形状。
+         * @description 排期条目本体：列表/创建/更新端点共用同一形状。
          */
         ScheduleEntryOut: {
             /** Id */
@@ -5152,7 +5143,7 @@ export interface components {
         };
         /**
          * SkillOut
-         * @description AI 技能列表项（re #047：前端 SkillInfo 手写收敛依据）。
+         * @description AI 技能列表项。
          */
         SkillOut: {
             /** Id */
@@ -5308,7 +5299,7 @@ export interface components {
         };
         /**
          * SubtaskRead
-         * @description 子任务读取面（re #B4）：随 TaskRead 内嵌返回，REST 消费者可渲染子任务清单。
+         * @description 子任务读取面：随 TaskRead 内嵌返回，REST 消费者可渲染子任务清单。
          */
         SubtaskRead: {
             /** Id */
@@ -5324,7 +5315,7 @@ export interface components {
         };
         /**
          * SubtaskWriteOut
-         * @description 子任务写端点响应（re #033）：SubtaskRead + task_id（写返回历来带归属，载荷守恒）。
+         * @description 子任务写端点响应：SubtaskRead + task_id（写返回历来带归属，载荷守恒）。
          */
         SubtaskWriteOut: {
             /** Id */
@@ -5342,7 +5333,7 @@ export interface components {
         };
         /**
          * TagOut
-         * @description 标签项（re #048：GET /api/tasks/tags 实形）。
+         * @description 标签项（GET /api/tasks/tags 实形）。
          */
         TagOut: {
             /** Id */
@@ -5568,7 +5559,7 @@ export interface components {
         };
         /**
          * ToolGrantOut
-         * @description 「始终允许」规则（re #019：可审计、可撤销）。
+         * @description 「始终允许」规则（可审计、可撤销）。
          */
         ToolGrantOut: {
             /** Id */
@@ -5589,7 +5580,7 @@ export interface components {
         };
         /**
          * UncheckBody
-         * @description re #B3：date 可省略（缺省=今天），与 check_in 的 day=None 语义一致。
+         * @description date 可省略（缺省=今天），与 check_in 的 day=None 语义一致。
          */
         UncheckBody: {
             /** Date */
@@ -6701,7 +6692,7 @@ export interface operations {
                 include_deleted?: boolean;
                 /**
                  * @deprecated
-                 * @description 旧参数名（re #B2 改名），等价 include_deleted，兼容保留
+                 * @description 兼容参数，与 include_deleted 等价
                  */
                 include_archived?: boolean | null;
             };
@@ -8763,14 +8754,13 @@ export interface operations {
                     "text/event-stream": string;
                 };
             };
-            /** @description 拒绝续跑：pending 非空=本轮仍有未决审批卡（按清单逐张处理）；consumed=true=该批次已被消费，无可恢复审批（幂等拒绝，re #023④） */
+            /** @description 拒绝续跑：pending 非空=本轮仍有未决审批卡（按清单逐张处理）；consumed=true=该批次已被消费，无可恢复审批（幂等拒绝） */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ResumeBlockedOut"];
-                    "text/event-stream": components["schemas"]["ResumeBlockedOut"];
                 };
             };
             /** @description Validation Error */

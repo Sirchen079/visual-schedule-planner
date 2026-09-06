@@ -3,7 +3,7 @@
  * 消息流：历史消息 + live run 内容按时间线渲染。
  * - text_delta → 正文段（流式尾部带光标）；reasoning_delta → 可折叠「思考过程」。
  * - 工具卡按流内 seq 顺序插入；审批卡/计划卡固定渲染在流末尾（线程最醒目的待决元素）。
- * - M3.5：审批卡以审批账目（approvalLedger）驱动渲染全部卡——同流多个
+ * - 审批卡以审批账目（approvalLedger）驱动渲染全部卡——同流多个
  *   tool_approval_requested 不再只显示 pendingApproval 单槽位的最后一张；
  *   已批准/已拒绝的卡保留图章（与日历幽灵块图章语言一致），待决卡独立操作。
  */
@@ -80,7 +80,7 @@ function itemKey(item: ThreadItem, idx: number): string {
       <p class="empty-hint">需要确认的变更，会先与你核对。</p>
     </div>
 
-    <!-- 历史消息统一挂在一条日期分隔线之下（与 final-shell 的 divider 一致） -->
+    <!-- 历史消息统一挂在一条日期分隔线之下 -->
     <div v-if="conv.messages.length" class="divider">{{ historyLabel }}</div>
 
     <template v-for="(item, idx) in items" :key="itemKey(item, idx)">

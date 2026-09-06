@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * 资料库视图（/library）：文件列表 + 搜索 + 上传 + 备注编辑 + 软删除，B×C 暗色。
+ * 资料库视图（/library）：文件列表 + 搜索 + 上传 + 备注编辑 + 软删除。
  * - 数据：GET /api/files?q（后端过滤）；上传走 multipart（POST /api/files，notes 为 query 参数）
- * - 行内备注编辑（PATCH）；删除入回收站（乐观移除 + 失败回滚，约束①）；恢复/彻底删除在回收站页
+ * - 行内备注编辑（PATCH）；删除入回收站（乐观移除 + 失败回滚）；恢复/彻底删除在回收站页
  * - run done 后由壳层自动刷新（App.vue 接线，覆盖 AI bulk_delete_files/import_web_resources）
  */
 import { onMounted, ref, watch } from 'vue'

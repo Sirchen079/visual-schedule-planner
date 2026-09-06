@@ -3,7 +3,7 @@
  *
  * 顺序 = 历史消息（服务端顺序）→ 本地回显的刚发送消息 → live 内容（seq 单调序）。
  * 纯函数，便于单测。审批卡/计划卡不进时间线（由 ChatThread 固定渲染在流末尾，
- * 与 final-shell 一致：待决卡片是线程最末、最醒目的元素）。
+ * 待审批卡显示在消息流末尾）。
  */
 import type { ConversationMessage, ConversationMessageDisplay } from '../../api/ai'
 import type { useRunStore } from '../../stores/run'

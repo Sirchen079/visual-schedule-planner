@@ -1,4 +1,3 @@
-# tests/domain/schedule/test_events.py
 from datetime import date
 from zhishi.domain.schedule import service as ss
 

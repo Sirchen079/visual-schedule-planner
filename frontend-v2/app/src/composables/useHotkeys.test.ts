@@ -1,5 +1,5 @@
 /**
- * 全局快捷键单测（M4e）——覆盖 docs/KEYMAP.md「实现约束」点名的守卫规则：
+ * 全局快捷键单测——覆盖 keymap.ts「实现约束」点名的守卫规则：
  * 输入聚焦不触发（Esc 与 Ctrl+, 例外）、IME 组字不触发、Esc 分层顺序、
  * g 前缀超时/错键作废、无审批时 y/n 无效；另覆盖键位数据单源与 r 键 route→reload 映射。
  *
@@ -69,7 +69,7 @@ describe('eventCombo 事件规范化', () => {
 })
 
 describe('键位数据单源（keymap.ts）', () => {
-  it('g 前缀路由与 KEYMAP.md 导航表逐条一致', () => {
+  it('g 前缀路由与 keymap.ts 导航表逐条一致', () => {
     const nav = SHORTCUTS.filter((s) => s.group === 'nav')
     expect(nav.map((s) => s.route)).toEqual([
       '/',

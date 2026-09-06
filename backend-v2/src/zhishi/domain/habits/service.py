@@ -1,4 +1,3 @@
-# src/zhishi/domain/habits/service.py
 """习惯打卡：当天幂等累加；streak 今天未达标不打断（算到昨天，给补卡机会）。"""
 from __future__ import annotations
 from datetime import date, timedelta

@@ -1,5 +1,4 @@
-# tests/server/test_task_subtasks_read.py
-"""re #B4：子任务在 REST 读取面可见（写后无读修复）。
+"""子任务在 REST 读取面可见（写后无读修复）。
 GET /api/tasks 与 GET /api/tasks/{id} 的响应带 subtasks
 （SubtaskRead：id/title/done/estimated_minutes/completed_at）；
 列表端点 selectinload 一次预载，读取查询数不随任务数线性增长。"""

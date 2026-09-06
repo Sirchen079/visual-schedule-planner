@@ -1,4 +1,3 @@
-# tests/server/test_app.py
 from fastapi.testclient import TestClient
 from zhishi.server.app import create_app
 

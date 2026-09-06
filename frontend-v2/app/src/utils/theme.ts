@@ -1,9 +1,6 @@
 /**
- * 外观主题（'dark' | 'light'）读写助手，main.ts 首帧引导 / SettingsView 切换 /
- * settings store 跨端口调和三处共用。
- * re #065（re gpt6astra #063 major）：桌面壳每次随机端口，localStorage 按 origin（含端口）
- * 隔离 → 主题的跨端口权威源是 8421 后端 settings KV 的 ui.theme 键；localStorage 只作
- * 本 origin 的首帧秒刷缓存，挂载后由 store.reconcileTheme() 以远端为准调和。
+ * 主题读取、应用与持久化。
+ * 后端 ui.theme 跨端口保存用户偏好；localStorage 仅缓存当前来源的首帧主题。
  */
 export type ThemeName = 'dark' | 'light'
 

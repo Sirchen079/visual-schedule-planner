@@ -1,12 +1,5 @@
-/**
- * POST SSE 客户端（EventSource 不支持 POST，故用 fetch + ReadableStream 自封装）。
- *
- * 后端帧格式（FRONTEND_HANDBOOK §4）：`event: <type>\ndata: <json>\n\n`
- * - SSEFrameParser：纯字符串增量解析器，跨 chunk 断帧安全、支持多帧粘连、
- *   兼容 \r\n 与 \r 换行、忽略 `:` 注释行、flush 兜底无终止空行的最后一帧。
- * - parseSSEEvent：data JSON → events.d.ts 的 SSEEvent 判别联合（按 type 收窄）。
- * - streamSSE：回调式（onEvent/onError/onClose），支持 AbortController 取消。
- */
+/** 使用 fetch 消费 POST SSE 流，支持中止、跨块帧拼接和不同换行符。
+ * 事件数据按 SSEEvent 的 type 字段区分。 */
 import type { SSEEvent } from './contracts/events'
 
 export interface SSEFrame {

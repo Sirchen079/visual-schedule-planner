@@ -1,8 +1,4 @@
-# tests/server/test_typed_responses.py
-"""re #B1：goals / habits / journal / files 四域读写端点响应 typed 化（参照 #021 schedule 批次）。
-双锁定：a) openapi 200/201 schema 不再为空（$ref 化）；b) response_model 序列化不丢实测字段
-（载荷守恒——前端手写类型按真实返回形状建立，typed 化不得使其变形）。
-re #047(k3)：最后一批五域（ai reports/configs/skills + notifications/focus）同法收敛。"""
+"""接口响应模型测试：OpenAPI 声明明确类型，序列化保留领域服务返回的字段。"""
 from datetime import date, datetime
 
 from fastapi.testclient import TestClient
@@ -41,7 +37,7 @@ TYPED_PATHS = [
     ("/api/files/{file_id}/restore", "post", 200),
     ("/api/files/{file_id}/attach/{task_id}", "post", 200),
     ("/api/files/{file_id}/detach/{task_id}", "post", 200),
-    # re #033(k3)：subtask 写端点 + EventDetail 端点（前端等此收敛手写类型）
+    # (k3)：subtask 写端点 + EventDetail 端点（前端等此收敛手写类型）
     ("/api/tasks/{task_id}/subtasks", "post", 201),
     ("/api/tasks/{task_id}/subtasks/{subtask_id}", "patch", 200),
     ("/api/schedule/events/{event_id}", "get", 200),
@@ -68,7 +64,7 @@ def test_goal_payload_fields_survive_response_model(tmp_path):
     with TestClient(create_app(data_dir=tmp_path)) as c:
         g = c.post("/api/goals", json={"title": "学期目标", "start_date": "2026-09-01"}).json()
         assert set(g) == {"id", "title", "notes", "status", "start_date", "end_date",
-                          "key_results", "deleted_at"}   # deleted_at 回收站语义（re #B2）
+                          "key_results", "deleted_at"}   # deleted_at 回收站语义
         assert g["start_date"] == "2026-09-01" and g["key_results"] == []
         kr = c.post(f"/api/goals/{g['id']}/key-results",
                     json={"title": "读完12本书", "kind": "manual",
@@ -140,7 +136,7 @@ def test_file_payload_fields_survive_response_model(tmp_path):
 
 
 def test_subtask_write_and_event_detail_payload(tmp_path):
-    """re #033：subtask 写端点与 EventDetail typed 化——载荷守恒 + repeat_note 透出。"""
+    """subtask 写端点与 EventDetail typed 化——载荷守恒 + repeat_note 透出。"""
     with TestClient(create_app(data_dir=tmp_path)) as c:
         tid = c.post("/api/tasks", json={"title": "载体"}).json()["id"]
         r = c.post(f"/api/tasks/{tid}/subtasks", json={"title": "步骤A"})
@@ -163,7 +159,7 @@ def test_subtask_write_and_event_detail_payload(tmp_path):
         assert patched_ev["location"] == "教一" and "repeat_note" in patched_ev
 
 
-# ---- re #047(k3)：五域 typed 化（ai reports/configs/skills + notifications/focus） ----
+# ---- (k3)：五域 typed 化（ai reports/configs/skills + notifications/focus） ----
 
 K3_PATHS = [
     # /ai/reports 全系列（briefing/today 同形 ReportOut 一并覆盖）
@@ -352,7 +348,7 @@ def test_focus_payload_fields_survive_response_model(tmp_path):
         assert stats["total_minutes"] == 0   # 秒级启停不计分钟
 
 
-# ---- re #048：最后 18 个空 schema 端点 typed 化 + 全量总回归（防再漏） ----
+# ---- 最后 18 个空 schema 端点 typed 化 + 全量总回归（防再漏） ----
 
 FINAL_PATHS = [
     ("/api/tasks/tags", "get", 200),

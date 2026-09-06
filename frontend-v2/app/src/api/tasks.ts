@@ -1,29 +1,15 @@
-/**
- * 任务域 REST 封装（/api/tasks/*）。类型已收敛到生成契约 rest.d.ts（2026-09-05 契约批次
- * B1-B6 后全 typed，re #B2/#B4）：
- * - GET /api/tasks?q&status&priority&tag&due_before&due_after → TaskRead[]
- * - POST /api/tasks {TaskCreate} → 201 TaskRead；PATCH /api/tasks/{id} {TaskUpdate} → TaskRead
- * - DELETE /api/tasks/{id} → 204（软删入回收站）；POST /{id}/restore → TaskRead；
- *   DELETE /{id}/purge → 204（物理删除）；GET /api/tasks/trash → TaskRead[]（re #B2）
- * - 子任务（re #B4/#033）：TaskRead 内嵌 subtasks: SubtaskRead[]，REST 可渲染子任务清单；
- *   create/update 子任务端点响应 = SubtaskWriteOut（SubtaskRead + task_id，写返回历来带
- *   归属；多出的 task_id 前端无消费方）
- *
- * 实测契约坑（维持记录）：
- * 1. due_date 入参接受 'YYYY-MM-DD'，回包是 'YYYY-MM-DDT00:00:00'（datetime）——展示取日期部分；
- * 2. 子任务生命周期会驱动父任务状态（创建子任务 → 父任务 doing；全部完成 → 父任务 done+progress 100）。
- */
+/** 任务、子任务及任务统计 REST 接口。请求和响应类型来自生成的 rest.d.ts。 */
 import type { components, operations } from './contracts/rest'
 import { http } from './http'
 
 type schemas = components['schemas']
 
-/** 任务状态（后端实测枚举；stats/summary 亦用 todo/doing/done 计数）。 */
+/** 任务状态枚举，与统计接口使用的状态一致。 */
 export type TaskStatus = 'todo' | 'doing' | 'done'
 export type TaskPriority = 'high' | 'medium' | 'low'
 
 /**
- * 任务 = 生成 TaskRead（re #B4：内嵌 subtasks）。
+ * 任务 = 生成 TaskRead（内嵌 subtasks）。
  * status/priority 收窄为后端枚举——【谨慎项保留】BoardView 以窄键索引
  * PRIORITY_LABEL: Record<TaskPriority, string>，看板状态列同依赖枚举键。
  */
@@ -32,10 +18,10 @@ export type Task = Omit<schemas['TaskRead'], 'status' | 'priority'> & {
   priority: TaskPriority
 }
 
-/** 子任务 = 生成 SubtaskRead（re #B4 内嵌读取面）。 */
+/** 子任务 = 生成 SubtaskRead（内嵌读取面）。 */
 export type Subtask = schemas['SubtaskRead']
 
-/** 子任务写端点（create/update）回包 = 生成 SubtaskWriteOut（SubtaskRead + task_id，re #033 typed）。 */
+/** 子任务写端点（create/update）回包 = 生成 SubtaskWriteOut（SubtaskRead + task_id，typed）。 */
 export type SubtaskWrite = schemas['SubtaskWriteOut']
 
 /**

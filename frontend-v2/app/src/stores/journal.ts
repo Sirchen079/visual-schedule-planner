@@ -2,7 +2,7 @@
  * 日记 store：当日编辑器 + 历史列表（/journal 视图）。
  *
  * - 保存走 PUT upsert（幂等）：本地先落 pending 态，成功后同步列表与当前条目；
- *   失败不沉默（actionError 行内展示）。
+ *   操作失败时行内显示 actionError。
  * - refreshAll 供 run done 自动刷新（AI 工具 write_journal 落库在 done 前）。
  */
 import { defineStore } from 'pinia'
@@ -25,7 +25,7 @@ export function moodLabel(mood: string | null | undefined): string {
 
 export const useJournalStore = defineStore('journal', {
   state: () => ({
-    /** 历史列表（按日期倒序，实测） */
+    /** 按日期倒序排列的历史日记。 */
     entries: null as JournalEntry[] | null,
     loading: false,
     /** 当前编辑中的日期（ISO）与该日条目 */
@@ -60,7 +60,7 @@ export const useJournalStore = defineStore('journal', {
       this.actionError = null
       const blank: JournalEntry = { id: 0, date: d, content: '', mood: null, created_at: '', updated_at: '' }
       try {
-        // 契约与实测：当日无条目 → 200 + null（旧注释「空形状条目」已过时）——落空白可写条目
+        // 当天没有日记时返回 null，视图显示可编辑的空白条目。
         this.activeEntry = (await getJournalDay(d)) ?? blank
       } catch (e) {
         // 请求失败同样给空白可写条目而非报错卡死编辑器

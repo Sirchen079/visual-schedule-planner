@@ -1,4 +1,3 @@
-# src/zhishi/server/routes/goals.py
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -10,7 +9,7 @@ from zhishi.server.deps import get_db
 router = APIRouter(prefix="/api/goals", tags=["goals"])
 
 
-# ---- typed 响应（re #B1：openapi 从空 schema 变 $ref，字段与实际返回形状一致） ----
+# ---- typed 响应（openapi 从空 schema 变 $ref，字段与实际返回形状一致） ----
 
 class KeyResultOut(BaseModel):
     id: int
@@ -31,7 +30,7 @@ class GoalOut(BaseModel):
     start_date: str | None = None   # YYYY-MM-DD
     end_date: str | None = None
     key_results: list[KeyResultOut]
-    deleted_at: datetime | None = None   # 回收站语义（re #B2）：已删项透出删除时间
+    deleted_at: datetime | None = None   # 回收站语义：已删项透出删除时间
 
 
 class GoalProgressItemOut(BaseModel):
@@ -54,7 +53,7 @@ def create_goal(payload: GoalCreate, db: Session = Depends(get_db)):
 def list_goals(include_deleted: bool = Query(False, description="包含已删除（回收站）目标"),
                include_archived: bool | None = Query(
                    None, deprecated=True,
-                   description="旧参数名（re #B2 改名），等价 include_deleted，兼容保留"),
+                   description="兼容参数，与 include_deleted 等价"),
                db: Session = Depends(get_db)):
     include = include_deleted or bool(include_archived)
     return [_goal_dict(g) for g in service.list_goals(db, include_deleted=include)]
@@ -62,7 +61,7 @@ def list_goals(include_deleted: bool = Query(False, description="包含已删除
 
 @router.get("/trash", response_model=list[GoalOut])
 def list_trash(db: Session = Depends(get_db)):
-    """回收站：软删目标列表（含 key_results 与 deleted_at，re #B2）。"""
+    """回收站：软删目标列表（含 key_results 与 deleted_at）。"""
     return [_goal_dict(g) for g in service.list_trash(db)]
 
 

@@ -1,4 +1,3 @@
-# src/zhishi/domain/settingsvc.py
 """应用设置：key-value + 功能开关 + 工作时段。脏值一律回退默认。"""
 from __future__ import annotations
 import re
@@ -17,10 +16,10 @@ DEFAULTS: dict[str, str] = {
     "working_hours_end": "18:00",
     "daily_capacity_minutes": "480",
     "assistant_mode": "agent",
-    "agent_autonomy": "standard",  # careful/standard/autonomous（M2 消费）
-    "feature_autopilot_enabled": "false",  # 秘书自动档（M4）：默认关闭
+    "agent_autonomy": "standard",  # careful/standard/autonomous（消费）
+    "feature_autopilot_enabled": "false",  # 秘书自动档：默认关闭
     "feature_followup_enabled": "true",  # 规则跟进；实际调整仍检查自动档与授权。
-    "compaction_threshold": "12",  # 会话摘要压缩触发阈值（轮数，清账 11）
+    "compaction_threshold": "12",  # 会话摘要压缩触发阈值（轮数）
 }
 
 _HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")

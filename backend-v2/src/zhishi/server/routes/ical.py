@@ -1,4 +1,3 @@
-# src/zhishi/server/routes/ical.py
 from fastapi import APIRouter, Depends, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -10,7 +9,7 @@ router = APIRouter(prefix="/api/ical", tags=["ical"])
 
 
 class IcalImportOut(BaseModel):
-    """ICS 导入回包（re #048）：created=新建日程数。"""
+    """ICS 导入回包：created=新建日程数。"""
     created: int
 
 
@@ -20,7 +19,7 @@ class IcalImportOut(BaseModel):
                                  "schema": {"type": "string"}}}}})
 def export(db: Session = Depends(get_db)):
     """response_class=Response（media_type None）：openapi 不再自动误标
-    application/json 空 schema，200 只声明 text/calendar（re #048）。"""
+    application/json 空 schema，200 只声明 text/calendar。"""
     return Response(content=ical.export_ics(db), media_type="text/calendar",
                     headers={"Content-Disposition": 'attachment; filename="zhishi-calendar.ics"',
                              "Cache-Control": "no-store"})

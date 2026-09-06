@@ -1,4 +1,3 @@
-# tests/infra/test_scheduler.py
 import asyncio
 from zhishi.infra.scheduler import Scheduler
 
@@ -28,7 +27,7 @@ async def test_scheduler_swallows_errors():
 
 
 async def test_scheduler_respects_per_job_interval():
-    """M4 回归：每个 job 按自己的 interval 调度——快 job 多跑，慢 job
+    """每个 job 按自己的 interval 调度——快 job 多跑，慢 job
     只在首轮立即执行一次，不得被最小 interval 拖着每轮都跑。"""
     s = Scheduler()
     fast, slow = [], []

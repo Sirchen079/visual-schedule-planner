@@ -1,4 +1,3 @@
-# src/zhishi/agent/providers.py
 """AIConfig → PydanticAI 模型装配：
 openai_compat：任意 OpenAI 兼容端点（智谱国内/DeepSeek/通义/自建网关）
 openai_responses：OpenAI Responses 格式端点（显式选择，保留本地完整历史）

@@ -1,4 +1,3 @@
-# src/zhishi/domain/focus/service.py
 """番茄钟：全局至多一条运行中（新计时先停旧的）；统计聚合。"""
 from __future__ import annotations
 from datetime import datetime, timedelta

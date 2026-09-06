@@ -1,13 +1,4 @@
-/**
- * 日记域 REST 封装（/api/journal/*）。类型已收敛到生成契约 rest.d.ts
- * （2026-09-05 契约批次 B1-B6 后全 typed）：
- * - GET /api/journal?limit=N → JournalEntryOut[]（按日期倒序，实测）
- * - GET /api/journal/today → JournalEntryOut | null（无条目 → 200 + 字面 null，2026-09-05 实测；
- *   旧手写注释「返回空形状条目」与契约/实测不符，已修正）
- * - GET /api/journal/{day} → JournalEntryOut | null（同上）
- * - PUT /api/journal/{day} {JournalUpsert} → JournalEntryOut（upsert，幂等）
- * - DELETE /api/journal/{day} → 204
- */
+/** 日记 REST 接口。列表按日期倒序；无指定日期的日记时返回 null；保存使用幂等 upsert。 */
 import type { components } from './contracts/rest'
 import { http } from './http'
 

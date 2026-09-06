@@ -1,4 +1,3 @@
-# src/zhishi/infra/logsetup.py
 from __future__ import annotations
 import logging
 import os

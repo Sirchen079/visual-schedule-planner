@@ -1,4 +1,3 @@
-# tests/infra/test_config.py
 from zhishi.infra.config import Settings
 
 def test_data_root_from_env(monkeypatch, tmp_path):

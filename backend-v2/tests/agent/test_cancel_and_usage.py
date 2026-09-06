@@ -1,4 +1,3 @@
-# tests/agent/test_cancel_and_usage.py
 import asyncio
 import json
 from pydantic_ai import CancellationToken

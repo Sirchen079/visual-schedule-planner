@@ -1,4 +1,3 @@
-# src/zhishi/server/routes/settings.py
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session

@@ -1,4 +1,3 @@
-# src/zhishi/server/deps.py
 from fastapi import Request
 
 

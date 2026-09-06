@@ -1,5 +1,4 @@
-# tests/server/test_focus_log_delete.py
-"""re k3#048 残留清理诉求：新增 DELETE /api/focus/logs/{log_id}——仅已结束的
+"""DELETE /api/focus/logs/{log_id}——仅已结束的
 记录可删（204）；运行中的计时不可直接删（409，先停后删）；不存在 404。"""
 from fastapi.testclient import TestClient
 from zhishi.server.app import create_app

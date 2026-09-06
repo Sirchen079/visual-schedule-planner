@@ -1,4 +1,3 @@
-# tests/domain/test_journal.py
 from datetime import date
 from zhishi.domain.journal import service as js
 

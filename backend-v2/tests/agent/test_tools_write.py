@@ -1,4 +1,3 @@
-# tests/agent/test_tools_write.py
 import json
 from zhishi.agent.tools.registry import get_spec
 

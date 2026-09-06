@@ -83,7 +83,7 @@ async function confirmRemove(id: number): Promise<void> {
   await focus.removeLog(id)
 }
 
-/* ---- 快捷键端口（M4e）----
+/* ---- 快捷键端口----
  * f 键空闲时展开本表单（等价于点空闲小条）、Esc 第②层收起：向 hotkeyPorts 登记控制入口；
  * 表单展开期间注册 tier 2 的 Esc 分层条目，关闭/卸载即注销（不泄漏）。
  * 「记录」面板同层：面板开着才注册、关掉即注销。FocusBar 与壳层同生命周期，

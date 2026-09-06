@@ -1,14 +1,4 @@
-/**
- * 习惯域 REST 封装（/api/habits/*）。类型已收敛到生成契约 rest.d.ts
- * （2026-09-05 契约批次 B1-B6 后全 typed，re #B3）：
- * - GET /api/habits → HabitOut[]（status 实时状态仅列表端点携带）
- * - POST /api/habits {HabitCreate} → 201 HabitOut（**实测不携带 status**，2026-09-05 探针确认）
- * - DELETE /api/habits/{id} → 204（软删除）
- * - POST /api/habits/{id}/check-in {} → CheckInOut（body 可空）
- * - POST /api/habits/{id}/uncheck {date?} → UncheckOut；date 可省略（缺省=今天，re #B3——
- *   旧「空 body 实测 422」坑后端已修复并与 openapi schema 对齐）
- * - GET /api/habits/{id}/logs?days=N → HabitLogOut[]
- */
+/** 习惯及打卡 REST 接口。列表包含实时 status；创建响应可能不包含 status。 */
 import type { components } from './contracts/rest'
 import { http } from './http'
 
@@ -23,12 +13,7 @@ export type HabitStatus = schemas['HabitStatusOut']
 /** 习惯生成面（原始 HabitOut）：非列表端点（如 create）不携带 status。 */
 export type HabitOut = schemas['HabitOut']
 
-/**
- * 习惯（列表端点消费面）= 生成 HabitOut 的收窄：
- * - period 窄化为后端枚举 daily/weekly；
- * - status 生成面为 `HabitStatusOut | null`（仅列表端点携带），列表实测恒非空——
- *   【谨慎项保留收窄】HabitsView 直接读 h.status.done_today、store 乐观更新均依赖非空。
- */
+/** 视图使用的习惯类型。列表中的 status 非空，创建响应由 store 补充初始状态。 */
 export type Habit = Omit<HabitOut, 'period' | 'status'> & {
   period: HabitPeriod
   status: HabitStatus
@@ -72,7 +57,7 @@ export function checkIn(habitId: number): Promise<HabitCheckInResult> {
   return http.post<HabitCheckInResult>(`/api/habits/${habitId}/check-in`, {})
 }
 
-/** 撤销某天打卡：date 可选（re #B3：缺省=今天）。 */
+/** 撤销某天打卡：date 可选（缺省=今天）。 */
 export function uncheckHabit(habitId: number, date?: string): Promise<schemas['UncheckOut']> {
   return http.post<schemas['UncheckOut']>(`/api/habits/${habitId}/uncheck`, { date: date ?? null })
 }

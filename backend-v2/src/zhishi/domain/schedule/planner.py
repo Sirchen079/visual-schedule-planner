@@ -1,4 +1,3 @@
-# src/zhishi/domain/schedule/planner.py
 """确定性日调度器（Motion 心法：LLM 管意图、算法管调度）。
 排序：逾期>高优>截止近>创建早；装入工作时段空闲块，尊重每日容量。"""
 from __future__ import annotations

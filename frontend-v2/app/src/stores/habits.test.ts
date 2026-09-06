@@ -13,11 +13,11 @@ function jsonResponse(payload: unknown, status = 200): Response {
   } as unknown as Response
 }
 
-/** 真实形状（2026-09-05 于 d0f5474 GET /api/habits 实测，含内嵌 status）。 */
+/** 包含打卡状态的习惯测试样本。 */
 function makeHabit(partial: Partial<Habit>): Habit {
   return {
     id: 1,
-    name: 'M3测试习惯',
+    name: '测试习惯',
     notes: '',
     period: 'daily',
     target_count: 1,
@@ -67,7 +67,7 @@ describe('habits store（打卡乐观更新 + 回滚）', () => {
     vi.unstubAllGlobals()
   })
 
-  it('checkInToday 失败：三字段全部回滚且 actionError 可见（约束①）', async () => {
+  it('checkInToday 失败：三字段全部回滚且 actionError 可见', async () => {
     const store = useHabitsStore()
     store.items = [makeHabit({ status: { today_count: 0, period_count: 0, streak: 3, done_today: false } })]
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: '习惯不存在' }, 404)))

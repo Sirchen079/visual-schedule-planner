@@ -1,5 +1,5 @@
 /**
- * 全局键盘快捷键（M4e）——唯一注册点。
+ * 全局键盘快捷键——唯一注册点。
  *
  * 结构：
  * - keymap.ts：键位数据单源（combos/chordKey/id 驱动绑定与速查浮层）。
@@ -8,7 +8,7 @@
  * - useHotkeys / useViewHotkeys：唯一两处 window keydown 监听——前者在 App 壳层注册
  *   全局键，后者供视图注册自己的域内键（如日历 ←/→/t），挂载注册、卸载注销。
  *
- * 守卫规则实现（docs/KEYMAP.md）：输入守卫（仅 Esc 与 Ctrl+, 例外）→ IME 守卫 →
+ * 守卫规则实现（keymap.ts）：输入守卫（仅 Esc 与 Ctrl+, 例外）→ IME 守卫 →
  * g 前缀 800ms 窗（超时/错键作废）→ Esc 分层（一次只关一层）→ 条件键（y/n 仅审批挂起时）。
  */
 import { onUnmounted } from 'vue'
@@ -113,7 +113,7 @@ export function createHotkeyController(deps: HotkeyControllerDeps): HotkeyContro
     }
   }
 
-  /** Esc 分层（KEYMAP 守卫 4）：从内到外一次只关一层。 */
+  /** Esc 分层（快捷键守卫 4）：从内到外一次只关一层。 */
   function handleEsc(): void {
     if (deps.isShortcutsOpen()) {
       deps.setShortcutsOpen(false) // ① 速查浮层

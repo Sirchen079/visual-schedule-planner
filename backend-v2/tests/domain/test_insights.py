@@ -1,4 +1,3 @@
-# tests/domain/test_insights.py
 from datetime import date, datetime, timedelta
 from freezegun import freeze_time
 from zhishi.domain import insights

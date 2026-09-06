@@ -1,4 +1,3 @@
-# src/zhishi/domain/ical.py
 """ICS 互通：events ↔ VEVENT（含 RRULE 透传）。"""
 from __future__ import annotations
 from datetime import UTC, datetime, time as dtime, timedelta
@@ -44,7 +43,7 @@ def export_ics(db: Session) -> str:
 
 
 def import_ics(db: Session, content: str) -> int:
-    """导入 VEVENT → events。重复导入=新增（去重属产品策略，M3 决定）。"""
+    """导入 VEVENT → events。重复导入=新增（去重属产品策略，决定）。"""
     cal = Calendar.from_ical(content)
     created = 0
     for component in cal.walk("VEVENT"):

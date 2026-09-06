@@ -1,5 +1,4 @@
-# tests/server/test_skills_disable_active.py
-"""re k3#049 观察①：新增 POST /ai/skills/disable-active——一键停用当前激活的
+"""新增 POST /ai/skills/disable-active——一键停用当前激活的
 用户技能（内置技能不动）；instructions 组装按 enabled 过滤（prompts._skill_text），
 停用后内容自然退出系统提示。无激活技能时幂等 ok。"""
 from fastapi.testclient import TestClient

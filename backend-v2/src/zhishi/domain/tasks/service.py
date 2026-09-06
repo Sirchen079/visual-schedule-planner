@@ -1,4 +1,3 @@
-# src/zhishi/domain/tasks/service.py
 from __future__ import annotations
 import json
 from datetime import datetime
@@ -61,7 +60,7 @@ def list_tasks(db: Session, *, status: str | None = None, priority: str | None =
                q: str | None = None, tag: str | None = None,
                due_before: datetime | None = None, due_after: datetime | None = None) -> list[Task]:
     stmt = (select(Task).where(Task.deleted_at.is_(None))
-            .options(selectinload(Task.tags), selectinload(Task.subtasks)))  # re #B4 预载防 N+1
+            .options(selectinload(Task.tags), selectinload(Task.subtasks)))  # 预载防 N+1
     if status:
         stmt = stmt.where(Task.status == status)
     if priority:
@@ -140,7 +139,7 @@ def restore_task(db: Session, task_id: int) -> Task:
 
 
 def purge_task(db: Session, task_id: int) -> None:
-    """硬删任务。M3：排期行无 ORM 关系需先显式删除；标签/附件走集合清空
+    """硬删任务。排期行无 ORM 关系需先显式删除；标签/附件走集合清空
     （ORM 在删任务前删 task_tag/task_file 关联行，FK 不再阻断）；
     子任务随 cascade 删除；计时/通知日志按设计保留（统计靠冗余 task_title
     延续），task_id 置空后随任务一并落库。"""

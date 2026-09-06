@@ -1,12 +1,12 @@
 /**
- * 快捷键体系的跨组件端口（M4e）。
+ * 快捷键体系的跨组件端口。
  *
- * 为什么存在：KEYMAP 要求 window keydown 只有 useHotkeys 一处监听（单一注册点），
+ * 全局 keydown 由 useHotkeys 统一监听，
  * 但 Esc 分层（②番茄钟表单 / ③域内浮层）与 c 键聚焦对话输入框需要触达深处的组件状态
  * （FocusBar 的开始表单、CalendarView 的详情卡、ChatInput 的 textarea）。
  * 本模块只存「回调句柄」，不挂任何监听——组件在 setup 里注册，useHotkeys 的统一分发消费。
  *
- * 层级约定（KEYMAP 守卫 4）：tier 2 = 通知面板之外的应用级表单（番茄钟开始表单），
+ * 层级约定（快捷键守卫 4）：tier 2 = 通知面板之外的应用级表单（番茄钟开始表单），
  * tier 3 = 域内浮层（事件详情便签卡）。通知面板由 store 的 panelOpen 直接读取，不经过这里。
  */
 import type { InjectionKey } from 'vue'

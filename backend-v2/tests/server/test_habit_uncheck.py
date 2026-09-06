@@ -1,5 +1,4 @@
-# tests/server/test_habit_uncheck.py
-"""re #B3：POST /api/habits/{id}/uncheck 的 body 契约与实现对齐。
+"""POST /api/habits/{id}/uncheck 的 body 契约与实现对齐。
 date 缺省=今天（与 check_in 的 day=None 语义一致），空 body 不再 422；
 openapi schema 如实标注 date 可选。"""
 from fastapi.testclient import TestClient

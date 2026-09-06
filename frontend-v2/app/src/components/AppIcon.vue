@@ -1,7 +1,6 @@
 <script setup lang="ts">
 /**
- * 内联 SVG 图标（克制线性风格，与 final-shell.html 图标轨一致；禁 emoji）。
- * 图标源：final-shell.html 的导航轨/输入区图标原样迁移，stroke=currentColor 自动继承。
+ * 内联 SVG 图标集合。描边使用 currentColor，继承所在组件的文字颜色。
  */
 import { computed } from 'vue'
 

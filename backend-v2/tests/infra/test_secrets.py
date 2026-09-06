@@ -1,4 +1,3 @@
-# tests/infra/test_secrets.py
 from zhishi.infra.secrets import store_api_key, load_api_key, delete_api_key
 
 def test_roundtrip():

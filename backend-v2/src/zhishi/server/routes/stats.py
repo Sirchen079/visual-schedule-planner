@@ -1,4 +1,3 @@
-# src/zhishi/server/routes/stats.py
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from zhishi.domain import stats

@@ -1,4 +1,3 @@
-# tests/agent/test_permissions.py
 import pytest
 from zhishi.agent.permissions import classify, IRREVOCABLE_TOOLS
 from zhishi.domain import settingsvc
@@ -38,7 +37,7 @@ def test_autonomous_bypasses_confirm_but_not_irrevocable(db):
 
 
 def test_grant_cannot_exempt_irrevocable(db):
-    """re #019 blocker：预置 (empty_trash, "") 全工具 grant 后 classify 仍必须 confirm。
+    """预置 (empty_trash, "") 全工具 grant 后 classify 仍必须 confirm。
     不可豁免 = 任何途径（历史遗留 grant / autonomous / grant_always）都不得免确认。"""
     from zhishi.domain.models import AIToolGrant
     for tool in sorted(IRREVOCABLE_TOOLS):
@@ -64,7 +63,7 @@ def test_unknown_tool_denied(db):
     assert classify(db, "not_a_tool", {}) == "deny"
 
 
-# ---- MCP 工具接入 grants（清账：v1 简化「mcp 分支不查 grants」废除） ----
+# MCP 工具的永久授权规则。
 
 class _FakeServer:
     """classify 只读 auto_approve_readonly，分类级测试用哑对象即可。"""
@@ -102,10 +101,10 @@ def test_mcp_grant_ignored_in_careful(db):
     assert _mcp_classify(db, "mcp__s1__add", {"a": 1, "b": 2}) == "confirm"
 
 
-# ---- MCP grant 生命周期：按服务器撤销（re #063 blocker） ----
+# ---- MCP grant 生命周期：按服务器撤销 ----
 
 def test_revoke_mcp_grants_precise_server_id_match(db):
-    """re #063：sid 是 sqlite rowid 可复用，撤销须按「__」切分第二段精确整数比对——
+    """sid 是 sqlite rowid 可复用，撤销须按「__」切分第二段精确整数比对——
     撤 sid=1 时 sid=10/sid=11 的 grants 原样保留，非 mcp__ 命名空间的也不动。"""
     from sqlalchemy import select
     from zhishi.agent.permissions import revoke_mcp_grants
@@ -139,7 +138,7 @@ def test_revoke_mcp_grants_only_target_server(db):
     assert left == set()
 
 
-# ---- re #072：未消费 confirmed 审批卡同属「可执行效力」状态，PUT/DELETE 须一并作废 ----
+# ---- 未消费 confirmed 审批卡同属「可执行效力」状态，PUT/DELETE 须一并作废 ----
 
 @pytest.fixture
 def conv_id(db):
@@ -158,7 +157,7 @@ def _add_action(db, conv_id: int, run_id: str, tool_name: str, status: str,
 
 
 def test_expire_mcp_actions_covers_unconsumed_confirmed(db, conv_id):
-    """re #072：approve 只把 pending→confirmed，真正消费在 resume——confirmed 在
+    """approve 只把 pending→confirmed，真正消费在 resume——confirmed 在
     此前仍有可执行效力，作废必须覆盖；executed/rejected 是真终态不回改。"""
     from sqlalchemy import select
     from zhishi.agent.permissions import expire_mcp_pending_actions
@@ -182,7 +181,7 @@ def test_expire_mcp_actions_covers_unconsumed_confirmed(db, conv_id):
 
 
 def test_expire_mcp_actions_precise_server_id_match(db, conv_id):
-    """re #072：作废按 sid 精确整数比对——撤 sid=1 时 sid=10/11 与内置工具卡不动。"""
+    """作废按 sid 精确整数比对——撤 sid=1 时 sid=10/11 与内置工具卡不动。"""
     from sqlalchemy import select
     from zhishi.agent.permissions import expire_mcp_pending_actions
     _add_action(db, conv_id, "r1", "mcp__1__del_file", "confirmed", "tc1")

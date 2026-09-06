@@ -1,5 +1,4 @@
-# tests/test_packaging.py
-"""M5 回归：pydantic-ai-slim 必须带 mcp extra——runtime 顶层 import
+"""pydantic-ai-slim 必须带 mcp extra——runtime 顶层 import
 pydantic_ai.mcp，干净环境缺 fastmcp 会在 MCP 代码路径直接崩溃。"""
 import tomllib
 from pathlib import Path

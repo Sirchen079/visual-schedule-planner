@@ -19,7 +19,7 @@ function makeEntry(partial: Partial<JournalEntry>): JournalEntry {
   return {
     id: 1,
     date: '2026-09-05',
-    content: 'M3测试日记',
+    content: '测试日记',
     mood: 'calm',
     created_at: '2026-09-05T10:00:00',
     updated_at: '2026-09-05T10:00:00',
@@ -76,7 +76,7 @@ describe('journal store（upsert 幂等保存）', () => {
     vi.unstubAllGlobals()
   })
 
-  it('save 失败：actionError 可见且列表不变（约束①）', async () => {
+  it('save 失败：actionError 可见且列表不变', async () => {
     const store = useJournalStore()
     store.entries = [makeEntry({})]
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: '日期无效' }, 422)))
@@ -107,7 +107,7 @@ describe('library 纯函数与 store', () => {
     expect(humanSize(512)).toBe('512 B')
     expect(humanSize(1024)).toBe('1.0 KB')
     expect(humanSize(1536)).toBe('1.5 KB')
-    expect(humanSize(14292)).toBe('14.0 KB') // M2 实测课表 docx 的量级
+    expect(humanSize(14292)).toBe('14.0 KB') // 合成文档的示例大小。
     expect(humanSize(5 * 1024 * 1024)).toBe('5.0 MB')
     expect(humanSize(-1)).toBe('—')
   })
@@ -118,7 +118,7 @@ describe('library 纯函数与 store', () => {
     expect(parseStatusLabel('weird')).toBe('weird')
   })
 
-  it('remove：软删除乐观移除，失败回滚原位（约束①）', async () => {
+  it('remove：软删除乐观移除，失败回滚原位', async () => {
     const store = useLibraryStore()
     store.items = [makeFile({ id: 1 }), makeFile({ id: 2 })]
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'db locked' }, 500)))

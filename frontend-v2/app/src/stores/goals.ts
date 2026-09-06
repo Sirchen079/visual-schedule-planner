@@ -1,11 +1,4 @@
-/**
- * 目标（OKR）store：目标卡 + 关键结果进度（/goals 视图）。
- *
- * - 列表内嵌 key_results（GET /api/goals 实测），进度百分比由 current/target 本地推导
- *   （GET /{id}/progress 端点备用，不额外发请求）。
- * - updateKrProgress 乐观更新 + 失败回滚（约束①）。
- * - refreshAll 供 run done 自动刷新（AI 工具 update_goal/update_kr_progress 落库在 done 前）。
- */
+/** 目标及关键结果状态。进度由内嵌 key_results 计算，编辑时乐观更新并在失败时回滚。 */
 import { defineStore } from 'pinia'
 import type { Goal, KeyResult } from '../api/goals'
 import { createGoal, createKeyResult, deleteGoal, deleteKeyResult, listGoals, updateGoal, updateKeyResult } from '../api/goals'
@@ -118,7 +111,7 @@ export const useGoalsStore = defineStore('goals', {
       }
     },
 
-    /** KR 进度更新：乐观更新本地 current_value，PATCH 失败回滚（约束①）。 */
+    /** KR 进度更新：乐观更新本地 current_value，PATCH 失败回滚。 */
     async updateKrProgress(krId: number, currentValue: number): Promise<boolean> {
       const goal = this.items?.find((g) => g.key_results.some((k) => k.id === krId))
       const kr = goal?.key_results.find((k) => k.id === krId)

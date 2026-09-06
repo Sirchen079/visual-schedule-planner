@@ -1,5 +1,4 @@
-# tests/server/test_goals_trash.py
-"""re #B2：goals 软删语义对齐 tasks 回收站模式。
+"""goals 软删语义对齐 tasks 回收站模式。
 - GET /api/goals/trash 列已删（带 key_results 与 deleted_at）
 - POST /api/goals/{id}/restore 恢复；DELETE /api/goals/{id}/purge 硬删（级联 KR）
 - purge 仅对回收站中的目标放行（未软删 → 409）
