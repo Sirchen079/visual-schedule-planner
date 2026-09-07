@@ -1,11 +1,21 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from zhishi.domain import settingsvc
+from zhishi.domain import onboarding, settingsvc
 from zhishi.domain.models import AppSetting
 from zhishi.server.deps import get_db
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+
+@router.get('/onboarding', response_model=onboarding.OnboardingState)
+def get_onboarding(db: Session = Depends(get_db)):
+    return onboarding.read(db)
+
+
+@router.post('/onboarding', response_model=onboarding.OnboardingState)
+def finish_onboarding(body: onboarding.OnboardingFinish, db: Session = Depends(get_db)):
+    return onboarding.finish(db, body.outcome)
 
 
 @router.get("", response_model=dict[str, str])

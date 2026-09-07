@@ -105,6 +105,7 @@ def create_app(data_dir: Path | None = None, port: int | None = None) -> FastAPI
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         setup_logging(logs_dir=root / "logs", console=False)
+        new_database = not (root / 'backend.db').exists()
         engine = make_engine(root / "backend.db")
         create_all(engine)
         _ensure_schema(engine)   # 幂等列迁移：旧库补新列（create_all 不做 ALTER）
@@ -113,6 +114,8 @@ def create_app(data_dir: Path | None = None, port: int | None = None) -> FastAPI
         app.state.storage_root = root / "attachments"
 
         with app.state.session_factory() as session:
+            from zhishi.domain import onboarding
+            onboarding.initialize(session, new_database=new_database)
             from zhishi.agent.prompts import seed_builtin_skills
             seed_builtin_skills(session)   # 幂等：内置技能随版本更新，保留用户 enabled 选择
             from zhishi.agent.session_store import recover_interrupted

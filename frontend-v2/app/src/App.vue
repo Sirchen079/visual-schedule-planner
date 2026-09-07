@@ -11,6 +11,8 @@ import NotificationBell from './components/shell/NotificationBell.vue'
 import AppUpdate from './components/shell/AppUpdate.vue'
 import FocusBar from './components/shell/FocusBar.vue'
 import ShortcutsOverlay from './components/shell/ShortcutsOverlay.vue'
+import HelpCenter from './components/help/HelpCenter.vue'
+import { useHelpStore } from './stores/help'
 import { useHotkeys } from './composables/useHotkeys'
 import { CHAT_FOCUS_KEY, registerEscLayer, type ChatFocusRegistry } from './composables/hotkeyPorts'
 import { useConversationStore } from './stores/conversation'
@@ -72,7 +74,9 @@ const clock = computed(() => {
 const conversationStore = useConversationStore()
 const notificationsStore = useNotificationsStore()
 const focusStore = useFocusStore()
+const help = useHelpStore()
 onMounted(() => {
+  void help.initialize()
   refreshLocalClock()
   clockTimer = setInterval(refreshLocalClock, 1000)
   window.addEventListener('focus', refreshLocalClock)
@@ -116,6 +120,14 @@ function refreshDesktopTasks() {
 
 /* ---- 全局键盘快捷键：单一注册点在 useHotkeys 内，App 只负责接线与浮层开关 ---- */
 const router = useRouter()
+watch(() => route.query.guide, value => {
+  if (!['usage', 'api', 'tour'].includes(String(value))) return
+  if (value === 'tour') help.startTour()
+  else help.openGuide(value === 'api' ? 'api' : 'usage')
+  const query = { ...route.query }
+  delete query.guide
+  void router.replace({ path: route.path, query })
+}, { immediate: true })
 const shortcutsOpen = ref(false)
 
 /**
@@ -275,6 +287,7 @@ watch(
         <span class="ch-note">{{ headNote }}</span>
         <div class="ch-right">
           <div id="head-actions" class="head-actions" />
+          <button class="help-launcher" @click="help.openGuide()"><AppIcon name="journal" :size="15" />使用教程</button>
           <ProjectLink />
           <NotificationBell />
           <span class="clock">{{ clock }}</span>
@@ -291,10 +304,14 @@ watch(
 
     <!-- 快捷键速查浮层：? / Ctrl+/ 开关，Esc 或点击背板关闭（均由 useHotkeys 分发） -->
     <ShortcutsOverlay :open="shortcutsOpen" @close="shortcutsOpen = false" />
+    <HelpCenter />
   </div>
 </template>
 
 <style scoped>
+.help-launcher { display:inline-flex; align-items:center; gap:6px; min-height:32px; padding:5px 10px; border:1px solid var(--line-2); border-radius:7px; color:var(--ink-2); font-size:12px; white-space:nowrap; }
+.help-launcher:hover { background:var(--ink-wash); color:var(--amber-soft); }
+.help-launcher:focus-visible { outline:2px solid var(--amber); outline-offset:2px; }
 .nav-ic:has(.nav-settings-label) { flex-direction:column; gap:2px; height:48px; }
 .nav-settings-label { font-size:10px; line-height:12px; }
 .app-shell {

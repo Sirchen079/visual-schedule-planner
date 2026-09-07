@@ -52,13 +52,14 @@ onUnmounted(() => { unsubscribeState?.(); window.removeEventListener('focus', sy
       <div v-show="!collapsed" class="widget-body">
         <ChatPanel class="widget-chat" />
         <p v-if="error" class="widget-error" role="alert">{{ error }}</p>
-        <footer><span>拖动顶部移动</span><button id="widget-main" @click="control('main')">打开完整知时 ↗</button></footer>
+        <footer><span>拖动顶部移动</span><div class="footer-links"><button id="widget-help" @click="router.push('/settings?guide=usage')">使用教程</button><button id="widget-main" @click="control('main')">打开完整知时 ↗</button></div></footer>
       </div>
     </section>
   </div>
 </template>
 
 <style scoped>
+.footer-links { display:flex; align-items:center; gap:10px; }
 .widget-shell { height:100vh; padding:7px; color:var(--ink); background:transparent; }
 .widget-panel { display:flex; flex-direction:column; height:100%; overflow:hidden; border:1px solid var(--line-hover); border-radius:18px; background:var(--bg-chat); box-shadow:0 2px 6px #0003; }
 .widget-head { height:62px; flex:none; display:flex; align-items:center; gap:7px; padding:9px 12px; background:var(--bg-raise); -webkit-app-region:drag; user-select:none; }

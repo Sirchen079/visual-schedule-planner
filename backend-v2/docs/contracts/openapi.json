@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "zhishi-backend",
-    "version": "2.16.0"
+    "version": "2.17.0"
   },
   "paths": {
     "/api/tasks": {
@@ -3366,6 +3366,66 @@
                     "$ref": "#/components/schemas/RiskItem"
                   },
                   "title": "Response Risk Api Stats Risk Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/onboarding": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Get Onboarding",
+        "operationId": "get_onboarding_api_settings_onboarding_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingState"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Finish Onboarding",
+        "operationId": "finish_onboarding_api_settings_onboarding_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnboardingFinish"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingState"
                 }
               }
             }
@@ -13653,6 +13713,52 @@
           "ok"
         ],
         "title": "OkOut"
+      },
+      "OnboardingFinish": {
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "skipped"
+            ],
+            "title": "Outcome"
+          }
+        },
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "title": "OnboardingFinish"
+      },
+      "OnboardingState": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "completed",
+              "skipped",
+              "existing"
+            ],
+            "title": "Status"
+          },
+          "has_history": {
+            "type": "boolean",
+            "title": "Has History"
+          },
+          "show_automatically": {
+            "type": "boolean",
+            "title": "Show Automatically"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "has_history",
+          "show_automatically"
+        ],
+        "title": "OnboardingState"
       },
       "PlanDraft": {
         "properties": {

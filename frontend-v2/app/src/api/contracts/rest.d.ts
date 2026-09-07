@@ -1023,6 +1023,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/onboarding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Onboarding */
+        get: operations["get_onboarding_api_settings_onboarding_get"];
+        put?: never;
+        /** Finish Onboarding */
+        post: operations["finish_onboarding_api_settings_onboarding_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings": {
         parameters: {
             query?: never;
@@ -4634,6 +4652,26 @@ export interface components {
         OkOut: {
             /** Ok */
             ok: boolean;
+        };
+        /** OnboardingFinish */
+        OnboardingFinish: {
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "completed" | "skipped";
+        };
+        /** OnboardingState */
+        OnboardingState: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "completed" | "skipped" | "existing";
+            /** Has History */
+            has_history: boolean;
+            /** Show Automatically */
+            show_automatically: boolean;
         };
         /** PlanDraft */
         PlanDraft: {
@@ -8299,6 +8337,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RiskItem"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_onboarding_api_settings_onboarding_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingState"];
+                };
+            };
+        };
+    };
+    finish_onboarding_api_settings_onboarding_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OnboardingFinish"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingState"];
                 };
             };
             /** @description Validation Error */

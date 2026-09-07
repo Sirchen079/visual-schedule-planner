@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import ProjectLink from '../components/ProjectLink.vue'
+import { useHelpStore } from '../stores/help'
 /**
  * 设置视图（/settings，次导航，+ ）：
  * AI 助手（自治档位/工作时段）+ 永久授权 + MCP 服务器（可管理）+ AI 配置 + 技能管理。
@@ -35,6 +36,7 @@ import type {
 } from '../api/settings'
 
 const settings = useSettingsStore()
+const help = useHelpStore()
 const run = useRunStore()
 const route = useRoute()
 const sections = [
@@ -492,6 +494,7 @@ const AUTONOMY_TIERS: Autonomy[] = ['standard', 'careful']
       <span class="stv-caption">设置</span>
       <span class="stv-note">悬浮窗、通知、外观和 AI 功能都在这里。点击分类可快速找到。</span>
     </header>
+    <aside class="help-start"><div><strong>不会操作？从这里开始</strong><p>按步骤学会记待办，或查看 AI 接入教程。教程已内置，断网也能阅读。</p></div><div class="help-start-actions"><button @click="help.openGuide()">使用教程</button><button @click="help.startTour()">新手指引</button></div></aside>
     <aside class="project-support"><div><strong>一起让知时更好用</strong><p>欢迎在 GitHub 提建议、反馈问题，或用一个 Star 支持项目。</p></div><ProjectLink prominent /></aside>
     <nav class="settings-nav" aria-label="设置分类">
       <button v-for="[id, label] in sections" :key="id" @click="jump(id)">{{ label }}</button>
@@ -785,6 +788,7 @@ const AUTONOMY_TIERS: Autonomy[] = ['standard', 'careful']
       <section id="settings-configs" class="panel wide">
         <header class="p-head">
           <span class="p-title">AI 模型配置</span>
+          <button class="api-guide-button" @click="help.openGuide('api')">API 接入教程</button>
           <span class="p-side">
             <span v-if="settings.configs" class="p-count">{{ settings.configs.length }} 个</span>
             <button class="act" :disabled="settings.savingConfig" @click="configFormOpen ? closeConfigForm() : openConfigCreate()">
@@ -974,6 +978,13 @@ const AUTONOMY_TIERS: Autonomy[] = ['standard', 'careful']
 </template>
 
 <style scoped>
+.help-start { display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap; padding:18px 20px; margin:18px 0; border:1px solid var(--amber-border); border-radius:10px; background:var(--amber-wash); }
+.help-start strong { font-size:15px; font-weight:600; }
+.help-start p { font-size:13px; color:var(--ink-2); line-height:1.8; margin-top:5px; }
+.help-start-actions { display:flex; gap:10px; flex-wrap:wrap; }
+.help-start-actions button,.api-guide-button { padding:8px 12px; border:1px solid var(--line-2); border-radius:7px; color:var(--amber-soft); font-size:13px; white-space:nowrap; }
+.help-start-actions button:hover,.api-guide-button:hover { background:var(--ink-wash); }
+.help-start-actions button:focus-visible,.api-guide-button:focus-visible { outline:2px solid var(--amber); outline-offset:2px; }
 .project-support { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; border:1px solid var(--line-2); border-radius:10px; background:var(--bg-raise); padding:14px 16px; }
 .project-support strong { font-family:var(--serif); color:var(--ink-1); font-size:16px; font-weight:500; }
 .project-support p { margin:5px 0 0; font-size:12px; line-height:1.6; color:var(--ink-3); }
