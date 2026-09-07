@@ -19,7 +19,8 @@ class RunStarted(_Frame):
 class StageChanged(_Frame):
     type: Literal["stage_changed"] = "stage_changed"
     stage: Literal["preparing", "connecting", "waiting_first_token", "streaming_reasoning",
-                    "streaming_text", "executing_tools", "awaiting_approval", "finalizing"]
+                    "streaming_text", "executing_tools", "awaiting_approval", "awaiting_input",
+                    "compacting", "finalizing"]
 
 
 class Heartbeat(_Frame):
@@ -73,6 +74,11 @@ class ToolApprovalResolved(_Frame):
     type: Literal["tool_approval_resolved"] = "tool_approval_resolved"
     action_id: int
     outcome: Literal["approved", "denied", "expired"]
+
+
+class UserInputRequested(_Frame):
+    type: Literal['user_input_requested'] = 'user_input_requested'
+    request: dict[str, Any]
 
 
 class PlanCard(_Frame):
@@ -137,7 +143,7 @@ class Done(_Frame):
 ALL_EVENTS: list[type[_Frame]] = [
     RunStarted, StageChanged, Heartbeat, TextDelta, ReasoningDelta,
     ToolCallStarted, ToolCallArgsDelta, ToolCallResult,
-    ToolApprovalRequested, ToolApprovalResolved, PlanCard, WorkPlanUpdated,
+    ToolApprovalRequested, ToolApprovalResolved, UserInputRequested, PlanCard, WorkPlanUpdated,
     SubagentStarted, SubagentDelta, SubagentCompleted, UsageUpdated,
     RunCompleted, RunError, Done,
 ]

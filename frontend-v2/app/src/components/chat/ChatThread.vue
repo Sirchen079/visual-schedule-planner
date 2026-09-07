@@ -12,6 +12,7 @@ import { useConversationStore } from '../../stores/conversation'
 import { useRunStore, type ToolCallItem } from '../../stores/run'
 import AppIcon from '../AppIcon.vue'
 import ApprovalCard from './ApprovalCard.vue'
+import UserQuestionCard from './UserQuestionCard.vue'
 import PlanCardView from './PlanCardView.vue'
 import ToolCard from './ToolCard.vue'
 import { buildTimeline, type ThreadItem } from './timeline'
@@ -44,12 +45,12 @@ function savedTools(events: Array<Record<string, unknown>> = [], status?: string
       if (tool) { tool.status = e.ok ? 'ok' : 'error'; tool.resultPreview = String(e.result_preview ?? ''); tool.durationMs = Number(e.duration_ms ?? 0) }
     }
   }
-  for (const tool of tools) if (tool.status === 'running' && status !== 'running') tool.status = status === 'awaiting_approval' ? 'pending' : 'interrupted'
+  for (const tool of tools) if (tool.status === 'running' && status !== 'running') tool.status = status === 'awaiting_approval' || status === 'awaiting_input' ? 'pending' : 'interrupted'
   return tools
 }
 function savedStatus(status?: string): string {
   return ({ running:'执行中 · 自动同步已保存进度', interrupted:'已中断 · 最近进度已保存', cancelled:'已停止',
-    failed:'生成失败 · 已保存本轮记录', budget_exceeded:'达到执行预算 · 已保存本轮记录', awaiting_approval:'等待审批' } as Record<string,string>)[status ?? ''] ?? ''
+    failed:'生成失败 · 已保存本轮记录', budget_exceeded:'达到执行预算 · 已保存本轮记录', awaiting_approval:'等待审批', awaiting_input:'等待你的回答' } as Record<string,string>)[status ?? ''] ?? ''
 }
 
 function timeLabel(iso: string): string {
@@ -73,7 +74,7 @@ function itemKey(item: ThreadItem, idx: number): string {
 <template>
   <div class="thread-items">
     <!-- 空状态：新对话引导 -->
-    <div v-if="!items.length && (!showLive || (!run.approvalLedger.length && !run.planCard))" class="empty">
+    <div v-if="!items.length && (!showLive || (!run.approvalLedger.length && !run.questionRequests.length && !run.planCard))" class="empty">
       <div class="empty-mark">知时</div>
       <p class="empty-line">把想做的事告诉知时。</p>
       <p class="empty-line">安排时间、整理资料，或一起规划下一步。</p>
@@ -91,6 +92,7 @@ function itemKey(item: ThreadItem, idx: number): string {
       <div v-else-if="item.kind === 'history-assistant'" class="msg-ai">
         <span class="who">知时 · 助手</span>
         <div class="body" v-html="renderMarkdown(item.text)" />
+        <UserQuestionCard v-for="question in (item.display.questions ?? []).filter(q => !showLive || !run.questionRequests.some(current => current.id === q.id))" :key="question.id" :request="question" readonly />
         <p v-if="savedStatus(item.display.status)" class="saved-status">{{ savedStatus(item.display.status) }}</p>
         <p v-if="item.display.error" class="saved-status">{{ item.display.error }}</p>
         <details v-if="item.display.reasoning" class="think"><summary>思考过程</summary><div class="think-body">{{ item.display.reasoning }}</div></details>
@@ -102,7 +104,7 @@ function itemKey(item: ThreadItem, idx: number): string {
       </div>
       <div v-else-if="item.kind === 'text'" class="msg-ai">
         <span class="who">知时 · 助手</span>
-        <div class="body"><span v-html="renderMarkdown(item.content)" /><span v-if="showCaret && idx === items.length - 1" class="caret" /></div>
+        <div class="body"><div v-html="renderMarkdown(item.content)" /><span v-if="showCaret && idx === items.length - 1" class="caret" /></div>
       </div>
       <details v-else-if="item.kind === 'reasoning'" class="think">
         <summary>
@@ -118,6 +120,7 @@ function itemKey(item: ThreadItem, idx: number): string {
     <!-- 待决卡片固定在流末尾（审批卡按账目全量渲染：多卡并存、图章留痕） -->
     <PlanCardView v-if="showLive && run.planCard" :plan="run.planCard" />
     <ApprovalCard v-for="entry in (showLive ? run.approvalLedger : [])" :key="entry.actionId" :approval="entry" />
+    <UserQuestionCard v-for="question in (showLive ? run.questionRequests : [])" :key="question.id" :request="question" />
   </div>
 </template>
 
@@ -192,6 +195,7 @@ function itemKey(item: ThreadItem, idx: number): string {
 }
 .msg-ai {
   padding: 0 2px;
+  min-width: 0;
 }
 .msg-ai .who {
   display: block;
@@ -213,6 +217,21 @@ function itemKey(item: ThreadItem, idx: number): string {
 .msg-ai .body :deep(p:last-child) {
   margin-bottom: 0;
 }
+.msg-ai .body :deep(h1), .msg-ai .body :deep(h2), .msg-ai .body :deep(h3),
+.msg-ai .body :deep(h4), .msg-ai .body :deep(h5), .msg-ai .body :deep(h6) {
+  font-family: var(--serif); line-height: 1.4; margin: 0.9em 0 0.35em; font-weight: 600;
+}
+.msg-ai .body :deep(h1) { font-size: 1.45em; }
+.msg-ai .body :deep(h2) { font-size: 1.3em; }
+.msg-ai .body :deep(h3) { font-size: 1.15em; }
+.msg-ai .body :deep(h4), .msg-ai .body :deep(h5), .msg-ai .body :deep(h6) { font-size: 1em; }
+.msg-ai .body :deep(:first-child) { margin-top: 0; }
+.msg-ai .body :deep(a) { color: var(--amber-soft); text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
+.msg-ai .body :deep(blockquote) { margin: 0.5em 0; padding: 0.3em 0.8em; border-left: 3px solid var(--line-2); color: var(--ink-2); }
+.msg-ai .body :deep(hr) { border: 0; border-top: 1px solid var(--line-2); margin: 0.8em 0; }
+.msg-ai .body :deep(pre) { max-width: 100%; overflow-x: auto; padding: 12px; margin: 0.6em 0; background: var(--bg-sink); border: 1px solid var(--line); border-radius: 7px; tab-size: 2; }
+.msg-ai .body :deep(pre code) { display: block; border: 0; padding: 0; white-space: pre; overflow-wrap: normal; word-break: normal; background: transparent; }
+.msg-ai .body :deep(.task-list-item) { list-style: none; }
 .msg-ai .body :deep(ul),
 .msg-ai .body :deep(ol) {
   padding-left: 1.5em;
@@ -240,6 +259,8 @@ function itemKey(item: ThreadItem, idx: number): string {
   padding: 0.1em 0.35em;
 }
 .msg-ai .body :deep(table) {
+  display: block;
+  overflow-x: auto;
   border-collapse: collapse;
   margin: 0.3em 0 0.6em;
   font-size: 13px;

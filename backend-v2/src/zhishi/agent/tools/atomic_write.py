@@ -123,14 +123,26 @@ def stop_timer(db: Session, log_id: int | None = None) -> str:
     return _json({"log_id": log.id, "minutes": log.minutes})
 
 
-def update_work_plan(db: Session, steps: list[dict]) -> str:
+def update_work_plan(db: Session, steps: list[dict], ctx=None) -> str:
     """更新工作计划展示（纯元数据，低风险直写）。steps 每项 {title, status?}（status 缺省"待办"）。
-    用于向用户展示当前执行计划，不落库、不影响任何业务数据。"""
+    用于展示当前执行计划，随会话保存；不创建日历或待办事项。"""
+    if len(steps) > 12:
+        raise ValueError('工作计划最多12步，请合并过细步骤')
     out = []
     for s in steps:
         if not (s.get("title") or "").strip():
             raise ValueError("工作计划的每个步骤必须有 title")
         out.append({"title": s["title"], "status": s.get("status") or "待办"})
+    cid = getattr(getattr(ctx, 'deps', None), 'conversation_id', None)
+    if cid is not None:
+        from zhishi.agent.session_store import metadata
+        from zhishi.domain.models import AIConversation
+        conversation = db.get(AIConversation, cid, populate_existing=True)
+        if conversation is not None:
+            value = metadata(conversation.meta_json)
+            value['work_plan'] = out
+            conversation.meta_json = _json(value)
+            db.commit()
     return _json({"steps": out})
 
 

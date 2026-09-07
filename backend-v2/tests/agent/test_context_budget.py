@@ -89,11 +89,11 @@ def test_budget_rejects_invalid_inputs(invalid):
 
 
 def test_cjk_emoji_json_and_tool_payloads_are_charged():
-    assert estimate_text_tokens("abc") == 3
-    assert estimate_text_tokens("中文🙂") == 10
+    assert estimate_text_tokens("abc") == 2  # one BPE token plus conservative margin
+    assert 4 <= estimate_text_tokens("中文🙂") <= 10
     small = round_("read", "call", {"data": "x"})
     large = round_("read", "call", {"data": "中" * 10000})
-    assert estimate_messages_tokens(large) - estimate_messages_tokens(small) >= 29999
+    assert estimate_messages_tokens(large) - estimate_messages_tokens(small) >= 11000
     assert estimate_messages_tokens([user("中文🙂")]) > 10
 
 
@@ -229,7 +229,7 @@ def test_request_overhead_grows_with_actual_tools_and_instructions():
                                       parameters_json_schema={"type": "object"}) for i in range(40)],
         output_tools=[ToolDefinition(name="result", parameters_json_schema={"type": "object"})],
     ))
-    assert full - empty > 12500
+    assert full - empty > 5000
 
 
 def test_real_agent_hook_counts_current_input_before_first_request():
@@ -239,7 +239,7 @@ def test_real_agent_hook_counts_current_input_before_first_request():
         return ModelResponse(parts=[TextPart("ok")])
     agent = Agent(FunctionModel(model), capabilities=[context_budget_hooks(config(2048, 256))])
     with pytest.raises(ContextBudgetExceeded):
-        agent.run_sync("中" * 1000, message_history=round_("old"))
+        agent.run_sync("中" * 2000, message_history=round_("old"))
     assert calls == []
 
 
@@ -252,7 +252,7 @@ def test_real_agent_tool_output_is_checked_before_next_model_request():
 
     @agent.tool_plain
     def read() -> str:
-        return "中" * 3000
+        return "中" * 4000
 
     with pytest.raises(ContextBudgetExceeded):
         agent.run_sync("read")
@@ -272,7 +272,7 @@ def test_real_agent_dynamic_instructions_and_large_tool_schema_block_request():
 
     def read() -> str:
         return "ok"
-    read.__doc__ = "Long tool description " * 200
+    read.__doc__ = "Long tool description " * 1000
     agent.tool_plain(read)
     with pytest.raises(ContextBudgetExceeded):
         agent.run_sync("hi")
@@ -285,7 +285,7 @@ def test_real_agent_hook_windows_history_and_applies_default_output_cap():
         calls.append((list(messages), info.model_settings))
         return ModelResponse(parts=[TextPart("ok")])
     agent = Agent(FunctionModel(model), capabilities=[context_budget_hooks(config(4096, None))])
-    result = agent.run_sync("current", message_history=round_("old" * 2000))
+    result = agent.run_sync("current", message_history=round_("old" * 4000))
     assert result.output == "ok"
     assert len(calls[0][0]) == 1
     assert calls[0][0][0].parts[0].content == "current"
@@ -317,7 +317,7 @@ def test_real_agent_deferred_approval_resume_checks_tool_output():
 
     @agent.tool_plain(requires_approval=True)
     def read() -> str:
-        return "中" * 3000
+        return "中" * 4000
 
     pending = agent.run_sync("read")
     assert isinstance(pending.output, DeferredToolRequests)

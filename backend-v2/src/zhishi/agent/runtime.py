@@ -63,6 +63,38 @@ def _args_dict(args) -> dict:
     return {}
 
 
+async def _node_stream_events(node, ctx, queue):
+    """Forward progress while a model connection or tool execution is awaiting."""
+    async def events():
+        async with node.stream(ctx) as stream:
+            async for event in stream:
+                yield event
+    source = events()
+    pending = asyncio.create_task(anext(source))
+    extra = asyncio.create_task(queue.get())
+    try:
+        while True:
+            ready, _ = await asyncio.wait((pending, extra), return_when=asyncio.FIRST_COMPLETED)
+            if extra in ready:
+                value = extra.result()
+                extra = asyncio.create_task(queue.get())
+                yield None, value
+            if pending in ready:
+                try:
+                    value = pending.result()
+                except StopAsyncIteration:
+                    break
+                yield value, None
+                pending = asyncio.create_task(anext(source))
+    finally:
+        if extra.done() and not extra.cancelled() and extra.exception() is None:
+            queue.put_nowait(extra.result())
+        pending.cancel()
+        extra.cancel()
+        await asyncio.gather(pending, extra, return_exceptions=True)
+        await source.aclose()
+
+
 class AgentRuntime:
     def __init__(self, model, db: Session, sub_model_factory=None, storage_root=None,
                  session_factory=None, model_config=None):
@@ -83,28 +115,38 @@ class AgentRuntime:
             from sqlalchemy.orm import sessionmaker
             self.session_factory = sessionmaker(bind=db.get_bind(), expire_on_commit=False)
 
-    def _build_agent(self, plan_mode: bool = False, conversation_id: int | None = None) -> Agent:
+    def _build_agent(self, plan_mode: bool = False, conversation_id: int | None = None, emit=None) -> Agent:
         db = self.db
         from zhishi.agent.tools import atomic_read  # noqa: F401 触发注册
         from zhishi.agent.tools import web_tools  # noqa: F401 触发注册
         from zhishi.agent.tools.registry import specs_for
         from zhishi.agent.context_budget import context_budget_hooks
         from zhishi.agent.attachments import media_capability_hooks
+        from zhishi.agent.tool_discovery import ToolDiscovery, SEARCH_DESCRIPTION
+        from zhishi.agent.tool_results import tool_result_hooks
+        from zhishi.domain.models import AISkill
+        from sqlalchemy import select
+        discovery = ToolDiscovery([(row.name, row.content) for row in db.scalars(
+            select(AISkill).where(AISkill.enabled.is_(True), AISkill.is_builtin.is_(True)))])
 
         agent = Agent(
             self.model,
             deps_type=AgentDeps,
             output_type=[str, DeferredToolRequests],
-            instructions=prompts.build_instructions(db, plan_mode=plan_mode),
+            instructions=prompts.build_instructions(db, plan_mode=plan_mode, defer_builtin=True),
             retries=2,
             toolsets=self._mcp_toolsets(),   # MCP 动态清单（不进 registry）
-            capabilities=[media_capability_hooks(self.model_config),
-                          self._compaction_capability(conversation_id),
+            capabilities=[discovery.hook(), media_capability_hooks(self.model_config),
+                          tool_result_hooks(self.model_config, db, conversation_id),
+                          self._compaction_capability(conversation_id, emit),
                           context_budget_hooks(self.model_config, allow_truncation=False)],
         )
 
         from zhishi.infra.local_clock import live_instructions
         agent.instructions(live_instructions)
+        agent.tool(discovery.search, name='search_tools', description=SEARCH_DESCRIPTION)
+        from zhishi.agent.user_input import ask_user
+        agent.tool_plain(ask_user)
 
         for spec in specs_for(db):
             # 计划模式：只挂只读工具 + propose_plan（写类一律不注册，模型无从调用）
@@ -116,7 +158,7 @@ class AgentRuntime:
             agent.tool(fn, name=spec.name, description=spec.description)
         return agent
 
-    def _compaction_capability(self, conversation_id):
+    def _compaction_capability(self, conversation_id, emit=None):
         from zhishi.agent.compaction import compaction_threshold, compaction_timeout, request_compaction_hooks
         from zhishi.domain.models import AIConversation
 
@@ -143,7 +185,8 @@ class AgentRuntime:
         return request_compaction_hooks(
             self.model_config, threshold=compaction_threshold(self.db), timeout=compaction_timeout(self.db),
             stored_summary=value.get('summary'), stored_fingerprint=value.get('summary_fingerprint'),
-            on_compaction=save if conversation_id else None)
+            on_compaction=save if conversation_id else None,
+            on_progress=(lambda stage: emit.put_nowait(_sse_event(ev.StageChanged, stage=stage))) if emit is not None else None)
 
     def _mcp_toolsets(self) -> list:
         """对每个 enabled 的 MCP 服务器构造带权限门的 toolset。
@@ -196,7 +239,8 @@ class AgentRuntime:
             token = _run_ctx_var.set(ctx)   # macro.task 经 current_run_usage 并入用量
 
             async def _invoke(tool_db: Session):
-                call_args = (tool_db, ctx) if takes_ctx else (tool_db,)
+                call_args = (tool_db,)
+                call_kw = {**kw, **({'ctx': ctx} if takes_ctx else {})}
                 from zhishi.domain.models import AIToolExecution
                 receipt = None
                 if ctx.deps.run_id and ctx.tool_call_id:
@@ -213,7 +257,7 @@ class AgentRuntime:
 
                 if inspect.iscoroutinefunction(spec.fn):
                     try:
-                        return save_result(await spec.fn(*call_args, **kw))
+                        return save_result(await spec.fn(*call_args, **call_kw))
                     except Exception as exc:
                         tool_db.rollback()
                         save_result({'ok':False,'error':str(exc)[:500]}, 'failed')
@@ -221,7 +265,7 @@ class AgentRuntime:
 
                 def invoke_sync():
                     try:
-                        return save_result(spec.fn(*call_args, **kw))
+                        return save_result(spec.fn(*call_args, **call_kw))
                     except Exception as exc:
                         tool_db.rollback()
                         save_result({'ok':False,'error':str(exc)[:500]}, 'failed')
@@ -438,8 +482,8 @@ class AgentRuntime:
             session_store.checkpoint(db, run_row, assistant_row,
                 [*(history or []), ModelRequest(parts=[UserPromptPart(model_input)])], [])
 
-        agent = self._build_agent(plan_mode=plan_mode, conversation_id=conversation_id)
         queue: asyncio.Queue = asyncio.Queue()
+        agent = self._build_agent(plan_mode=plan_mode, conversation_id=conversation_id, emit=queue)
         # per-run 注入：事件外发通道/子代理模型工厂/会话 id 全部进 deps（并发 run 不串线）
         capture_key = run_id
         if user_text is None:
@@ -489,29 +533,29 @@ class AgentRuntime:
                             baseline_responses = {id(m) for m in run.all_messages()}
                             step_count += 1   # run trace：模型请求步数跨轮累加
                             yield stage("waiting_first_token")
-                            async with node.stream(run.ctx) as stream:
-                                async for evt in stream:
-                                    for out in _translate(evt):
-                                        if out['type'] == 'text_delta':
-                                            node_text += out.get('delta', '')
-                                        yield out
-                                        collected.append(out)
-                                    if time.monotonic() - last_checkpoint >= 1:
-                                        session_store.checkpoint(db, run_row, assistant_row, snapshot(), collected)
-                                        last_checkpoint = time.monotonic()
-                                    for extra in _drain(queue):
-                                        saw_plan_card |= extra.get("type") == "plan_card"
-                                        yield extra
+                            async for evt, extra in _node_stream_events(node, run.ctx, queue):
+                                if extra is not None:
+                                    saw_plan_card |= extra.get("type") == "plan_card"
+                                    yield extra
+                                    continue
+                                for out in _translate(evt):
+                                    if out['type'] == 'text_delta':
+                                        node_text += out.get('delta', '')
+                                    yield out
+                                    collected.append(out)
+                                if time.monotonic() - last_checkpoint >= 1:
+                                    session_store.checkpoint(db, run_row, assistant_row, snapshot(), collected)
+                                    last_checkpoint = time.monotonic()
                         elif Agent.is_call_tools_node(node):
                             yield stage("executing_tools")
-                            async with node.stream(run.ctx) as stream:
-                                async for evt in stream:
-                                    for out in _translate(evt):
-                                        yield out
-                                        collected.append(out)
-                                    for extra in _drain(queue):   # 子代理/plan_card 事件穿透主流
-                                        saw_plan_card |= extra.get("type") == "plan_card"
-                                        yield extra
+                            async for evt, extra in _node_stream_events(node, run.ctx, queue):
+                                if extra is not None:
+                                    saw_plan_card |= extra.get("type") == "plan_card"
+                                    yield extra
+                                    continue
+                                for out in _translate(evt):
+                                    yield out
+                                    collected.append(out)
                             node_text = ''
                         session_store.checkpoint(db, run_row, assistant_row, run.all_messages(), collected)
                     if run.result is not None:  # 正常收敛：提取输出与 usage（跨轮累加）
@@ -554,9 +598,20 @@ class AgentRuntime:
             yield extra
 
         # 2) 审批暂停判定
-        if isinstance(run_output, DeferredToolRequests) and run_output.approvals:
+        if isinstance(run_output, DeferredToolRequests) and (run_output.approvals or run_output.calls):
             from zhishi.domain.models import AIPendingAction
-            yield stage("awaiting_approval")
+            waiting = 'awaiting_input' if run_output.calls else 'awaiting_approval'
+            yield stage(waiting)
+            for call in run_output.calls:
+                from zhishi.domain.models import AIUserInput
+                from zhishi.agent.user_input import to_read
+                question = AIUserInput(conversation_id=conversation_id, run_id=run_id,
+                    tool_call_id=call.tool_call_id,
+                    questions_json=json.dumps(_args_dict(call.args)['questions'], ensure_ascii=False))
+                db.add(question)
+                db.commit()
+                db.refresh(question)
+                yield _sse_event(ev.UserInputRequested, request=to_read(question).model_dump())
             for call in run_output.approvals:
                 args = _args_dict(call.args)
                 from zhishi.agent.approval_preview import build as approval_preview
@@ -570,8 +625,8 @@ class AgentRuntime:
                 yield _sse_event(ev.ToolApprovalRequested, action_id=action.id,
                                  tool=call.tool_name, args=args, preview=preview,
                                  grant_available=call.tool_name not in IRREVOCABLE_TOOLS)
-            run_row.status = "awaiting_approval"
-            done_reason = "awaiting_approval"
+            run_row.status = waiting
+            done_reason = waiting
         else:
             run_row.status = "interrupted" if done_reason == "cancelled" else (
                 done_reason if done_reason != "model_done" else "completed")
@@ -801,7 +856,7 @@ class _MCPGatedToolset(MCPToolset):
         return namespaced
 
 
-def _wrap_for_subagent(spec, db: Session):
+def _wrap_for_subagent(spec, db: Session, context=None):
     """子代理只读工具包装：_wrap_tool 去权限门版（子代理只挂 readonly，天然无审批）。
     schema 同样从去掉 db 的函数签名与注解推断。异常同主工具语义：回滚后以
     ok=False 错误文本返回（子代理工具失败不崩子 run）。"""
@@ -809,11 +864,11 @@ def _wrap_for_subagent(spec, db: Session):
     hints = get_type_hints(spec.fn)
     orig = inspect.signature(spec.fn)
     params = [p.replace(annotation=hints.get(name, p.annotation))
-              for name, p in orig.parameters.items() if name != "db"]
+              for name, p in orig.parameters.items() if name not in ("db", "ctx")]
 
     async def _fn(**kw):
         try:
-            raw = spec.fn(db, **kw)
+            raw = spec.fn(db, **({'ctx': context} if 'ctx' in orig.parameters else {}), **kw)
             if inspect.iscoroutine(raw):
                 raw = await raw
         except Exception as exc:

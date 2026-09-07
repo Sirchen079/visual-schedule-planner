@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
+import AppUpdate from '../shell/AppUpdate.vue'
 
 const desktop = window.zhishiDesktop
 const state = ref<DesktopPreferences | null>(null)
@@ -52,6 +53,7 @@ onUnmounted(() => { unsubscribe?.(); window.removeEventListener('focus', load) }
       <p class="hint">{{ state.shortcutRegistered ? 'Ctrl + Alt + Z 可显示或隐藏悬浮窗，也可从系统托盘切换。' : 'Ctrl + Alt + Z 当前被其他应用占用；可使用本页开关或系统托盘。' }}</p>
     </template>
   </section>
+  <AppUpdate inline />
 </template>
 
 <style scoped>

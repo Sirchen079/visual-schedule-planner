@@ -39,11 +39,22 @@ def test_corrupt_document_returns_readable_failure_and_keeps_other_search_result
 def test_attachment_guidance_and_fallible_agent_find_late_material_without_reupload(tmp_path, monkeypatch):
     rounds = 0
     fid = None
+    archived_text = ''
     async def stream(messages, info):
-        nonlocal rounds
-        rounds += 1
+        nonlocal rounds, archived_text
         returns = [p for m in messages for p in m.parts if isinstance(p,ToolReturnPart)]
         latest = json.loads(returns[-1].content) if returns else None
+        if latest and 'preview' in latest and latest.get('next_call', {}).get('tool') == 'read_tool_result':
+            archived_text = ''
+            yield {0:DeltaToolCall(name='read_tool_result', json_args=json.dumps(latest['next_call']['args']), tool_call_id=f'ref-{rounds}')}
+            return
+        if returns and returns[-1].tool_name == 'read_tool_result':
+            archived_text += latest['content']
+            if latest['next_call']:
+                yield {0:DeltaToolCall(name='read_tool_result', json_args=json.dumps(latest['next_call']['args']), tool_call_id=f'page-{latest["end_offset"]}')}
+                return
+            latest = json.loads(archived_text)
+        rounds += 1
         if rounds == 1:
             prompt = '\n'.join(p.content for m in messages for p in m.parts if isinstance(p,UserPromptPart) and isinstance(p.content,str))
             assert '以下为开头预览' in prompt and 'read_material' in prompt and 'search_materials' in prompt

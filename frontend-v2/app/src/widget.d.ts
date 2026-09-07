@@ -1,6 +1,16 @@
+import type { UpdateState } from './stores/updates'
 export {}
 declare global {
   interface Window {
+    zhishiUpdates?: {
+      state: () => Promise<UpdateState>
+      check: () => Promise<UpdateState>
+      downloadAndInstall: () => Promise<UpdateState>
+      install: () => Promise<UpdateState>
+      openReleases: () => Promise<void>
+      onChanged: (callback: (state: UpdateState) => void) => () => void
+      onPrepare: (callback: () => Promise<void>) => () => void
+    }
     zhishiWidget?: {
       state: () => Promise<{ pinned: boolean; collapsed: boolean }>
       control: (action: 'pin' | 'collapse' | 'hide' | 'main') => Promise<{ pinned: boolean; collapsed: boolean }>

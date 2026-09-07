@@ -4,6 +4,7 @@ import App from './App.vue'
 import WidgetApp from './WidgetApp.vue'
 import router from './router'
 import { useSettingsStore } from './stores/settings'
+import { useUpdatesStore } from './stores/updates'
 import { applyTheme, readLocalTheme } from './utils/theme'
 import './tokens.css'
 
@@ -20,3 +21,4 @@ if (widgetMode) document.documentElement.classList.add('widget-mode')
 createApp(widgetMode ? WidgetApp : App).use(createPinia()).use(router).mount('#app')
 
 void useSettingsStore().reconcileTheme()
+void useUpdatesStore().initialize()

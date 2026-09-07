@@ -1,57 +1,52 @@
 import { describe, expect, it } from 'vitest'
 import { escapeHtml, renderMarkdown } from './md'
 
-describe('escapeHtml', () => {
-  it('转义 HTML 特殊字符', () => {
-    expect(escapeHtml('<script>alert("x")</script>')).toBe(
-      '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;',
-    )
+describe('assistant Markdown', () => {
+  it('renders headings, emphasis, quotes and paragraphs', () => {
+    const html = renderMarkdown('# 标题\n\n**重点**与*强调*、~~删除~~。\n\n> 引用\n\n---')
+    for (const tag of ['h1', 'strong', 'em', 's', 'blockquote', 'hr']) expect(html).toContain(`<${tag}`)
   })
-})
-
-describe('renderMarkdown', () => {
-  it('粗体与行内代码', () => {
-    expect(renderMarkdown('找到了：**测试日程**（`event_id=18`）')).toBe(
-      '<p>找到了：<strong>测试日程</strong>（<code>event_id=18</code>）</p>',
-    )
+  it('keeps fenced code literal, including incomplete streaming fences', () => {
+    const code = '```js\nconst a = "**bold** <script>";\n'
+    expect(renderMarkdown(code)).toContain('<pre><code class="language-js">')
+    expect(renderMarkdown(code + '```')).toContain('**bold** &lt;script&gt;')
+    expect(renderMarkdown(code)).not.toContain('<strong>')
+    expect(renderMarkdown('`**literal**`')).toContain('<code>**literal**</code>')
   })
-
-  it('XSS 注入被转义，不生成活 HTML', () => {
-    const out = renderMarkdown('<img src=x onerror=alert(1)> **加粗**')
-    expect(out).not.toContain('<img')
-    expect(out).toContain('&lt;img')
-    expect(out).toContain('<strong>加粗</strong>')
+  it('renders nested lists, task lists and numbered list starts', () => {
+    const html = renderMarkdown('3. 第三项\n   - 子项\n   - [x] 已完成\n   - [ ] 待完成')
+    expect(html).toContain('<ol start="3">')
+    expect(html).toContain('<ul>')
+    expect(html).toContain('☑ 已完成')
+    expect(html).toContain('☐ 待完成')
+    expect(renderMarkdown('2026.09')).not.toContain('<ol')
   })
-
-  it('无序列表合并为 ul/li', () => {
-    expect(renderMarkdown('- 甲\n- 乙\n\n收尾')).toBe(
-      '<ul><li>甲</li><li>乙</li></ul><br><p>收尾</p>',
-    )
+  it('supports tables without outer pipes and escaped pipe content', () => {
+    const html = renderMarkdown('字段 | 值\n--- | ---\nA | a\\|b')
+    expect(html).toContain('<table>')
+    expect(html).toContain('<th>字段</th>')
+    expect(html).toContain('<td>a|b</td>')
   })
-
-  it('有序列表（含中文顿号）', () => {
-    expect(renderMarkdown('1. 先\n2、后')).toBe('<ol><li>先</li><li>后</li></ol>')
+  it('renders links with safe external window attributes', () => {
+    const html = renderMarkdown('[来源](https://example.com/page?a=1&b=2) https://example.org')
+    expect(html).toContain('href="https://example.com/page?a=1&amp;b=2"')
+    expect(html).toContain('rel="noopener noreferrer"')
+    expect(html).toContain('target="_blank"')
+    expect(html).toContain('href="https://example.org"')
   })
-
-  it('列表结束后回到正文', () => {
-    expect(renderMarkdown('- 甲\n正文 **加粗**')).toBe('<ul><li>甲</li></ul><p>正文 <strong>加粗</strong></p>')
+  it.each(['javascript:alert(1)', 'data:text/html,evil', 'file:///C:/test', 'vbscript:evil', 'javascript&#58;evil'])('rejects active or local URLs: %s', href => {
+    expect(renderMarkdown(`[打开](${href})`)).not.toContain('<a ')
   })
-
-  it('不支持的语法保持原样', () => {
-    expect(renderMarkdown('# 标题')).toBe('<p># 标题</p>')
+  it('escapes raw HTML, SVG and handler attributes', () => {
+    const html = renderMarkdown('<img src=x onerror=alert(1)>\n\n<svg onload=alert(1)> **文字**')
+    expect(html).not.toMatch(/<(?:img|svg|script)\b/i)
+    expect(html).toContain('&lt;img')
+    expect(html).toContain('<strong>文字</strong>')
+    expect(escapeHtml('<script>"&')).toBe('&lt;script&gt;&quot;&amp;')
   })
-
-  it('GFM 表格（表头 + 分隔行 + 数据行）', () => {
-    expect(renderMarkdown('| 步骤 | 结果 |\n|---|---|\n| 1. 创建 | ✅ **成功** |')).toBe(
-      '<table><thead><tr><th>步骤</th><th>结果</th></tr></thead><tbody><tr><td>1. 创建</td><td>✅ <strong>成功</strong></td></tr></tbody></table>',
-    )
-  })
-
-  it('表格块结束后回到正文，普通竖线行不误判', () => {
-    expect(renderMarkdown('| a |\n|---|\n| b |\n收尾')).toBe(
-      '<table><thead><tr><th>a</th></tr></thead><tbody><tr><td>b</td></tr></tbody></table><p>收尾</p>',
-    )
-    // 只有一行竖线开头、下一行不是分隔行 → 按普通段落处理
-    expect(renderMarkdown('| 不是表 | x |')).toBe('<p>| 不是表 | x |</p>')
+  it('does not fetch image links on render', () => {
+    const html = renderMarkdown('![图片说明](https://example.com/image.png)')
+    expect(html).not.toContain('<img')
+    expect(html).toContain('>图片说明</a>')
   })
 })

@@ -6,8 +6,8 @@ after capabilities that alter requests. Unlike ProcessHistory, the request hook
 sees prepared instructions, tool schemas, output schemas and current tool results.
 Unknown context windows deliberately disable budgeting for legacy configurations.
 
-These are estimates, not provider token counts: text uses UTF-8 byte length (a
-conservative bound for common byte-based tokenizers), plus framing overhead.
+These are estimates, not provider token counts: text uses a bundled BPE
+tokenizer with a margin, plus framing overhead.
 Multimodal floors are deliberately expensive; decoded media/provider accounting
 can still differ, especially for remote URLs, compressed documents and video.
 """
@@ -74,8 +74,9 @@ def history_budget(config, extra_tokens: int = 0) -> int | None:
 
 
 def estimate_text_tokens(text: str) -> int:
-    """No chars/4 assumption: CJK, emoji and escaped/structured text cost bytes."""
-    return len(text.encode("utf-8", errors="replace"))
+    """Offline BPE estimate; CJK, emoji and code are tokenized as text."""
+    from zhishi.agent.token_count import count_text
+    return count_text(text)
 
 
 def _media_floor(media_type: str) -> int:

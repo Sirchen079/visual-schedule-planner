@@ -67,6 +67,8 @@ describe('run store 状态机（录制序列）', () => {
       streaming_text: '输出中',
       executing_tools: '执行工具',
       awaiting_approval: '等待审批',
+      awaiting_input: '等待你的回答',
+      compacting: '整理上下文',
       finalizing: '收尾中',
     })
   })
@@ -477,7 +479,7 @@ describe('run store ready_to_resume 接线', () => {
       await store.approve(20)
       expect(calls.map((c) => c.url)).toEqual(['/ai/actions/20/approve']) // 未开 resume 流
       expect(store.approvalLedger[0].outcome).toBe('approved')
-      expect(store.notice).toBe('已批准，同批还有 1 项待决')
+      expect(store.notice).toBe('已批准，同批还有 1 项问题或审批待处理')
       expect(store.phase).toBe('awaiting_approval') // 仍在等第二张
       expect(store.error).toBeNull() // 信息不是错误
 
@@ -553,7 +555,7 @@ describe('run store ready_to_resume 接线', () => {
       await store.reject(21)
       expect(calls).toEqual(['/ai/actions/21/reject'])
       expect(store.approvalLedger[1].outcome).toBe('denied')
-      expect(store.notice).toBe('已拒绝，同批还有 1 项待决')
+      expect(store.notice).toBe('已拒绝，同批还有 1 项问题或审批待处理')
       expect(store.phase).toBe('awaiting_approval')
     } finally {
       vi.unstubAllGlobals()

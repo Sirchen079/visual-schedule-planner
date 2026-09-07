@@ -542,6 +542,18 @@ class AIWorkspace(Base):
     state_json: Mapped[str] = mapped_column(Text, default='{}')
 
 
+class AIContextArtifact(Base):
+    """Immutable full tool text referenced by a bounded working-context preview."""
+    __tablename__ = 'ai_context_artifacts'
+    __table_args__ = (UniqueConstraint('conversation_id', 'fingerprint'),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey('ai_conversations.id'), index=True)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    tool: Mapped[str] = mapped_column(String(100))
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
 class AIPendingAction(Base):
     """审批卡片：confirm 工具调用的持久化暂停点。状态机
     pending → confirmed → executed / rejected / expired。"""
@@ -566,6 +578,22 @@ class AIToolGrant(Base):
     tool_name: Mapped[str] = mapped_column(String(100))
     arg_pattern: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
+class AIUserInput(Base):
+    """A durable clarification request, independent of operation permissions."""
+    __tablename__ = 'ai_user_inputs'
+    __table_args__ = (UniqueConstraint('run_id', 'tool_call_id'),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey('ai_conversations.id'), index=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey('ai_runs.run_id'))
+    tool_call_id: Mapped[str] = mapped_column(String(100))
+    questions_json: Mapped[str] = mapped_column(Text)
+    answer_json: Mapped[str] = mapped_column(Text, default='{}')
+    status: Mapped[str] = mapped_column(String(20), default='pending')
+    version: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class AISkill(Base):

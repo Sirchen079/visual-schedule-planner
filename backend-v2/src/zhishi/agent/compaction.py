@@ -23,7 +23,6 @@ from zhishi.agent.context_budget import (
     prepared_messages,
     request_extra_tokens,
     safe_round_starts,
-    window_to_budget,
 )
 from zhishi.agent.providers import build_model, oneshot_text  # 测试 monkeypatch 锚点
 
@@ -280,59 +279,69 @@ def summarize_history(db, config, history: list,
                       stored_fingerprint: str | None = None, *,
                       threshold: int | None = None,
                       timeout: float | None = None,
-                      extra_tokens: int = 0) -> tuple[list, str | None, str | None]:
+                      extra_tokens: int = 0,
+                      target_budget: int | None = None) -> tuple[list, str | None, str | None]:
     """超过轮数或 token 预算时，将较早的完整轮次压缩为有界摘要。
 
 返回新历史、摘要文本和折叠集指纹。相同指纹可复用已有摘要；否则分块生成
 并与旧摘要合并。超时或调用失败时保留原历史，由请求预算检查决定能否继续。
 最新完整轮次本身超限时抛出 ContextBudgetExceeded，不静默丢弃用户输入。"""
     budget = history_budget(config, extra_tokens)
-    # Validate the indivisible newest round before the best-effort summary block.
-    # This error must reach the caller, never be mistaken for a model failure.
+    from zhishi.agent.context_steps import retained_prefix, step_boundaries
+    cuts = step_boundaries(history)
     if budget is not None:
-        window_to_budget(history, budget)
+        # A user turn can span hundreds of completed tool calls. Only the latest
+        # user input, system rules and unresolved/recent execution suffix are
+        # indivisible, not that entire turn.
+        required = ([*retained_prefix(history, cuts[-1]), *history[cuts[-1]:]]
+                    if cuts else history)
+        if estimate_messages_tokens(required) > budget:
+            raise ContextBudgetExceeded(estimate_messages_tokens(required), budget,
+                '当前输入、最近工具步骤与必要规则')
     try:
         starts = _round_starts(history)
         threshold = compaction_threshold(db) if threshold is None else threshold
-        over_tokens = budget is not None and estimate_messages_tokens(history) > budget
-        if (len(starts) <= threshold and not over_tokens) or len(starts) < 2:
+        target = min(budget, target_budget) if budget is not None and target_budget is not None else budget
+        over_tokens = target is not None and estimate_messages_tokens(history) > target
+        if (len(starts) <= threshold and not over_tokens) or not cuts:
             return list(history), None, None
         # 通常折叠一半；旧长历史/调低阈值时须多折叠一些，为摘要轮预留一位。
         # 否则最终 window_model_messages 会裁掉刚生成的摘要和未摘要的中段。
         keep = max(DEFAULT_COMPACTION_THRESHOLD, threshold)
         fold_count = (max(len(starts) // 2, len(starts) - (keep - 1))
                       if len(starts) > threshold else 1)
+        first_cut = starts[min(fold_count, len(starts) - 1)] if len(starts) > 1 else cuts[0]
+        candidates = [cut for cut in cuts if cut >= first_cut]
+        cut = candidates[0]
         summary_limit = None
         if budget is not None:
             overhead = estimate_messages_tokens(summary_pair(""))
-            desired = min(1024, output_reserve(config), max(64, budget // 4))
-            # Keep at least the newest complete round, but fold more than half
-            # when a few very long rounds require it.
-            while (fold_count < len(starts) - 1
-                   and estimate_messages_tokens(history[starts[fold_count]:])
-                   + overhead + desired > budget):
-                fold_count += 1
-            room = budget - estimate_messages_tokens(history[starts[fold_count]:]) - overhead
+            desired = min(2048, output_reserve(config), max(64, budget // 4))
+            # Aim below the trigger to leave space for further tool results.
+            # If the recent mandatory suffix is larger, still use the hard room.
+            for boundary in candidates:
+                cut = boundary
+                kept_cost = estimate_messages_tokens([*retained_prefix(history, cut), *history[cut:]])
+                if kept_cost + overhead + desired <= target:
+                    break
+            room = budget - estimate_messages_tokens([*retained_prefix(history, cut), *history[cut:]]) - overhead
             summary_limit = min(desired, room)
             if summary_limit < 64:
                 return list(history), None, None
-        old, kept = history[:starts[fold_count]], history[starts[fold_count]:]
+        old, kept = history[:cut], history[cut:]
         # Preserve system prompts in old rounds as required context, separately
         # from generated prose. Charge these before allocating summary output.
-        from pydantic_ai.messages import ModelRequest, SystemPromptPart
-        system_parts = [p for m in old if isinstance(m, ModelRequest)
-                        for p in m.parts if isinstance(p, SystemPromptPart)]
-        pinned = [ModelRequest(parts=system_parts)] if system_parts else []
-        if summary_limit is not None:
-            summary_limit -= estimate_messages_tokens(pinned)
-            if summary_limit < 64:
-                return list(history), None, None
+        from pydantic_ai.messages import ModelRequest, SystemPromptPart, UserPromptPart
+        pinned = retained_prefix(history, cut)
         fingerprint = _fold_fingerprint(old)
         if stored_summary and stored_fingerprint == fingerprint:
             summary = stored_summary                    # 同一历史重放：指纹命中，直接复用
         else:
             transcript = _render_messages(old)
-            if stored_summary:
+            already_in_history = any(isinstance(m, ModelRequest) and any(
+                isinstance(p, UserPromptPart) and isinstance(p.content, str)
+                and p.content.startswith(SUMMARY_PREFIX) for p in m.parts) for m in old)
+            if stored_summary and not already_in_history:
                 user = (f"【先前摘要】\n{stored_summary}\n\n"
                         f"【需并入的对话轮次】\n{transcript}")
                 system = MERGE_INSTRUCTION
@@ -347,7 +356,9 @@ def summarize_history(db, config, history: list,
         if summary_limit is not None:
             if estimate_text_tokens(summary) > summary_limit:
                 return list(history), None, None
-        result = [*pinned, *summary_pair(summary), *kept]
+        system_prefix = [m for m in pinned if all(isinstance(p, SystemPromptPart) for p in m.parts)]
+        user_prefix = [m for m in pinned if m not in system_prefix]
+        result = [*system_prefix, *summary_pair(summary), *user_prefix, *kept]
         if budget is not None and estimate_messages_tokens(result) > budget:
             return list(history), None, None
         return result, summary, fingerprint
@@ -370,6 +381,7 @@ def request_compaction_hooks(
     stored_fingerprint: str | None = None,
     on_summary: Callable[[str, str], None] | None = None,
     on_compaction: Callable[[list, str, str], None] | None = None,
+    on_progress: Callable[[str], None] | None = None,
 ):
     """Summarize full outgoing requests before the final hard-budget capability.
 
@@ -389,9 +401,10 @@ def request_compaction_hooks(
     from pydantic_ai.capabilities import Hooks
 
     snapshot = _summary_config(config, output_reserve(config))
+    failed_at_cost = None
 
     async def compact(ctx, request_context):
-        nonlocal stored_summary, stored_fingerprint
+        nonlocal stored_summary, stored_fingerprint, failed_at_cost
         if history_budget(snapshot) is None:
             return request_context
         settings = {**(getattr(request_context.model, "settings", None) or {}),
@@ -403,20 +416,34 @@ def request_compaction_hooks(
         extras = request_extra_tokens(request_context.model_request_parameters)
         budget = history_budget(request_config, extra_tokens=extras)
         prepared = prepared_messages(request_context.messages, request_context.model_request_parameters)
-        if estimate_messages_tokens(prepared) <= budget:
+        cost = estimate_messages_tokens(prepared)
+        if cost <= int(budget * .80):
+            return replace(request_context, messages=prepared)
+        if (failed_at_cost is not None and cost <= failed_at_cost + max(128, int(budget * .10))
+                and cost <= budget):
             return replace(request_context, messages=prepared)
 
-        messages, summary, fingerprint = await asyncio.to_thread(
-            summarize_history, None, request_config, prepared,
-            stored_summary=stored_summary, stored_fingerprint=stored_fingerprint,
-            threshold=threshold, timeout=timeout, extra_tokens=extras,
-        )
+        if on_progress is not None:
+            on_progress('compacting')
+        try:
+            messages, summary, fingerprint = await asyncio.to_thread(
+                summarize_history, None, request_config, prepared,
+                stored_summary=stored_summary, stored_fingerprint=stored_fingerprint,
+                threshold=threshold, timeout=timeout, extra_tokens=extras,
+                target_budget=int(budget * .65),
+            )
+        finally:
+            if on_progress is not None:
+                on_progress('waiting_first_token')
         if summary is not None and fingerprint is not None:
             if on_compaction is not None:
                 on_compaction(list(request_context.messages), summary, fingerprint)
             if on_summary is not None:
                 on_summary(summary, fingerprint)
             stored_summary, stored_fingerprint = summary, fingerprint
+            failed_at_cost = None
+        else:
+            failed_at_cost = cost
         return replace(request_context, messages=messages)
 
     return Hooks(before_model_request=compact)

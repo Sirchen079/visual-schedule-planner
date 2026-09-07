@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppUpdate from './components/shell/AppUpdate.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ChatPanel from './components/chat/ChatPanel.vue'
@@ -12,7 +13,7 @@ const conv = useConversationStore(), run = useRunStore(), settings = useSettings
 const router = useRouter(), route = useRoute()
 const collapsed = ref(false), pinned = ref(true), error = ref('')
 let unsubscribeState: (() => void) | undefined
-const status = computed(() => run.phase === 'awaiting_approval' ? '有一项操作等你确认' : run.isActive ? '正在为你处理…' : '随时说说你想做什么')
+const status = computed(() => run.phase === 'awaiting_input' ? '有问题需要你的回答' : run.phase === 'awaiting_approval' ? '有一项操作等你确认' : run.stage === 'compacting' ? '正在整理上下文…' : run.isActive ? '正在为你处理…' : '随时说说你想做什么')
 function applyState(s: { collapsed: boolean; pinned: boolean }) { collapsed.value = s.collapsed; pinned.value = s.pinned }
 async function control(action: 'pin' | 'collapse' | 'hide' | 'main') {
   try { if (native) applyState(await native.control(action)); error.value = '' }
@@ -37,6 +38,7 @@ onUnmounted(() => { unsubscribeState?.(); window.removeEventListener('focus', sy
 </script>
 
 <template>
+  <AppUpdate lock-only />
   <div class="widget-shell" :class="{ collapsed }">
     <section class="widget-panel" aria-label="知时随身助手">
       <header class="widget-head">

@@ -8,6 +8,7 @@ import AppIcon, { type IconName } from './components/AppIcon.vue'
 import ProjectLink from './components/ProjectLink.vue'
 import ChatPanel from './components/chat/ChatPanel.vue'
 import NotificationBell from './components/shell/NotificationBell.vue'
+import AppUpdate from './components/shell/AppUpdate.vue'
 import FocusBar from './components/shell/FocusBar.vue'
 import ShortcutsOverlay from './components/shell/ShortcutsOverlay.vue'
 import { useHotkeys } from './composables/useHotkeys'
@@ -207,6 +208,7 @@ watch(
 </script>
 
 <template>
+  <AppUpdate />
   <div class="app-shell">
     <!-- ① 图标导航轨 -->
     <nav class="rail" aria-label="主导航">

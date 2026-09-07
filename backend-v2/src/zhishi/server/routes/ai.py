@@ -346,6 +346,8 @@ async def _start_run(app, *, message: str, conversation_id: int | None,
                      attachment_ids: list[int] | None = None,
                      plan_mode: bool = False, research_project_id: int | None = None) -> StreamingResponse:
     """chat 与计划批准共用：并发锁/session/模型/runtime/SSE 组装一致。"""
+    if getattr(app.state, 'update_preparing', False):
+        raise HTTPException(409, '知时正在保存并准备更新，请稍后继续。')
     run_id = uuid.uuid4().hex
     active = app.state.active_runs
     if conversation_id is not None and conversation_id in active:
@@ -360,8 +362,8 @@ async def _start_run(app, *, message: str, conversation_id: int | None,
             raise HTTPException(404, '会话不存在，请重新选择会话')
         latest = db.scalar(select(AIRun).where(AIRun.conversation_id==conversation_id)
                            .order_by(AIRun.created_at.desc())) if conversation_id is not None else None
-        if latest and latest.status == 'awaiting_approval' and not _batch_consumed(db, {latest.run_id}):
-            raise HTTPException(409, '该会话还有待恢复的审批，请先处理审批或停止该批次。')
+        if latest and latest.status in ('awaiting_approval', 'awaiting_input') and not _batch_consumed(db, {latest.run_id}):
+            raise HTTPException(409, '该会话还有待恢复的问题或审批，请先处理或停止该批次。')
         if research_project_id is not None:
             from zhishi.domain.research.service import get_project
             try:
@@ -381,8 +383,8 @@ async def _start_run(app, *, message: str, conversation_id: int | None,
                                storage_root=app.state.storage_root)
         # 续轮加载既有会话历史（多轮记忆），首轮为 None
         # 后台只计算摘要，Session 与写库仍归当前请求所有。
-        history = (await _load_conversation_history_async(db, conversation_id, cfg)
-                   if conversation_id is not None else None)
+        history = (_raw_conversation_history(db, conversation_id) if cfg.context_window
+                   else await _load_conversation_history_async(db, conversation_id, cfg))
     except asyncio.CancelledError:
         db.close()
         _release_run_slot(app, run_id, conversation_id)
@@ -433,8 +435,19 @@ def conversation_detail(cid: int, db: Session = Depends(get_db)):
         raise HTTPException(404, '会话不存在')
     rows = db.scalars(select(AIMessage).where(AIMessage.conversation_id == cid)
                       .order_by(AIMessage.id)).all()
-    return [{"id": m.id, "role": m.role, "display": json.loads(m.display_json),
-             "created_at": m.created_at.isoformat()} for m in rows]
+    from zhishi.agent.user_input import to_read
+    from zhishi.domain.models import AIUserInput
+    questions = {}
+    for row in db.scalars(select(AIUserInput).where(AIUserInput.conversation_id == cid)):
+        questions.setdefault(row.run_id, []).append(to_read(row).model_dump())
+    result = []
+    for message in rows:
+        display = json.loads(message.display_json)
+        if message.role == 'assistant' and display.get('run_id') in questions:
+            display['questions'] = questions[display['run_id']]
+        result.append({'id': message.id, 'role': message.role, 'display': display,
+                       'created_at': message.created_at.isoformat()})
+    return result
 
 
 @router.delete("/conversations/{cid}", status_code=204)
@@ -444,7 +457,9 @@ def delete_conversation(cid: int, request: Request, db: Session = Depends(get_db
     conv = db.get(AIConversation, cid)
     if conv is None:
         raise HTTPException(404, "会话不存在")
-    from zhishi.domain.models import AIContextCheckpoint, AIToolExecution
+    from zhishi.domain.models import AIContextCheckpoint, AIToolExecution, AIContextArtifact, AIUserInput
+    db.query(AIUserInput).filter(AIUserInput.conversation_id == cid).delete(synchronize_session=False)
+    db.query(AIContextArtifact).filter(AIContextArtifact.conversation_id == cid).delete(synchronize_session=False)
     db.query(AIContextCheckpoint).filter(AIContextCheckpoint.conversation_id == cid).delete(synchronize_session=False)
     db.query(AIToolExecution).filter(AIToolExecution.run_id.in_(select(AIRun.run_id).where(
         AIRun.conversation_id == cid))).delete(synchronize_session=False)
@@ -613,7 +628,10 @@ def _batch_ready(db: Session, run_id: str) -> bool:
     pending——全部 confirmed/rejected/executed 才算 ready，前端据此放行 resume。"""
     remaining = db.scalar(select(func.count()).select_from(AIPendingAction).where(
         AIPendingAction.run_id == run_id, AIPendingAction.status == "pending"))
-    return (remaining or 0) == 0
+    from zhishi.domain.models import AIUserInput
+    questions = db.scalar(select(func.count()).select_from(AIUserInput).where(
+        AIUserInput.run_id == run_id, AIUserInput.status == 'pending'))
+    return (remaining or 0) + (questions or 0) == 0
 
 
 def _batch_consumed(db: Session, run_ids: set[str]) -> bool:
@@ -737,6 +755,8 @@ def delete_grant(grant_id: int, db: Session = Depends(get_db)) -> None:
                      "schema": {"$ref": "#/components/schemas/ResumeBlockedOut"}}},
              }})
 async def resume_stream(cid: int, request: Request):
+    if getattr(request.app.state, 'update_preparing', False):
+        raise HTTPException(409, '知时正在保存并准备更新，请稍后继续。')
     """审批结束后恢复执行。仅为末条模型响应中尚未结算的调用回填结果，
     已在历史中存在结果的调用不再回填。仍有待决审批或批次已被消费时
     返回 400；其余请求在获得会话锁后启动新的执行流。"""
@@ -749,7 +769,7 @@ async def resume_stream(cid: int, request: Request):
     db = app.state.session_factory()
     try:
         cfg = _enabled_config(db)
-        history = await _load_conversation_history_async(db, cid, cfg)
+        history = _raw_conversation_history(db, cid)
         if history is None:
             raise HTTPException(404, "无可恢复的运行")
         from pydantic_ai.messages import (
@@ -780,17 +800,23 @@ async def resume_stream(cid: int, request: Request):
                 message="该批次已被消费，无可恢复审批").model_dump())
         actions = {a.tool_call_id: a for a in db.scalars(select(AIPendingAction).where(
             AIPendingAction.conversation_id == cid).order_by(AIPendingAction.id)).all()}
+        from zhishi.domain.models import AIUserInput
+        questions = {q.tool_call_id: q for q in db.scalars(select(AIUserInput).where(
+            AIUserInput.conversation_id == cid).order_by(AIUserInput.id)).all()}
         blocked = [actions[c] for c in open_ids
                    if c in actions and actions[c].status == "pending"]
-        if blocked:
+        blocked_questions = [questions[c] for c in open_ids
+                             if c in questions and questions[c].status == 'pending']
+        if blocked or blocked_questions:
             db.close()
             _release_run_slot(app, run_id, cid)
             return JSONResponse(status_code=400, content=ResumeBlockedOut(pending=[
                 ResumeBlockedPending(action_id=a.id, tool_name=a.tool_name)
-                for a in blocked],
-                message="本轮仍有未决审批卡，请先批准或拒绝清单中的审批后再续跑",
+                for a in blocked] + [ResumeBlockedPending(action_id=q.id, tool_name='ask_user')
+                                     for q in blocked_questions],
+                message="本轮仍有待回答的问题或待决审批，请处理完后再继续",
             ).model_dump())
-        involved = [actions.get(c) for c in open_ids]
+        involved = [questions.get(c) if needed[c] == 'ask_user' else actions.get(c) for c in open_ids]
         if any(a is None for a in involved):
             raise HTTPException(
                 400, "审批数据不完整：该轮存在未落审批卡的调用，无法回填")
@@ -814,9 +840,14 @@ async def resume_stream(cid: int, request: Request):
         from pydantic_ai.tools import DeferredToolResults, ToolApproved, ToolDenied
         results = DeferredToolResults()
         for a in involved:
-            results.approvals[a.tool_call_id] = (
-                ToolApproved() if a.status == "confirmed"
-                else ToolDenied("用户拒绝了该操作；不得重试同一调用。"))
+            if isinstance(a, AIUserInput):
+                if a.status not in ('answered', 'skipped'):
+                    raise HTTPException(409, '问题还没有可用于恢复的答案')
+                results.calls[a.tool_call_id] = json.loads(a.answer_json)
+            else:
+                results.approvals[a.tool_call_id] = (
+                    ToolApproved() if a.status == "confirmed"
+                    else ToolDenied("用户拒绝了该操作；不得重试同一调用。"))
         model = build_model(cfg)
         runtime = AgentRuntime(model=model, db=db,
                                model_config=cfg,

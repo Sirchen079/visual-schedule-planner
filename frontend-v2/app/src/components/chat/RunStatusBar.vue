@@ -45,6 +45,8 @@ const phaseText = computed(() => {
       return run.stageLabel ?? '进行中'
     case 'awaiting_approval':
       return '等待审批'
+    case 'awaiting_input':
+      return '等待你的回答'
     case 'completed':
       return '已完成'
     case 'error':
@@ -61,7 +63,7 @@ const usageText = computed(() => {
 })
 
 const dotTone = computed(() => {
-  if (run.phase === 'awaiting_approval') return 'terra'
+  if (run.phase === 'awaiting_approval' || run.phase === 'awaiting_input') return 'terra'
   if (run.phase === 'error') return 'terra'
   if (run.phase === 'streaming') return 'amber'
   if (run.phase === 'completed') return 'ok'

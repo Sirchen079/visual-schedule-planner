@@ -8,12 +8,14 @@ import type { SSEEvent } from '../api/contracts/events'
 import type { components } from '../api/contracts/rest'
 import { http } from '../api/http'
 import type { ConversationState } from '../api/sessions'
+import type { UserAnswer, UserInputRequest } from '../api/userInput'
 import { SSERequestError, streamSSE } from '../api/sse'
 
 export type RunPhase =
   | 'idle'
   | 'streaming'
   | 'awaiting_approval'
+  | 'awaiting_input'
   | 'completed'
   | 'error'
   | 'cancelled'
@@ -27,6 +29,8 @@ export const STAGE_LABELS = {
   streaming_text: '输出中',
   executing_tools: '执行工具',
   awaiting_approval: '等待审批',
+  awaiting_input: '等待你的回答',
+  compacting: '整理上下文',
   finalizing: '收尾中',
 } as const
 
@@ -104,6 +108,7 @@ export interface RunState {
    * 恢复流保留审批预览，直到对应日程加载；新消息清空旧预览。
    */
   approvalLedger: PendingApproval[]
+  questionRequests: UserInputRequest[]
   planCard: PlanCardItem | null
   workPlanSteps: Array<Record<string, unknown>>
   subagents: SubagentItem[]
@@ -140,6 +145,7 @@ export function initialRunState(): RunState {
     toolCalls: [],
     pendingApproval: null,
     approvalLedger: [],
+    questionRequests: [],
     planCard: null,
     workPlanSteps: [],
     subagents: [],
@@ -258,7 +264,7 @@ export function applyEvent(state: RunState, ev: SSEEvent): void {
     }
     case 'stage_changed':
       state.stage = ev.stage
-      if (ev.stage === 'awaiting_approval') for (const call of state.toolCalls) if (call.status === 'running') call.status = 'pending'
+      if (ev.stage === 'awaiting_approval' || ev.stage === 'awaiting_input') for (const call of state.toolCalls) if (call.status === 'running') call.status = 'pending'
       break
     case 'heartbeat':
       state.lastHeartbeat = { elapsedMs: ev.elapsed_ms, at: Date.now() }
@@ -338,6 +344,12 @@ export function applyEvent(state: RunState, ev: SSEEvent): void {
       if (entry) entry.outcome = ev.outcome
       break
     }
+    case 'user_input_requested': {
+      const question = ev.request as unknown as UserInputRequest
+      if (!state.questionRequests.some(q => q.id === question.id)) state.questionRequests.push(question)
+      state.phase = 'awaiting_input'
+      break
+    }
     case 'plan_card':
       state.planCard = { planId: ev.plan_id, title: ev.title, steps: ev.steps }
       break
@@ -392,6 +404,7 @@ export function applyEvent(state: RunState, ev: SSEEvent): void {
         ? 'error'
         : state.runCompleted?.doneReason === 'cancelled' ? 'cancelled'
         : state.runCompleted?.doneReason === 'budget_exceeded' ? 'error'
+        : state.runCompleted?.doneReason === 'awaiting_input' ? 'awaiting_input'
         : state.runCompleted?.doneReason === 'awaiting_approval'
           ? 'awaiting_approval' // 审批中不得显示为已完成（约束 3）
           : 'completed'
@@ -408,7 +421,7 @@ export const useRunStore = defineStore('run', {
   getters: {
     /** run 活跃中（流进行中或等待审批，尚未到达 done 终点） */
     isActive(state): boolean {
-      return state.connecting || state.phase === 'streaming' || state.phase === 'awaiting_approval'
+      return state.connecting || state.phase === 'streaming' || state.phase === 'awaiting_approval' || state.phase === 'awaiting_input'
     },
     stageLabel(state): string | null {
       return state.stage ? (STAGE_LABELS[state.stage] ?? state.stage) : null
@@ -429,21 +442,27 @@ export const useRunStore = defineStore('run', {
     hasLiveStream(): boolean { return this.streamOpen || this.connecting || this.phase === 'streaming' },
 
     restoreState(state: ConversationState): void {
-      if (this.hasLiveStream() || this.approvalLedger.some(a => a.busy)) return
+      if (this.hasLiveStream() || this.approvalLedger.some(a => a.busy) || this.questionRequests.some(q => q.busy)) return
       const approvals = state.approvals.map(a => ({ actionId: a.action_id, tool: a.tool, args: a.args,
         preview: a.preview, grantAvailable: a.grant_available,
         outcome: a.status === 'pending' ? null : a.status === 'confirmed' ? 'approved' as const : a.status === 'rejected' ? 'denied' as const : 'expired' as const }))
       const plan = state.plan ? { planId: state.plan.id, title: state.plan.title, steps: state.plan.steps } : null
-      const pending = state.status === 'awaiting_approval'
+      const pending = state.status === 'awaiting_approval' || state.status === 'awaiting_input'
+      const phase = pending ? state.status as 'awaiting_approval' | 'awaiting_input' : 'idle'
+      const questions = state.questions ?? []
       if (this.conversationId === state.conversation_id && this.runId === state.latest_run_id &&
           JSON.stringify(this.approvalLedger) === JSON.stringify(approvals) && JSON.stringify(this.planCard) === JSON.stringify(plan) &&
-          this.phase === (pending ? 'awaiting_approval' : 'idle') && !this.sentMessage && !this.segments.length && !this.toolCalls.length) return
+          JSON.stringify(this.questionRequests) === JSON.stringify(questions) &&
+          JSON.stringify(this.workPlanSteps) === JSON.stringify(state.work_plan ?? []) &&
+          this.phase === phase && !this.sentMessage && !this.segments.length && !this.toolCalls.length) return
       this.reset(state.conversation_id)
       this.runId = state.latest_run_id
       this.approvalLedger = approvals
       this.pendingApproval = approvals.find(a => !a.outcome) ?? null
       this.planCard = plan
-      this.phase = pending ? 'awaiting_approval' : 'idle'
+      this.questionRequests = questions
+      this.workPlanSteps = state.work_plan ?? []
+      this.phase = phase
     },
 
     /** 回到 idle 并清空全部 run 状态（切换会话重载历史时防内容重复）。 */
@@ -572,12 +591,30 @@ export const useRunStore = defineStore('run', {
      * true（最后一项结清）→ 自动开 resume 流；响应无该字段（旧后端兼容）→ 维持现状
      * 立即 resume，本轮仍有 pending 时由 resume 400 的 formatResumeBlocked 兜底。
      */
-    async afterActionResolved(verb: string, resp: ActionResolveResult): Promise<void> {
-      if (resp && resp.ready_to_resume === false && this.pendingApprovalCount > 0) {
-        this.notice = `${verb}，同批还有 ${this.pendingApprovalCount} 项待决`
+    async afterActionResolved(verb: string, resp: { ready_to_resume?: boolean }): Promise<void> {
+      if (resp && resp.ready_to_resume === false) {
+        const pending = this.pendingApprovalCount + this.questionRequests.filter(q => q.status === 'pending').length
+        this.notice = `${verb}，同批还有 ${pending} 项问题或审批待处理`
         return
       }
       await this.openResumeStream()
+    },
+    async answerQuestion(id: number, answers: Record<string, UserAnswer>, skip = false): Promise<void> {
+      const entry = this.questionRequests.find(q => q.id === id)
+      if (activeAbort || !entry || entry.status !== 'pending' || entry.busy || !this.conversationId) return
+      const cid = this.conversationId, rid = this.runId
+      const owns = () => this.conversationId === cid && this.runId === rid && this.questionRequests.includes(entry)
+      entry.busy = true
+      try {
+        const result = await http.post<{ request: UserInputRequest; ready_to_resume: boolean }>(
+          `/ai/conversations/${cid}/questions/${id}/answer`, { version: entry.version, answers: skip ? {} : answers, skip })
+        if (!owns()) return
+        Object.assign(entry, result.request, { busy: false })
+        this.error = null
+        await this.afterActionResolved(skip ? '已跳过问题' : '答案已保存', result)
+      } catch (error) {
+        if (owns()) this.error = { message: error instanceof Error ? error.message : '答案提交失败', retryable: true }
+      } finally { entry.busy = false }
     },
 
     /** 批准指定审批卡（可选建立始终允许规则），按 ready_to_resume 决定是否立即续跑。 */
@@ -655,12 +692,13 @@ export const useRunStore = defineStore('run', {
     async cancel(): Promise<void> {
       if (this.phase === 'cancelled') return
       if (!this.isActive && !activeAbort) return
-      if (this.phase === 'awaiting_approval' && !activeAbort && this.conversationId && this.runId) {
+      if ((this.phase === 'awaiting_approval' || this.phase === 'awaiting_input') && !activeAbort && this.conversationId && this.runId) {
         const cid = this.conversationId, rid = this.runId
         try { await http.post(`/ai/conversations/${cid}/pending/cancel`, { run_id: rid }) }
         catch (e) { if (this.conversationId === cid && this.runId === rid) this.error = { message: String(e), retryable: true }; return }
         if (this.conversationId !== cid || this.runId !== rid) return
         this.approvalLedger = []
+        this.questionRequests = []
       }
       this.phase = 'cancelled'
       activeAbort?.abort()

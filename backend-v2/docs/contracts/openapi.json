@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "zhishi-backend",
-    "version": "2.14.3"
+    "version": "2.15.0"
   },
   "paths": {
     "/api/tasks": {
@@ -4130,7 +4130,6 @@
           "ai"
         ],
         "summary": "Resume Stream",
-        "description": "审批结束后恢复执行。仅为末条模型响应中尚未结算的调用回填结果，\n已在历史中存在结果的调用不再回填。仍有待决审批或批次已被消费时\n返回 400；其余请求在获得会话锁后启动新的执行流。",
         "operationId": "resume_stream_ai_conversations__cid__resume_stream_post",
         "parameters": [
           {
@@ -8291,6 +8290,117 @@
         }
       }
     },
+    "/ai/runtime/update-prepare": {
+      "post": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Prepare Desktop Update",
+        "operationId": "prepare_desktop_update_ai_runtime_update_prepare_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "type": "object",
+                  "title": "Response Prepare Desktop Update Ai Runtime Update Prepare Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ai/runtime/update-cancel": {
+      "post": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Cancel Desktop Update",
+        "operationId": "cancel_desktop_update_ai_runtime_update_cancel_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "type": "object",
+                  "title": "Response Cancel Desktop Update Ai Runtime Update Cancel Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ai/conversations/{cid}/questions/{question_id}/answer": {
+      "post": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Answer Question",
+        "operationId": "answer_question_ai_conversations__cid__questions__question_id__answer_post",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "question_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Question Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserInputReply"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserInputResolutionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "summary": "Health",
@@ -9876,6 +9986,24 @@
               }
             ],
             "title": "Context Window"
+          },
+          "questions": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Questions",
+            "default": []
+          },
+          "work_plan": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Work Plan",
+            "default": []
           }
         },
         "type": "object",
@@ -14278,6 +14406,28 @@
         ],
         "title": "ProjectUpdate"
       },
+      "QuestionOption": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 250,
+            "title": "Description",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "title": "QuestionOption"
+      },
       "RangeDayLoad": {
         "properties": {
           "items": {
@@ -16313,6 +16463,153 @@
         "title": "UnreadOut",
         "description": "未读数（前端 30s 轮询依据）。"
       },
+      "UserAnswer": {
+        "properties": {
+          "selected": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 4,
+            "title": "Selected"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Text",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "UserAnswer"
+      },
+      "UserInputOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "call_id": {
+            "type": "string",
+            "title": "Call Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/UserQuestion"
+            },
+            "type": "array",
+            "title": "Questions"
+          },
+          "answer": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Answer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "run_id",
+          "call_id",
+          "version",
+          "status",
+          "questions",
+          "answer"
+        ],
+        "title": "UserInputOut"
+      },
+      "UserInputReply": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Version"
+          },
+          "answers": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/UserAnswer"
+            },
+            "type": "object",
+            "title": "Answers"
+          },
+          "skip": {
+            "type": "boolean",
+            "title": "Skip",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "title": "UserInputReply"
+      },
+      "UserInputResolutionOut": {
+        "properties": {
+          "request": {
+            "$ref": "#/components/schemas/UserInputOut"
+          },
+          "ready_to_resume": {
+            "type": "boolean",
+            "title": "Ready To Resume"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request",
+          "ready_to_resume"
+        ],
+        "title": "UserInputResolutionOut"
+      },
+      "UserQuestion": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,39}$",
+            "title": "Id"
+          },
+          "question": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Question"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/QuestionOption"
+            },
+            "type": "array",
+            "maxItems": 4,
+            "title": "Options"
+          },
+          "multi_select": {
+            "type": "boolean",
+            "title": "Multi Select",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "question"
+        ],
+        "title": "UserQuestion"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -16817,6 +17114,18 @@
             "type": "object",
             "maxProperties": 200,
             "title": "Drafts",
+            "default": {}
+          },
+          "question_drafts": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/UserAnswer"
+              },
+              "type": "object"
+            },
+            "type": "object",
+            "maxProperties": 100,
+            "title": "Question Drafts",
             "default": {}
           }
         },

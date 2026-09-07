@@ -60,6 +60,7 @@ const microtext = computed<string | null>(() => {
   if (conv.remoteRunId && !run.hasLiveStream()) return '此会话正在另一个窗口执行，已保存的进度会自动同步。'
   if (!ownsRun.value) return run.isActive ? '另一个会话正在执行，可返回该会话查看或停止。' : null
   if (run.conflict) return run.conflictMessage
+  if (run.phase === 'awaiting_input') return run.error?.message ?? run.notice ?? '请回答上方问题；提交后继续原任务，也可以明确跳过。'
   // 审批待决期出现的错误（如 resume 被拒 ResumeBlockedOut）优先于常规等待提示展示
   if (run.phase === 'awaiting_approval' && run.error) return run.error.message
   // 信息级微文本（非错误）：ready_to_resume=false 的「同批还有 N 项待决」优先于常规等待文案
@@ -126,7 +127,7 @@ function autogrow(e: Event): void {
     <label v-if="research.project" class="project-context"><input v-model="useProject" type="checkbox">结合当前项目：{{ research.project.title }}</label>
     <button v-if="!ownsRun && run.isActive && run.conversationId" class="session-link" @click="conv.select(run.conversationId)">返回正在执行的会话</button>
     <button v-if="conv.remoteRunId && !run.hasLiveStream()" class="session-link" @click="stopRemote">停止此会话的运行</button>
-    <button v-if="conv.sessionState?.can_resume && ownsRun && !run.hasLiveStream()" class="session-link" @click="run.openResumeStream()">继续已确认的审批</button>
+    <button v-if="conv.sessionState?.can_resume && ownsRun && !run.hasLiveStream()" class="session-link" @click="run.openResumeStream()">继续待恢复的任务</button>
     <div class="inputbox" :data-disabled="run.isActive">
       <!-- 附件 chips -->
       <div v-if="conv.draftAttachments.length" class="chips">

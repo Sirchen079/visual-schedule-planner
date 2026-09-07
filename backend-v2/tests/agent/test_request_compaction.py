@@ -38,7 +38,7 @@ def user(text):
     return ModelRequest(parts=[UserPromptPart(content=text)])
 
 
-def history(text="old" * 1500):
+def history(text="old" * 4500):
     return [user(text), ModelResponse(parts=[TextPart("old answer")])]
 
 
@@ -67,7 +67,7 @@ async def test_real_agent_summarizes_full_request_before_hard_window(monkeypatch
     agent = Agent(FunctionModel(model), capabilities=[
         compaction.request_compaction_hooks(cfg, on_summary=save), context_budget_hooks(cfg)])
     old = history()
-    current = "中" * 1100 if pressure == "current_user" else "current"
+    current = "中" * 2200 if pressure == "current_user" else "current"
     if pressure == "prepared_tools":
         @agent.instructions
         def rules(ctx):
@@ -75,7 +75,7 @@ async def test_real_agent_summarizes_full_request_before_hard_window(monkeypatch
 
         def read() -> str:
             return "ok"
-        read.__doc__ = "Tool schema description " * 110
+        read.__doc__ = "Tool schema description " * 400
         agent.tool_plain(read)
         # The ordinary loader sees a history that still fits without extras.
         assert estimate_messages_tokens([*old, user(current)]) < history_budget(cfg)
@@ -103,7 +103,7 @@ async def test_tool_output_triggers_summary_preserving_current_call_ids(monkeypa
 
     @agent.tool_plain
     def read() -> str:
-        return "data" * 900
+        return "data" * 1900
 
     result = await agent.run("read current", message_history=history())
     assert result.output == "ok" and len(requests) == 2 and len(summaries) == 1
@@ -115,7 +115,7 @@ async def test_tool_output_triggers_summary_preserving_current_call_ids(monkeypa
             if isinstance(p, ToolReturnPart)] == ["live-call"]
     assert any(isinstance(p, UserPromptPart) and p.content == "read current"
                for m in outgoing for p in m.parts)
-    assert any(isinstance(p, ToolReturnPart) and p.content == "data" * 900
+    assert any(isinstance(p, ToolReturnPart) and p.content == "data" * 1900
                for m in outgoing for p in m.parts)
 
 
@@ -150,7 +150,8 @@ async def test_effective_output_limits_extras_snapshot_and_hook_local_state(monk
     assert seen[0][1].max_output_tokens == (output_override or 1500)
     assert seen[0][2] == {"stored_summary": "seed", "stored_fingerprint": "seed-fp",
                           "threshold": 7, "timeout": 3,
-                          "extra_tokens": request_extra_tokens(parameters)}
+                          "extra_tokens": request_extra_tokens(parameters),
+                          "target_budget": int(history_budget(seen[0][1], request_extra_tokens(parameters)) * 0.65)}
     assert seen[1][2]["stored_summary"] == "new summary"
     assert seen[1][2]["stored_fingerprint"] == "new-fp"
     assert output.streaming and output.model_id == "original-model"
@@ -178,7 +179,7 @@ async def test_summary_failure_uses_final_budget_fallback_without_save(monkeypat
     agent = Agent(FunctionModel(model), capabilities=[
         compaction.request_compaction_hooks(cfg, on_summary=lambda s, f: saved.append((s, f))),
         context_budget_hooks(cfg)])
-    current = "中" * 1100
+    current = "中" * 2200
     await agent.run(current, message_history=history())
     assert len(summaries) == 1 and saved == []
     assert len(requests[0]) == 1 and requests[0][0].parts[0].content == current
@@ -194,7 +195,7 @@ async def test_newest_round_overflow_remains_explicit(monkeypatch):
     agent = Agent(FunctionModel(model), capabilities=[
         compaction.request_compaction_hooks(cfg), context_budget_hooks(cfg)])
     with pytest.raises(ContextBudgetExceeded):
-        await agent.run("中" * 5000, message_history=history())
+        await agent.run("中" * 8000, message_history=history())
     assert summaries == requests == []
 
 
@@ -219,7 +220,7 @@ async def test_cancelled_worker_cannot_save_or_advance_summary_state(monkeypatch
         on_summary=lambda s, f: saved.append((s, f)))
     request = ModelRequestContext(
         model=FunctionModel(lambda m, i: ModelResponse(parts=[TextPart("ok")])),
-        messages=[*history(), user("中" * 1100)], model_settings=None,
+        messages=[*history(), user("中" * 2200)], model_settings=None,
         model_request_parameters=ModelRequestParameters())
     pending = asyncio.create_task(hook.before_model_request(None, request))
     try:

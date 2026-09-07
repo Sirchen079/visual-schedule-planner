@@ -250,18 +250,26 @@ async def task(db: Session, ctx: Any, description: str, instructions: str = "") 
         from zhishi.agent.context_budget import context_budget_hooks
         from zhishi.agent.attachments import media_capability_hooks
         from zhishi.agent.compaction import request_compaction_hooks
+        from zhishi.agent.tool_discovery import ToolDiscovery, SEARCH_DESCRIPTION
+        from zhishi.agent.tool_results import tool_result_hooks
+        from zhishi.domain.models import AISkill
+        from sqlalchemy import select
+        discovery = ToolDiscovery([(row.name, row.content) for row in db.scalars(
+            select(AISkill).where(AISkill.enabled.is_(True), AISkill.is_builtin.is_(True)))])
         sub = Agent(
             model=factory(),
             output_type=str,
-            instructions=_prompts.build_instructions(db)
+            instructions=_prompts.build_instructions(db, defer_builtin=True)
             + "\n你是只读调研子代理：只允许调用只读工具，完成后用一段话汇报结论。",
             retries=2,
-            capabilities=[media_capability_hooks(getattr(deps, 'model_config', None)),
+            capabilities=[discovery.hook(), media_capability_hooks(getattr(deps, 'model_config', None)),
+                          tool_result_hooks(getattr(deps, 'model_config', None), db, getattr(deps, 'conversation_id', None)),
                           request_compaction_hooks(getattr(deps, 'model_config', None)),
-                          context_budget_hooks(getattr(deps, 'model_config', None))],
+                          context_budget_hooks(getattr(deps, 'model_config', None), allow_truncation=False)],
         )
+        sub.tool(discovery.search, name='search_tools', description=SEARCH_DESCRIPTION)
         for spec in subagent_specs(db):
-            sub.tool_plain(_wrap_for_subagent(spec, db),
+            sub.tool_plain(_wrap_for_subagent(spec, db, ctx),
                            name=spec.name, description=spec.description)
         seed = current_run_usage()   # 主 run 的 RunUsage 原对象：子 run 就地累加=用量并入
         kwargs = {"usage": seed} if seed is not None else {}

@@ -9,10 +9,10 @@ EXPECTED = {
     "tool_call_started", "tool_call_args_delta", "tool_call_result",
     "tool_approval_requested", "tool_approval_resolved", "plan_card",
     "work_plan_updated", "subagent_started", "subagent_delta", "subagent_completed",
-    "usage_updated", "run_completed", "run_error", "done",
+    "usage_updated", "run_completed", "run_error", "done", "user_input_requested",
 }
 
-def test_all_19_events_defined():
+def test_all_events_defined():
     names = {m.model_fields["type"].default for m in ev.ALL_EVENTS}
     assert names == EXPECTED
 

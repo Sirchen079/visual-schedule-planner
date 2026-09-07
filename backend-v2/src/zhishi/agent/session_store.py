@@ -166,7 +166,7 @@ def interrupt_run(db, run, reason='process_interrupted'):
 
 def recover_interrupted(db) -> int:
     rows = list(db.scalars(select(AIRun).where(AIRun.status=='running')))
-    for source in db.scalars(select(AIRun).where(AIRun.status=='awaiting_approval')):
+    for source in db.scalars(select(AIRun).where(AIRun.status.in_(('awaiting_approval', 'awaiting_input')))):
         children = metadata(source.usage_json).get('resumed_by_runs', [])
         if children and not any(db.get(AIRun, rid) is not None for rid in children):
             rows.append(source)

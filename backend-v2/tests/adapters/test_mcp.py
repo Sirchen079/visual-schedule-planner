@@ -131,6 +131,19 @@ def _patch_server(monkeypatch, server):
     monkeypatch.setattr(mcp_client, "build_client", lambda row: (server, {}))
 
 
+def _capture_discovered_tools(seen):
+    from pydantic_ai.models.function import DeltaToolCall
+    async def stream(messages, info):
+        seen['names'] = [t.name for t in info.function_tools]
+        loaded = any(getattr(p, 'tool_name', None) == 'search_tools' and p.part_kind == 'tool-return'
+                     for m in messages for p in m.parts)
+        if loaded:
+            yield '好的'
+        else:
+            yield {0: DeltaToolCall(name='search_tools', json_args='{"query":"mcp"}', tool_call_id='discover-mcp')}
+    return stream
+
+
 async def test_runtime_injects_namespaced_mcp_tools(db, monkeypatch):
     server = _make_server()
     row = _server_row(db, auto_approve_readonly=True)
@@ -140,9 +153,7 @@ async def test_runtime_injects_namespaced_mcp_tools(db, monkeypatch):
 
     seen = {}
 
-    async def stream(messages, info):
-        seen["names"] = [t.name for t in info.function_tools]
-        yield "好的"
+    stream = _capture_discovered_tools(seen)
 
     rt = AgentRuntime(model=FunctionModel(stream_function=stream), db=db)
     events = [e async for e in rt.run_stream(user_text="有什么工具")]
@@ -374,9 +385,7 @@ async def test_runtime_skips_untrusted_stdio_assembly(db, monkeypatch):
 
     seen: dict = {}
 
-    async def stream(messages, info):
-        seen["names"] = [t.name for t in info.function_tools]
-        yield "好的"
+    stream = _capture_discovered_tools(seen)
 
     rt = AgentRuntime(model=FunctionModel(stream_function=stream), db=db)
     _ = [e async for e in rt.run_stream(user_text="有什么工具")]
@@ -514,9 +523,7 @@ async def test_gated_toolset_two_runs_connect_once(db, monkeypatch):
 
     seen: dict = {}
 
-    async def stream(messages, info):
-        seen["names"] = [t.name for t in info.function_tools]
-        yield "好的"
+    stream = _capture_discovered_tools(seen)
 
     for _ in range(2):   # 两次独立装配 = 两个 GatedToolset 实例（模拟两次 run）
         rt = AgentRuntime(model=FunctionModel(stream_function=stream), db=db)

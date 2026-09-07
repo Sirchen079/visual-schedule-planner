@@ -1315,12 +1315,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Resume Stream
-         * @description 审批结束后恢复执行。仅为末条模型响应中尚未结算的调用回填结果，
-         *     已在历史中存在结果的调用不再回填。仍有待决审批或批次已被消费时
-         *     返回 400；其余请求在获得会话锁后启动新的执行流。
-         */
+        /** Resume Stream */
         post: operations["resume_stream_ai_conversations__cid__resume_stream_post"];
         delete?: never;
         options?: never;
@@ -2439,6 +2434,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai/runtime/update-prepare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare Desktop Update */
+        post: operations["prepare_desktop_update_ai_runtime_update_prepare_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/runtime/update-cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Desktop Update */
+        post: operations["cancel_desktop_update_ai_runtime_update_cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/conversations/{cid}/questions/{question_id}/answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Answer Question */
+        post: operations["answer_question_ai_conversations__cid__questions__question_id__answer_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -3102,6 +3148,20 @@ export interface components {
             model: string;
             /** Context Window */
             context_window: number | null;
+            /**
+             * Questions
+             * @default []
+             */
+            questions?: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Work Plan
+             * @default []
+             */
+            work_plan?: {
+                [key: string]: unknown;
+            }[];
         };
         /**
          * CreatedOut
@@ -4866,6 +4926,16 @@ export interface components {
             version: number;
             spec: components["schemas"]["ProjectSpec"];
         };
+        /** QuestionOption */
+        QuestionOption: {
+            /** Label */
+            label: string;
+            /**
+             * Description
+             * @default
+             */
+            description?: string;
+        };
         /**
          * RangeDayLoad
          * @description range 是任务负载视图（不含独立日程）：日期键 → 当日排期明细与预估总时长。
@@ -5625,6 +5695,69 @@ export interface components {
             /** Count */
             count: number;
         };
+        /** UserAnswer */
+        UserAnswer: {
+            /** Selected */
+            selected?: string[];
+            /**
+             * Text
+             * @default
+             */
+            text?: string;
+        };
+        /** UserInputOut */
+        UserInputOut: {
+            /** Id */
+            id: number;
+            /** Run Id */
+            run_id: string;
+            /** Call Id */
+            call_id: string;
+            /** Version */
+            version: number;
+            /** Status */
+            status: string;
+            /** Questions */
+            questions: components["schemas"]["UserQuestion"][];
+            /** Answer */
+            answer: {
+                [key: string]: unknown;
+            };
+        };
+        /** UserInputReply */
+        UserInputReply: {
+            /** Version */
+            version: number;
+            /** Answers */
+            answers?: {
+                [key: string]: components["schemas"]["UserAnswer"];
+            };
+            /**
+             * Skip
+             * @default false
+             */
+            skip?: boolean;
+        };
+        /** UserInputResolutionOut */
+        UserInputResolutionOut: {
+            request: components["schemas"]["UserInputOut"];
+            /** Ready To Resume */
+            ready_to_resume: boolean;
+        };
+        /** UserQuestion */
+        UserQuestion: {
+            /** Id */
+            id: string;
+            /** Question */
+            question: string;
+            /** Options */
+            options?: components["schemas"]["QuestionOption"][];
+            /**
+             * Multi Select
+             * @default false
+             */
+            multi_select?: boolean;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -5852,6 +5985,15 @@ export interface components {
              */
             drafts?: {
                 [key: string]: components["schemas"]["Draft"];
+            };
+            /**
+             * Question Drafts
+             * @default {}
+             */
+            question_drafts?: {
+                [key: string]: {
+                    [key: string]: components["schemas"]["UserAnswer"];
+                };
             };
         };
     };
@@ -11440,6 +11582,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConversationStateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    prepare_desktop_update_ai_runtime_update_prepare_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
+                };
+            };
+        };
+    };
+    cancel_desktop_update_ai_runtime_update_cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
+                };
+            };
+        };
+    };
+    answer_question_ai_conversations__cid__questions__question_id__answer_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cid: number;
+                question_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserInputReply"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserInputResolutionOut"];
                 };
             };
             /** @description Validation Error */

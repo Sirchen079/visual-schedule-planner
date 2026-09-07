@@ -55,7 +55,7 @@ def test_money_schema_does_not_weaken_decimal_validation(model, fields):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('protocol', ['chat', 'responses'])
-async def test_plain_chat_sends_gateway_compatible_financial_tool_schemas(db, protocol):
+async def test_discovered_financial_tools_use_gateway_compatible_wire_schemas(db, protocol):
     requests = []
 
     def gateway(request):
@@ -64,10 +64,28 @@ async def test_plain_chat_sends_gateway_compatible_financial_tool_schemas(db, pr
         tools = body['tools']
         functions = [tool['function'] if 'function' in tool else tool for tool in tools]
         names = {tool['name'] for tool in functions}
-        assert {'record_transaction', 'create_bill', 'update_bill', 'confirm_bill_payment'} <= names
+        financial = {'record_transaction', 'create_bill', 'update_bill', 'confirm_bill_payment'}
+        if len(requests) == 1:
+            assert not financial & names
+            assert 'search_tools' in names and len(names) <= 6
+        else:
+            assert financial <= names
+        assert all(tool['type'] == 'function' for tool in tools)
         # Gateways may validate every tool before processing even a plain greeting.
         for tool in functions:
             check_patterns(tool['parameters'])
+        search_args = json.dumps({'names': sorted(financial)})
+        if len(requests) == 1:
+            if protocol == 'chat':
+                return httpx.Response(200, json={
+                    'id': 'chatcmpl-discover', 'object': 'chat.completion', 'created': 0, 'model': 'gpt-5.6-sol',
+                    'choices': [{'index': 0, 'finish_reason': 'tool_calls', 'message': {
+                        'role': 'assistant', 'content': None, 'tool_calls': [{'id': 'discover', 'type': 'function',
+                        'function': {'name': 'search_tools', 'arguments': search_args}}]}}]})
+            return httpx.Response(200, json={
+                'id': 'resp_discover', 'object': 'response', 'created_at': 0, 'status': 'completed', 'model': 'gpt-5.6-sol',
+                'output': [{'id': 'fc_discover', 'call_id': 'discover', 'type': 'function_call',
+                            'name': 'search_tools', 'arguments': search_args, 'status': 'completed'}]})
         if protocol == 'chat':
             return httpx.Response(200, json={
                 'id': 'chatcmpl-test', 'object': 'chat.completion', 'created': 0,
@@ -91,4 +109,4 @@ async def test_plain_chat_sends_gateway_compatible_financial_tool_schemas(db, pr
         agent = AgentRuntime(model=model, db=db)._build_agent()
         result = await agent.run('你好', deps=AgentDeps(db=db, emit=asyncio.Queue()))
         assert result.output == '你好'
-    assert len(requests) == 1
+    assert len(requests) == 2

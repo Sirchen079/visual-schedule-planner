@@ -33,6 +33,9 @@
       "$ref": "#/definitions/ToolApprovalResolved"
     },
     {
+      "$ref": "#/definitions/UserInputRequested"
+    },
+    {
       "$ref": "#/definitions/PlanCard"
     },
     {
@@ -114,6 +117,8 @@
             "streaming_text",
             "executing_tools",
             "awaiting_approval",
+            "awaiting_input",
+            "compacting",
             "finalizing"
           ],
           "title": "Stage",
@@ -395,6 +400,32 @@
         "outcome"
       ],
       "title": "ToolApprovalResolved",
+      "type": "object"
+    },
+    "UserInputRequested": {
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "user_input_requested",
+          "default": "user_input_requested",
+          "title": "Type",
+          "type": "string"
+        },
+        "request": {
+          "additionalProperties": true,
+          "title": "Request",
+          "type": "object"
+        }
+      },
+      "required": [
+        "request"
+      ],
+      "title": "UserInputRequested",
       "type": "object"
     },
     "PlanCard": {

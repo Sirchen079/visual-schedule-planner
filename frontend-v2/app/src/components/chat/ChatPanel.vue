@@ -37,6 +37,7 @@ watch(
     run.approvalLedger.length, // 审批卡列表化：卡数与落章都要贴底
     run.approvalLedger.map((x) => x.outcome ?? '').join(','),
     run.planCard?.planId,
+    run.questionRequests.length,
   ],
   () => {
     void nextTick(() => {
@@ -48,8 +49,8 @@ watch(
   },
 )
 
-const headStatus = computed<'' | 'running' | 'approval'>(() =>
-  !ownsRun.value ? '' : run.phase === 'streaming' ? 'running' : run.phase === 'awaiting_approval' ? 'approval' : '',
+const headStatus = computed<'' | 'running' | 'approval' | 'input'>(() =>
+  !ownsRun.value ? '' : run.phase === 'streaming' ? 'running' : run.phase === 'awaiting_approval' ? 'approval' : run.phase === 'awaiting_input' ? 'input' : '',
 )
 
 // run 收敛后刷新会话列表：新会话的标题在首条消息落库后才存在
@@ -70,7 +71,7 @@ watch(
       </div>
       <div class="right">
         <span v-if="headStatus" class="chip-ghost">
-          <span class="dot" />{{ headStatus === 'running' ? '运行中' : '等待审批' }}
+          <span class="dot" />{{ headStatus === 'running' ? '运行中' : headStatus === 'input' ? '等待回答' : '等待审批' }}
         </span>
         <button class="ibtn" title="会话列表" @click="listOpen = !listOpen">
           <AppIcon name="list" :size="16" />

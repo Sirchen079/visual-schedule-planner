@@ -4,9 +4,11 @@ import type { AttachmentMeta, ConversationMessage, ConversationSummary } from '.
 import { getConversationMessages, listConversations, uploadAttachment } from '../api/ai'
 import { getConversationState, getWorkspace, putWorkspace, type ConversationState, type Draft } from '../api/sessions'
 import { useRunStore } from './run'
+import type { UserAnswer } from '../api/userInput'
 
 export const useConversationStore = defineStore('conversation', {
   state: () => ({
+    questionDrafts: {} as Record<string, Record<string, UserAnswer>>,
     conversations: [] as ConversationSummary[], activeId: null as number | null,
     messages: [] as ConversationMessage[], loading: false, error: null as string | null,
     draftText: '', draftAttachments: [] as AttachmentMeta[], drafts: {} as Record<string, Draft>,
@@ -32,6 +34,7 @@ export const useConversationStore = defineStore('conversation', {
         this.workspaceRevision = saved.revision
         if (version === this.viewVersion && !this.sending && !this.draftText && !this.draftAttachments.length) {
           this.drafts = saved.state.drafts
+          this.questionDrafts = saved.state.question_drafts ?? {}
           this.loadDraft(null)
           if (saved.state.active_id !== null) await this.select(saved.state.active_id)
         }
@@ -57,13 +60,20 @@ export const useConversationStore = defineStore('conversation', {
       this.workspaceDirty = true
       void this.flushWorkspace()
     },
+    saveQuestionDraft(id: number, answers: Record<string, UserAnswer> | null): void {
+      if (answers) this.questionDrafts[String(id)] = JSON.parse(JSON.stringify(answers))
+      else delete this.questionDrafts[String(id)]
+      if (!this.initialized) return
+      this.workspaceDirty = true
+      void this.flushWorkspace()
+    },
     async flushWorkspace(): Promise<void> {
       if (this.savingWorkspace || !this.initialized) return
       this.savingWorkspace = true
       try {
         while (this.workspaceDirty) {
           this.workspaceDirty = false
-          const state = JSON.parse(JSON.stringify({ active_id: this.activeId, drafts: this.drafts }))
+          const state = JSON.parse(JSON.stringify({ active_id: this.activeId, drafts: this.drafts, question_drafts: this.questionDrafts }))
           const saved = await putWorkspace(this.surface, { revision: this.workspaceRevision, state })
           this.workspaceRevision = saved.revision
           this.persistenceError = null

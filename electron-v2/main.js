@@ -22,6 +22,7 @@ const BG_COLOR = '#1c1815' // 窗口初始背景，与前端 --bg-app 一致。
 let mainWindow = null
 let widget = null
 let desktopSettings = null
+let desktopUpdates = null
 let tray = null
 let backend = null
 let backendPort = 0
@@ -222,7 +223,11 @@ function widgetRequest(p, method = 'GET', body) {
       res.on('data', chunk => { raw += chunk })
       res.on('error', reject)
       res.on('end', () => {
-        if (res.statusCode < 200 || res.statusCode >= 300) return reject(new Error(`服务返回 ${res.statusCode}`))
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          let message = `服务返回 ${res.statusCode}`
+          try { const parsed = JSON.parse(raw); if (typeof parsed.detail === 'string') message = parsed.detail.slice(0, 300) } catch (_) {}
+          return reject(new Error(message))
+        }
         try {
           const result = JSON.parse(raw)
           if (method !== 'GET' && mainWindow && !mainWindow.isDestroyed()) {
@@ -648,6 +653,24 @@ if (gotLock) {
       onVisibility: () => updateTrayMenu() })
     desktopSettings = require('./desktop-settings').createDesktopSettings({ ipcMain: require('electron').ipcMain,
       getMainWindow: () => mainWindow, widget, baseUrl: `http://127.0.0.1:${backendPort}`, stateDir: app.getPath('userData') })
+    desktopUpdates = require('./desktop-updates').createDesktopUpdates({
+      updater: require('electron-updater').autoUpdater, ipcMain: require('electron').ipcMain, app,
+      getWindows: () => [mainWindow, widget?.getWindow()], baseUrl: `http://127.0.0.1:${backendPort}`,
+      request: widgetRequest, shutdown: shutdownAndQuit, openReleases: url => shell.openExternal(url),
+      onInstallFailure: message => {
+        dialog.showErrorBox(APP_NAME, message)
+        app.relaunch()
+        app.quit()
+      },
+      enabled: app.isPackaged && !FORCE_DEV && !SMOKE,
+      notify: version => {
+        if (desktopSettings && !desktopSettings.snapshot().notifications) return
+        const toast = new Notification({ title: `知时 ${version} 可以更新`,
+          body: '点击查看新版并一键下载安装。', icon: path.join(__dirname, 'assets', 'icon.png') })
+        toast.on('click', () => showMainWindow('/settings?section=desktop'))
+        toast.show()
+      },
+    })
     updateTrayMenu()
     startNotifyPolling()
     if (SMOKE) {

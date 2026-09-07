@@ -125,17 +125,27 @@ def seed_builtin_skills(db: Session) -> None:
     db.commit()
 
 
-def _skill_text(db: Session) -> str:
+def _skill_text(db: Session, *, defer_builtin: bool = False) -> str:
     rows = db.scalars(select(AISkill).where(AISkill.enabled.is_(True))
                       .order_by(AISkill.is_builtin.desc(), AISkill.id)).all()
     if not rows:
         return "【技能】（暂无激活技能）"
-    parts = [f"【技能：{r.name}】\n{r.content}" for r in rows]
+    parts = [f"【技能：{r.name}】\n{r.content}" for r in rows
+             if not defer_builtin or not r.is_builtin]
+    if defer_builtin:
+        parts.append('【可用技能】' + '；'.join(f'{r.name}：{r.description}' for r in rows if r.is_builtin))
     return "\n".join(parts)
 
 
-def build_instructions(db: Session, *, plan_mode: bool = False) -> str:
-    base = f"{PERSONA}\n{TOOL_RULES}\n{_skill_text(db)}".strip()
+def build_instructions(db: Session, *, plan_mode: bool = False, defer_builtin: bool = False) -> str:
+    base = f"{PERSONA}\n{TOOL_RULES}\n{_skill_text(db, defer_builtin=defer_builtin)}".strip()
+    if defer_builtin:
+        base += ('\n工具按需加载：先 search_tools 查找需要的能力，再按返回的定义调用。'
+                 '工具目录中的能力尚未全部加载；普通聊天不需要查询工具。'
+                 '只有关键资料、用户偏好或选择确实缺失时调用 ask_user，一次问清相关问题；'
+                 '已有授权和明确要求直接执行，不反复询问。ask_user 收集信息，不能替代写操作审批。'
+                 '多步骤任务用 update_work_plan 记录少量实际步骤，完成后更新状态。'
+                 '工具返回原文引用时，用 read_tool_result 分页或关键词核对，不能把预览当全文。')
     if plan_mode:
         base = f"{base}\n{PLAN_MODE_INSTRUCTION}"
     return base

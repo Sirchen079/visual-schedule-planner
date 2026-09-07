@@ -1,5 +1,6 @@
 /** AI 会话与附件 REST 接口。历史消息包含展示文本、附件及持久化的执行元数据。 */
 import { HttpError, http } from './http'
+import type { UserInputRequest } from './userInput'
 
 export interface ConversationSummary {
   id: number
@@ -21,6 +22,7 @@ export interface ConversationMessageDisplay {
   error?: string | null
   reasoning?: string
   tools?: Array<Record<string, unknown>>
+  questions?: UserInputRequest[]
   attachments?: AttachmentMeta[]
 }
 

@@ -1,89 +1,46 @@
-/**
- * 最小 markdown 渲染：assistant 正文专用。
- * 先整体 HTML 转义（防 XSS），再恢复白名单语法：
- * **粗体**、`行内代码`、无序/有序列表、GFM 表格、换行。不支持的语法保持原样字符。
- */
+import MarkdownIt from 'markdown-it'
 
-const ESCAPES: Record<string, string> = {
-  '&': '&amp;',
-  '<': '&lt;',
-  '>': '&gt;',
-  '"': '&quot;',
-  "'": '&#39;',
+/** CommonMark/GFM rendering shared by live and saved assistant messages. */
+const markdown = new MarkdownIt({ html: false, linkify: true, breaks: true, typographer: false })
+export const escapeHtml = markdown.utils.escapeHtml
+
+const defaultValidateLink = markdown.validateLink.bind(markdown)
+markdown.validateLink = (url: string) => defaultValidateLink(url)
+  && /^(?:https?:\/\/|mailto:|#|\/(?!\/))/i.test(url)
+
+const defaultLinkOpen = markdown.renderer.rules.link_open
+markdown.renderer.rules.link_open = (tokens, index, options, env, self) => {
+  const href = String(tokens[index].attrGet('href') ?? '')
+  if (/^(?:https?:\/\/|mailto:)/i.test(href)) {
+    tokens[index].attrSet('target', '_blank')
+    tokens[index].attrSet('rel', 'noopener noreferrer')
+  }
+  return defaultLinkOpen?.(tokens, index, options, env, self) ?? self.renderToken(tokens, index, options)
 }
 
-export function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ESCAPES[c] ?? c)
+// Referenced images stay available as links without fetching external content
+// merely because a message is being rendered.
+markdown.renderer.rules.image = (tokens, index) => {
+  const token = tokens[index]
+  const href = String(token.attrGet('src') ?? '')
+  const label = escapeHtml(token.content || '查看图片')
+  return markdown.validateLink(href)
+    ? `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${label}</a>`
+    : label
 }
 
-function renderInline(s: string): string {
-  return s
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-}
+markdown.core.ruler.after('inline', 'task_checkmarks', state => {
+  for (let i = 2; i < state.tokens.length; i++) {
+    const token = state.tokens[i]
+    if (token.type !== 'inline' || state.tokens[i - 2].type !== 'list_item_open') continue
+    const first = token.children?.[0]
+    if (first?.type !== 'text' || !/^\[[ xX]\]\s/.test(first.content)) continue
+    first.content = first.content.replace(/^\[([ xX])\]\s/, (_, checked: string) => checked === ' ' ? '☐ ' : '☑ ')
+    state.tokens[i - 2].attrJoin('class', 'task-list-item')
+  }
+})
 
-/** 输入原始 markdown 文本，输出安全的 HTML 字符串（配合 v-html 使用）。 */
+/** Raw HTML remains escaped; incomplete streamed blocks are parsed safely. */
 export function renderMarkdown(raw: string): string {
-  const lines = escapeHtml(raw).split('\n')
-  const out: string[] = []
-  let list: 'ul' | 'ol' | null = null
-
-  const closeList = () => {
-    if (list) {
-      out.push(list === 'ul' ? '</ul>' : '</ol>')
-      list = null
-    }
-  }
-
-  const splitRow = (line: string) =>
-    line.replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim())
-  // 分隔行：整行由 | - : 与空白构成，且至少含一个 -
-  const isTableSep = (line: string) => /^\|[\s:|-]+\|?$/.test(line) && line.includes('-')
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-
-    // GFM 表格：当前行是表头、下一行是分隔行时才进入表格块
-    if (line.trimStart().startsWith('|') && i + 1 < lines.length && isTableSep(lines[i + 1].trim())) {
-      closeList()
-      const header = splitRow(line.trim())
-      const body: string[][] = []
-      i += 2
-      while (i < lines.length && lines[i].trimStart().startsWith('|')) {
-        body.push(splitRow(lines[i].trim()))
-        i++
-      }
-      i-- // 抵消 for 循环的自增
-      out.push(
-        '<table><thead><tr>' +
-          header.map((c) => `<th>${renderInline(c)}</th>`).join('') +
-          '</tr></thead><tbody>' +
-          body.map((r) => '<tr>' + r.map((c) => `<td>${renderInline(c)}</td>`).join('') + '</tr>').join('') +
-          '</tbody></table>',
-      )
-      continue
-    }
-
-    const ul = /^[-*]\s+/.test(line)
-    // 有序列表标记后要求空白或紧跟 CJK 字符（避免把「2026.09」误判为列表）
-    const ol = /^\d+[.、](?:\s+|(?=[\u4e00-\u9fff]))/.test(line)
-    if (ul || ol) {
-      const kind = ul ? 'ul' : 'ol'
-      if (list !== kind) {
-        closeList()
-        out.push(kind === 'ul' ? '<ul>' : '<ol>')
-        list = kind
-      }
-      out.push(`<li>${renderInline(line.replace(/^[-*]\s+|^\d+[.、]\s*/, ''))}</li>`)
-      continue
-    }
-    closeList()
-    if (line.trim() === '') {
-      out.push('<br>')
-    } else {
-      out.push(`<p>${renderInline(line)}</p>`)
-    }
-  }
-  closeList()
-  return out.join('')
+  return markdown.render(raw)
 }

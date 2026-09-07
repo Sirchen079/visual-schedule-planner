@@ -455,7 +455,7 @@ def test_summary_chunks_include_middle_and_end_of_long_messages(monkeypatch):
     calls = _capture_oneshot(monkeypatch,reply='逐段合并摘要')
     cfg = _budget_config(8192,512)
     result,summary,_ = compaction.summarize_history(None,cfg,history,threshold=12,timeout=2)
-    assert summary and len(calls)>2 and len(result)<len(history)+3
+    assert summary and len(calls)>=2 and len(result)<len(history)+3
     joined = ''.join(c['user'] for c in calls)
     assert all(marker in joined for marker in ('HEAD_SENTINEL','MIDDLE_SENTINEL','TAIL_SENTINEL'))
     assert '内容因上下文预算截短' not in joined
@@ -467,12 +467,17 @@ def test_token_cut_can_fold_more_than_half_the_rounds(monkeypatch):
     from zhishi.agent.context_budget import estimate_messages_tokens, history_budget
     history = _history(6, tool_every=1)
     for start in _round_starts(history)[:-1]:
-        history[start].parts[0].content += "长文本" * 900
+        history[start].parts[0].content += "长文本" * 3500
     calls = _capture_oneshot(monkeypatch, reply="摘要")
     cfg = _budget_config()
     result, summary, _ = summarize_history(None, cfg, history, threshold=12, timeout=2)
     assert len(calls) >= 1 and summary
-    assert result[2:] == history[_round_starts(history)[-1]:]
+    newest = history[_round_starts(history)[-1]:]
+    assert result[-len(newest):] == newest
+    assert not any(m in result for m in history[:_round_starts(history)[3]])
+    calls_kept = {p.tool_call_id for m in result for p in m.parts if getattr(p, 'part_kind', '') == 'tool-call'}
+    returns_kept = {p.tool_call_id for m in result for p in m.parts if getattr(p, 'part_kind', '') == 'tool-return'}
+    assert calls_kept == returns_kept
     assert estimate_messages_tokens(result) <= history_budget(cfg)
 
 

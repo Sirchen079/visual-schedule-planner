@@ -15,7 +15,7 @@ export interface StageChanged {
   /** 协议版本 */
   v: number;
   type: "stage_changed";
-  stage: "preparing" | "connecting" | "waiting_first_token" | "streaming_reasoning" | "streaming_text" | "executing_tools" | "awaiting_approval" | "finalizing";
+  stage: "preparing" | "connecting" | "waiting_first_token" | "streaming_reasoning" | "streaming_text" | "executing_tools" | "awaiting_approval" | "awaiting_input" | "compacting" | "finalizing";
 }
 
 export interface Heartbeat {
@@ -85,6 +85,13 @@ export interface ToolApprovalResolved {
   type: "tool_approval_resolved";
   action_id: number;
   outcome: "approved" | "denied" | "expired";
+}
+
+export interface UserInputRequested {
+  /** 协议版本 */
+  v: number;
+  type: "user_input_requested";
+  request: Record<string, unknown>;
 }
 
 export interface PlanCard {
@@ -175,6 +182,7 @@ export type SSEEvent =
   | ToolCallResult
   | ToolApprovalRequested
   | ToolApprovalResolved
+  | UserInputRequested
   | PlanCard
   | WorkPlanUpdated
   | SubagentStarted

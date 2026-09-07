@@ -1,8 +1,9 @@
 import { http } from './http'
 import type { AttachmentMeta } from './ai'
+import type { UserAnswer, UserInputRequest } from './userInput'
 
 export interface Draft { text: string; attachments: AttachmentMeta[] }
-export interface Workspace { revision: number; state: { active_id: number | null; drafts: Record<string, Draft> } }
+export interface Workspace { revision: number; state: { active_id: number | null; drafts: Record<string, Draft>; question_drafts?: Record<string, Record<string, UserAnswer>> } }
 export interface ConversationState {
   conversation_id: number
   active_run_id: string | null
@@ -17,6 +18,8 @@ export interface ConversationState {
   summary: string
   model: string
   context_window: number | null
+  questions?: UserInputRequest[]
+  work_plan?: Array<Record<string, unknown>>
 }
 export const getConversationState = (cid: number) => http.get<ConversationState>(`/ai/conversations/${cid}/state`)
 export const getWorkspace = (surface: string) => http.get<Workspace>(`/ai/workspaces/${surface}`)

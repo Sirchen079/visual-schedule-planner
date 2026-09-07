@@ -1,7 +1,7 @@
 {
   "name": "zhishi",
   "productName": "知时",
-  "version": "2.14.3",
+  "version": "2.15.0",
   "description": "知时：本地日程与 AI 私人秘书",
   "main": "main.js",
   "author": "zhishi-dev <dev@zhishi.local>",
@@ -27,6 +27,7 @@
       "main.js",
       "main-preload.js",
       "desktop-settings.js",
+      "desktop-updates.js",
       "settings-selftest.js",
       "widget.js",
       "widget-preload.js",
@@ -36,8 +37,20 @@
     ],
     "extraResources": [
       {
+        "from": "../THIRD_PARTY_NOTICES.md",
+        "to": "THIRD_PARTY_NOTICES.md"
+      },
+      {
         "from": "../backend-v2/dist/zhishi-backend",
         "to": "zhishi-backend"
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Sirchen079",
+        "repo": "visual-schedule-planner",
+        "releaseType": "release"
       }
     ],
     "win": {
@@ -66,5 +79,8 @@
       "shortcutName": "知时",
       "artifactName": "zhishi-Setup-${version}.${ext}"
     }
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9"
   }
 }

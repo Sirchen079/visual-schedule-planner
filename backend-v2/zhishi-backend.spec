@@ -14,6 +14,7 @@ datas = sum((copy_metadata(p) for p in (
     "pdfplumber", "python_multipart",
 )), [])
 binaries = []
+datas.append(('src/zhishi/agent/vocab/cl100k_base.tiktoken', 'zhishi/agent/vocab'))
 hiddenimports = [
     # uvicorn 动态导入常见坑
     'uvicorn.logging',

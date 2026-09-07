@@ -51,7 +51,7 @@ def test_plan_mode_emits_plan_card_and_approve_executes(tmp_path, monkeypatch):
         assert card["title"] == "导入课表计划" and card["steps"]
         assert card["steps"][0]["tool"] == "import_document"
         # 计划模式工具门：只读工具 + propose_plan 可用，confirm/safe 写类不注册
-        assert "propose_plan" in seen["names"] and "list_tasks" in seen["names"]
+        assert "propose_plan" in seen["names"] and "search_tools" in seen["names"]
         assert "import_timetable" not in seen["names"] and "delete_task" not in seen["names"]
 
         cid = next(e for e in events if e["type"] == "run_started")["conversation_id"]

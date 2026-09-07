@@ -62,7 +62,7 @@ async def _consume(response):
     return [part async for part in response.body_iterator]
 
 
-@pytest.mark.parametrize("kind", ["chat", "resume"])
+@pytest.mark.parametrize("kind", ["chat"])
 async def test_cancel_during_compaction_releases_slot_without_late_write(
         db, initialized, monkeypatch, kind):
     app, cid = initialized
@@ -98,6 +98,23 @@ async def test_cancel_during_compaction_releases_slot_without_late_write(
     monkeypatch.setattr(compaction, "oneshot_text", lambda *args: "正常摘要")
     response = await _request(app, cid, kind)
     assert await _consume(response)
+    assert app.state.active_runs == {}
+
+
+async def test_resume_defers_compaction_until_pending_calls_are_settled(db, initialized, monkeypatch):
+    app, cid = initialized
+    monkeypatch.setattr(compaction, 'oneshot_text', lambda *args: pytest.fail('Pending-call history must reach runtime intact'))
+    captured = []
+    class Runtime:
+        def __init__(self, **kwargs): pass
+        async def run_stream(self, **kwargs):
+            captured.append(kwargs)
+            yield {'type': 'done', 'run_id': kwargs['run_id']}
+    monkeypatch.setattr(ai, 'AgentRuntime', Runtime)
+    response = await _request(app, cid, 'resume')
+    await _consume(response)
+    assert any(getattr(p, 'tool_call_id', None) == 'pending-call' for m in captured[0]['history'] for p in m.parts)
+    assert captured[0]['deferred_results'].approvals['pending-call'].kind == 'tool-approved'
     assert app.state.active_runs == {}
 
 
