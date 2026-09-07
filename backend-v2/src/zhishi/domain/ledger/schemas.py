@@ -1,8 +1,9 @@
 from datetime import date, datetime
-from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from zhishi.domain.ledger.money import MoneyAmount
 
 Currency = Literal["CNY", "USD", "EUR", "GBP", "HKD", "JPY"]
 Direction = Literal["income", "expense"]
@@ -13,8 +14,7 @@ class EntryData(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     day: date
     direction: Direction
-    amount: Decimal = Field(gt=0, le=Decimal("999999999.99"), max_digits=11,
-                            decimal_places=2, allow_inf_nan=False)
+    amount: MoneyAmount
     currency: Currency = "CNY"
     category: str = Field(default="未分类", min_length=1, max_length=50)
     account: str = Field(default="默认账户", min_length=1, max_length=80)

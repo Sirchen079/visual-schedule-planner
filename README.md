@@ -4,7 +4,9 @@
 
 知时可以手动管理日历、待办和账本，也可以连接你自己的 AI 服务，用自然语言整理资料、安排计划、记录开支。数据保存在本机，AI 执行过程和需要确认的操作会显示在对话中。
 
-**当前源码版本：2.14.2 · 桌面构建目标：Windows x64 · MIT 开源**
+**当前源码版本：2.14.3 · 桌面构建目标：Windows x64 · MIT 开源**
+
+2.14.3 修复部分兼容模型服务拒绝金额工具参数定义、导致对话返回 400 的问题。
 
 [AI 接入新手指南](docs/ai-api-guide.md) · [源码构建](#从源码运行) · [问题反馈](https://github.com/Sirchen079/visual-schedule-planner/issues)
 
@@ -25,9 +27,9 @@
 
 ### 1. 获取应用
 
-如果你已拿到 `zhishi-Setup-2.14.2.exe`，双击安装，再从桌面快捷方式打开“知时”。安装版自带运行环境，不需要另外安装 Python 或 Node.js。
+如果你已拿到 `zhishi-Setup-2.14.3.exe`，双击安装，再从桌面快捷方式打开“知时”。安装版自带运行环境，不需要另外安装 Python 或 Node.js。
 
-**当前 [GitHub Releases](https://github.com/Sirchen079/visual-schedule-planner/releases) 中只有 1.x 安装包，尚未发布 2.14.2 安装包。** 要使用本页介绍的版本，请使用对应的 2.14.2 安装包，或按下方步骤从源码构建。GitHub 的 “Source code” 压缩包是源码，不能直接当作安装程序运行。
+**当前 [GitHub Releases](https://github.com/Sirchen079/visual-schedule-planner/releases) 中只有 1.x 安装包，尚未发布 2.14.3 安装包。** 要使用本页介绍的版本，请使用对应的 2.14.3 安装包，或按下方步骤从源码构建。GitHub 的 “Source code” 压缩包是源码，不能直接当作安装程序运行。
 
 2.x 使用独立数据目录，**不兼容、不会自动导入或迁移 1.x 数据**。如仍在使用旧版，请保留原应用和原数据备份。
 
@@ -118,7 +120,7 @@ npm --prefix electron-v2 start
 npm --prefix electron-v2 run dist
 ```
 
-安装包输出到 `electron-v2/dist/zhishi-Setup-2.14.2.exe`。构建产物、数据库和密钥不应提交到仓库。
+安装包输出到 `electron-v2/dist/zhishi-Setup-2.14.3.exe`。构建产物、数据库和密钥不应提交到仓库。
 
 ## 开发与测试
 
