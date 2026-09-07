@@ -1,6 +1,8 @@
 """L1 只读工具：包装 领域服务，返回模型可读的紧凑文本。
 签名约定：第一参数 db: Session（runtime 负责注入），其余参数即工具 schema。"""
 from __future__ import annotations
+from typing import Annotated
+from pydantic import Field
 import json
 from datetime import date
 from sqlalchemy.orm import Session
@@ -28,14 +30,23 @@ def resolve_local_date(db: Session, expression: str, reference_date: str | None 
 
 
 def list_tasks(db: Session, query: str | None = None, status: str | None = None,
-               priority: str | None = None, tag: str | None = None) -> str:
+               priority: str | None = None, tag: str | None = None,
+               limit: Annotated[int, Field(ge=1, le=50)] = 20,
+               offset: Annotated[int, Field(ge=0)] = 0) -> str:
     """查询任务列表（不写任何数据）。query 按标题模糊匹配；status: todo/doing/done；
-    priority: high/medium/low；tag 按标签名过滤。修改/删除任务前必须先用本工具定位目标 task_id。"""
+    priority: high/medium/low；tag 按标签名过滤。返回 items/total/next_call，按 next_call 继续翻页。
+    修改/删除前从 items 取得 task_id；存在同名条目时先核对详情。"""
     from zhishi.domain.tasks import service as ts
+    if not 1 <= limit <= 50 or offset < 0:
+        raise ValueError('limit 必须为1至50，offset 不能为负数')
     tasks = ts.list_tasks(db, status=status, priority=priority, q=query, tag=tag)
-    return _json([{"id": t.id, "title": t.title, "status": t.status, "priority": t.priority,
+    tasks.sort(key=lambda task:task.id)
+    items = [{"id": t.id, "task_id":t.id, "title": t.title, "status": t.status, "priority": t.priority,
                    "due_date": t.due_date.isoformat() if t.due_date else None,
-                   "tags": [x.name for x in t.tags]} for t in tasks[:50]])
+                   "tags": [x.name for x in t.tags]} for t in tasks[offset:offset+limit]]
+    return _json({'items':items, 'total':len(tasks), 'limit':limit, 'offset':offset,
+                  'next_call':{'tool':'list_tasks', 'args':{'query':query,'status':status,'priority':priority,
+                              'tag':tag,'limit':limit,'offset':offset+limit}} if offset+limit < len(tasks) else None})
 
 
 def get_task(db: Session, task_id: int) -> str:
@@ -44,6 +55,12 @@ def get_task(db: Session, task_id: int) -> str:
     t = ts.get_task(db, task_id)
     return _json({"id": t.id, "title": t.title, "notes": t.notes, "status": t.status,
                   "due_date": t.due_date.isoformat() if t.due_date else None,
+                  "due_time": t.due_time, "priority": t.priority,
+                  "remind_offsets": json.loads(t.remind_offsets or '[]'),
+                  "recur_rule": t.recur_rule, "recur_interval": t.recur_interval,
+                  "recur_rrule": t.recur_rrule, "estimated_minutes": t.estimated_minutes,
+                  "progress": t.progress,
+                  "files": [{"file_id":f.id, "name":f.original_name} for f in t.files if f.deleted_at is None],
                   "subtasks": [{"id": s.id, "title": s.title, "done": s.done} for s in t.subtasks],
                   "tags": [x.name for x in t.tags]})
 
@@ -116,11 +133,20 @@ def get_time_stats(db: Session, days: int = 7) -> str:
     return _json(fs.time_stats(db, days=days))
 
 
-def list_files(db: Session, query: str | None = None) -> str:
-    """列出资料库文件/链接资源。"""
+def list_files(db: Session, query: str | None = None,
+               limit: Annotated[int, Field(ge=1, le=50)] = 20,
+               offset: Annotated[int, Field(ge=0)] = 0) -> str:
+    """按名称查询资料库文件/链接，返回 items/total/next_call。读取正文用 items 中的 file_id；
+    查找不到时按 next_call 翻页或缩短 query，不把首屏当作全部资料。"""
     from zhishi.domain.library import service as ls
-    return _json([{"id": f.id, "name": f.original_name, "type": f.resource_type,
-                   "notes": f.notes[:100]} for f in ls.list_files(db, q=query)])
+    if not 1 <= limit <= 50 or offset < 0:
+        raise ValueError('limit 必须为1至50，offset 不能为负数')
+    files = sorted(ls.list_files(db, q=query), key=lambda item:item.id)
+    return _json({'items':[{'id':f.id, 'file_id':f.id, 'name':f.original_name, 'type':f.resource_type,
+                           'notes':f.notes[:100]} for f in files[offset:offset+limit]],
+                  'total':len(files), 'limit':limit, 'offset':offset,
+                  'next_call':{'tool':'list_files','args':{'query':query,'limit':limit,'offset':offset+limit}}
+                  if offset+limit < len(files) else None})
 
 
 def list_notifications(db: Session, limit: int = 20) -> str:

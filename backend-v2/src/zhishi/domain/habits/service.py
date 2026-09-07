@@ -32,7 +32,7 @@ def _get_log(db: Session, habit_id: int, day: date) -> HabitLog | None:
     return db.scalar(select(HabitLog).where(HabitLog.habit_id == habit_id, HabitLog.date == day))
 
 
-def check_in(db: Session, habit_id: int, day: date | None = None) -> HabitLog:
+def check_in(db: Session, habit_id: int, day: date | None = None, *, commit: bool = True) -> HabitLog:
     habit = db.get(Habit, habit_id)
     if habit is None or habit.deleted_at is not None:
         raise LookupError(f"habit {habit_id} 不存在")
@@ -42,7 +42,10 @@ def check_in(db: Session, habit_id: int, day: date | None = None) -> HabitLog:
         log = HabitLog(habit_id=habit_id, date=day, count=0)
         db.add(log)
     log.count += 1
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(log)
     return log
 

@@ -7,6 +7,11 @@ import json
 from datetime import date
 from sqlalchemy.orm import Session
 from zhishi.agent.tools.registry import ToolSpec, register
+from zhishi.agent.mutations import execute_mutation
+from zhishi.agent.tools.input_models import (IdBatch, RequestKey, ResourceInput, SubtaskInput,
+                                            WorkStepInput, validate_items)
+from zhishi.domain.tasks.schemas import ReminderOffsets as TaskReminderOffsets
+from zhishi.domain.schedule.schemas import ReminderOffsets as EventReminderOffsets
 
 
 def _json(obj) -> str:
@@ -15,41 +20,63 @@ def _json(obj) -> str:
 
 def create_task(db: Session, title: str, notes: str = "", due_date: str | None = None,
                 due_time: str | None = None, priority: str = "medium",
-                remind_offsets: list[int] | None = None, recur_rule: str = "none",
+                remind_offsets: TaskReminderOffsets | None = None, recur_rule: str = "none",
                 recur_interval: int = 1, recur_rrule: str | None = None,
-                estimated_minutes: int | None = None, tag_names: list[str] | None = None) -> str:
+                estimated_minutes: int | None = None, tag_names: list[str] | None = None,
+                request_key: RequestKey | None = None, ctx=None) -> str:
     """创建任务（低风险直写）。日期用 YYYY-MM-DD（可带时间）；提醒用 remind_offsets 提前分钟数组（如 [0,30,1440]）；
     重复规则 recur_rule: none/daily/weekdays/weekly/monthly，单双周/多选星期用 recur_rrule；
     指定几点提醒时，同时填 due_date、due_time（HH:MM）和 remind_offsets=[0]；未设置提醒数组不会提醒。
-    超过 120 分钟的任务先拆子任务再排程。创建前先用 get_current_time 校准当前日期。"""
+    超过 120 分钟的任务先拆子任务再排程。创建前先用 get_current_time 校准当前日期。
+    同一轮同参数重试自动返回原回执；明确需要两个相同任务时分别指定不同 request_key。"""
     from datetime import datetime
     from zhishi.domain.tasks import service as ts
     from zhishi.domain.tasks.schemas import TaskCreate
     payload = TaskCreate(
-        title=title, notes=notes,
+        title=title.strip(), notes=notes,
         due_date=datetime.fromisoformat(due_date) if due_date else None,
         due_time=due_time, priority=priority,
         remind_offsets=remind_offsets or [], recur_rule=recur_rule,
         recur_interval=recur_interval, recur_rrule=recur_rrule,
         estimated_minutes=estimated_minutes, tag_names=tag_names or [])
-    task = ts.create_task(db, payload)
-    return _json({"id": task.id, "title": task.title, "status": task.status})
+    payload.remind_offsets = sorted(set(payload.remind_offsets))
+    payload.tag_names = sorted({name.strip() for name in payload.tag_names if name.strip()})
+    def action():
+        task = ts.create_task(db, payload, commit=False)
+        return {"id": task.id, "title": task.title, "status": task.status,
+                "next_call": {"tool": "get_task", "args": {"task_id": task.id}}}
+    return execute_mutation(db, tool='create_task', arguments=payload.model_dump(mode='json'),
+                            action=action, ctx=ctx, request_key=request_key)
 
 
-def create_subtasks(db: Session, task_id: int, items: list[dict]) -> str:
+def create_subtasks(db: Session, task_id: int, items: list[SubtaskInput],
+                    request_key: RequestKey | None = None, ctx=None) -> str:
     """为任务批量创建子任务（低风险直写）。items 每项 {title, estimated_minutes?}，按 title 去重。
     拆分大任务时用本工具创建真实子任务，不要只写进 notes。"""
     from zhishi.domain import subtasks as sb
-    created, seen = [], set()
-    for item in items:
-        title = (item.get("title") or "").strip()
-        if not title or title in seen:
-            continue
-        seen.add(title)
-        sub = sb.create_subtask(db, task_id, title=title,
-                                estimated_minutes=item.get("estimated_minutes"))
-        created.append({"id": sub.id, "title": sub.title})
-    return _json({"task_id": task_id, "created": created})
+    from sqlalchemy import select
+    from zhishi.domain.models import Subtask
+    from zhishi.domain.tasks.service import get_task
+    items = validate_items(SubtaskInput, items)
+    if any(not item['title'].strip() for item in items):
+        raise ValueError('子任务标题不能为空白')
+    def action():
+        get_task(db, task_id)
+        seen = set(db.scalars(select(Subtask.title).where(Subtask.task_id == task_id)))
+        created, skipped = [], []
+        for item in items:
+            title = item['title'].strip()
+            if title in seen:
+                skipped.append(title)
+                continue
+            seen.add(title)
+            sub = sb.create_subtask(db, task_id, title=title,
+                                   estimated_minutes=item.get('estimated_minutes'), commit=False)
+            created.append({'id': sub.id, 'title': sub.title})
+        return {'task_id': task_id, 'created': created, 'skipped': skipped,
+                'next_call': {'tool': 'get_task', 'args': {'task_id': task_id}}}
+    return execute_mutation(db, tool='create_subtasks', arguments={'task_id':task_id, 'items':items},
+                            action=action, ctx=ctx, request_key=request_key)
 
 
 def assign_task_to_day(db: Session, task_id: int, day: str,
@@ -68,25 +95,39 @@ def assign_task_to_day(db: Session, task_id: int, day: str,
 def create_event(db: Session, title: str, day: str, start_time: str | None = None,
                  end_time: str | None = None, location: str = "", category: str = "general",
                  recur_rrule: str | None = None, notes: str = "",
-                 remind_offsets: list[int] | None = None, reminder_time: str | None = None) -> str:
+                 remind_offsets: EventReminderOffsets | None = None, reminder_time: str | None = None,
+                 request_key: RequestKey | None = None, ctx=None) -> str:
     """创建独立日程块（低风险直写）。课表/会议等固定日程用本工具，不要建成任务；
     重复日程用 recur_rrule（如 FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE）。day 格式 YYYY-MM-DD。
     日程提醒直接用 remind_offsets（提前分钟，如 [0,30]，最多8个，0至10080），不要另建提醒任务。
-    无 start_time 的全天日程还须指定 reminder_time（HH:MM）；每天/周/月/年的每次日程都会按规则提醒。"""
+    无 start_time 的全天日程还须指定 reminder_time（HH:MM）；每天/周/月/年的每次日程都会按规则提醒。
+    同一轮同参数重试自动去重；仅当用户明确要求另一条相同日程时使用新的 request_key。"""
     from zhishi.domain.schedule import service as ss
-    event = ss.create_event(db, title=title, date=date.fromisoformat(day),
-                            start_time=start_time, end_time=end_time, location=location,
-                            category=category, recur_rrule=recur_rrule, notes=notes,
-                            remind_offsets=remind_offsets or [], reminder_time=reminder_time)
-    return _json({"event_id": event.id, "title": event.title, "date": day,
-                  "remind_offsets": ss.event_reminder_offsets(event), "reminder_time": event.reminder_time})
+    from zhishi.domain.schedule.schemas import EventCreate
+    payload = EventCreate(title=title.strip(), date=date.fromisoformat(day), start_time=start_time,
+                          end_time=end_time, location=location, category=category,
+                          recur_rrule=recur_rrule, notes=notes,
+                          remind_offsets=remind_offsets or [], reminder_time=reminder_time)
+    payload.remind_offsets = sorted(set(payload.remind_offsets))
+    def action():
+        event = ss.create_event(db, commit=False, **payload.model_dump())
+        return {'event_id':event.id, 'title':event.title, 'date':day,
+                'remind_offsets':ss.event_reminder_offsets(event), 'reminder_time':event.reminder_time,
+                'next_call':{'tool':'get_event', 'args':{'event_id':event.id}}}
+    return execute_mutation(db, tool='create_event', arguments=payload.model_dump(mode='json'),
+                            action=action, ctx=ctx, request_key=request_key)
 
 
-def check_in_habit(db: Session, habit_id: int, day: str | None = None) -> str:
-    """习惯打卡（低风险直写，当天幂等累加）。day 缺省为今天。"""
+def check_in_habit(db: Session, habit_id: int, day: str | None = None,
+                   request_key: RequestKey | None = None, ctx=None) -> str:
+    """习惯打卡，每次真实操作加1。day 缺省今天；同一轮同参数重试不会再加1。
+    用户明确要求多次打卡时，每次使用不同 request_key；重试必须复用原键。"""
     from zhishi.domain.habits import service as hs
-    log = hs.check_in(db, habit_id, date.fromisoformat(day) if day else None)
-    return _json({"habit_id": habit_id, "date": log.date.isoformat(), "count": log.count})
+    def action():
+        log = hs.check_in(db, habit_id, date.fromisoformat(day) if day else None, commit=False)
+        return {'habit_id':habit_id, 'date':log.date.isoformat(), 'count':log.count}
+    return execute_mutation(db, tool='check_in_habit', arguments={'habit_id':habit_id,'day':day},
+                            action=action, ctx=ctx, request_key=request_key)
 
 
 def write_journal(db: Session, content: str, mood: str | None = None,
@@ -123,17 +164,20 @@ def stop_timer(db: Session, log_id: int | None = None) -> str:
     return _json({"log_id": log.id, "minutes": log.minutes})
 
 
-def update_work_plan(db: Session, steps: list[dict], ctx=None) -> str:
+def update_work_plan(db: Session, steps: list[WorkStepInput], ctx=None) -> str:
     """更新工作计划展示（纯元数据，低风险直写）。steps 每项 {title, status?}（status 缺省"待办"）。
-    用于展示当前执行计划，随会话保存；不创建日历或待办事项。"""
-    if len(steps) > 12:
-        raise ValueError('工作计划最多12步，请合并过细步骤')
+    用于展示当前执行计划，随会话保存；不创建日历或待办事项。
+    已完成步骤可用 evidence_call_ids 关联本会话成功工具调用。系统校验真实回执，不能填写虚构 ID。"""
+    steps = validate_items(WorkStepInput, steps, 12)
+    from zhishi.agent.plan_evidence import resolve_evidence
+    cid = getattr(getattr(ctx, 'deps', None), 'conversation_id', None)
     out = []
     for s in steps:
         if not (s.get("title") or "").strip():
             raise ValueError("工作计划的每个步骤必须有 title")
-        out.append({"title": s["title"], "status": s.get("status") or "待办"})
-    cid = getattr(getattr(ctx, 'deps', None), 'conversation_id', None)
+        evidence = resolve_evidence(db, cid, s.get('evidence_call_ids', []))
+        out.append({'title':s['title'], 'status':s.get('status') or '待办',
+                    'verification':'tool_receipt' if evidence else 'reported', 'evidence':evidence})
     if cid is not None:
         from zhishi.agent.session_store import metadata
         from zhishi.domain.models import AIConversation
@@ -143,6 +187,10 @@ def update_work_plan(db: Session, steps: list[dict], ctx=None) -> str:
             value['work_plan'] = out
             conversation.meta_json = _json(value)
             db.commit()
+    emit = getattr(getattr(ctx, 'deps', None), 'emit', None)
+    if emit is not None:
+        from zhishi.agent.events import WorkPlanUpdated
+        emit.put_nowait(WorkPlanUpdated(steps=out).model_dump())
     return _json({"steps": out})
 
 
@@ -297,57 +345,83 @@ def empty_trash(db: Session) -> str:
     """清空回收站（不可恢复，需确认且不可设为始终允许）。"""
     from zhishi.domain.tasks import service as ts
     from zhishi.domain.library import service as ls
-    purged = 0
-    for task in ts.list_trash(db):
-        ts.purge_task(db, task.id)
-        purged += 1
-    files = ls.list_trash(db)
-    for f in files:
-        ls.purge(db, f.id)  # 物理文件清理由 解析管道统一处理
-        purged += 1
-    return _json({"ok": True, "purged": purged})
+    targets = [('task', task.id) for task in ts.list_trash(db)] + [('file', item.id) for item in ls.list_trash(db)]
+    purged, failed = [], []
+    for kind, item_id in targets:
+        try:
+            (ts.purge_task if kind == 'task' else ls.purge)(db, item_id)
+            purged.append({'kind':kind, 'id':item_id})
+        except Exception:
+            db.rollback()
+            failed.append({'kind':kind, 'id':item_id, 'error':'仍被其他记录引用或存储暂时不可用，未删除此项'})
+    return _json({'ok':not failed, 'purged':len(purged), 'deleted_items':purged,
+                  'failed_items':failed, 'write_status':'partial' if failed and purged else 'not_applied' if failed else 'committed',
+                  'next_step':'失败项仍保留；先检查引用和存储状态，不重复清理已成功项。' if failed else '回收站清理完成。'})
 
 
-def bulk_delete_tasks(db: Session, task_ids: list[int]) -> str:
+def bulk_delete_tasks(db: Session, task_ids: IdBatch,
+                      request_key: RequestKey | None = None, ctx=None) -> str:
     """批量软删除任务（不可豁免高危，需确认）。先用只读工具确认全部 task_id。"""
     from zhishi.domain.tasks import service as ts
-    deleted, missing = [], []
-    for tid in task_ids:
-        try:
-            ts.soft_delete_task(db, tid)
-            deleted.append(tid)
-        except LookupError:
-            missing.append(tid)
-    return _json({"deleted": deleted, "missing": missing})
+    from pydantic import TypeAdapter
+    task_ids = sorted(set(TypeAdapter(IdBatch).validate_python(task_ids)))
+    def action():
+        deleted, missing = [], []
+        for tid in task_ids:
+            try:
+                ts.soft_delete_task(db, tid, commit=False)
+                deleted.append(tid)
+            except LookupError:
+                missing.append(tid)
+        return {'deleted':deleted, 'missing':missing}
+    return execute_mutation(db, tool='bulk_delete_tasks', arguments={'task_ids':task_ids},
+                            action=action, ctx=ctx, request_key=request_key)
 
 
-def bulk_delete_files(db: Session, file_ids: list[int]) -> str:
+def bulk_delete_files(db: Session, file_ids: IdBatch,
+                      request_key: RequestKey | None = None, ctx=None) -> str:
     """批量软删除资料文件（不可豁免高危，需确认）。先用 list_files 确认全部 file_id。"""
     from zhishi.domain.library import service as ls
-    deleted, missing = [], []
-    for fid in file_ids:
-        try:
-            ls.soft_delete(db, fid)
-            deleted.append(fid)
-        except LookupError:
-            missing.append(fid)
-    return _json({"deleted": deleted, "missing": missing})
+    from pydantic import TypeAdapter
+    file_ids = sorted(set(TypeAdapter(IdBatch).validate_python(file_ids)))
+    def action():
+        deleted, missing = [], []
+        for fid in file_ids:
+            try:
+                ls.soft_delete(db, fid, commit=False)
+                deleted.append(fid)
+            except LookupError:
+                missing.append(fid)
+        return {'deleted':deleted, 'missing':missing}
+    return execute_mutation(db, tool='bulk_delete_files', arguments={'file_ids':file_ids},
+                            action=action, ctx=ctx, request_key=request_key)
 
 
-def import_web_resources(db: Session, resources: list[dict]) -> str:
+def import_web_resources(db: Session, resources: list[ResourceInput],
+                         request_key: RequestKey | None = None, ctx=None) -> str:
     """批量导入网页/链接资源（不可豁免高危，需确认）。每项 {title, url, notes?}，
     url 必须以 http(s):// 开头；仅登记链接，内容抓取解析在后续版本增强。"""
     from zhishi.domain.library import service as ls
-    created = []
-    for item in resources:
-        title = (item.get("title") or "").strip()
-        url = (item.get("url") or "").strip()
-        if not title or not url.startswith(("http://", "https://")):
-            raise ValueError(f"资源项缺少 title 或 url 非法：{item}")
-        row = ls.save_link(db, title=title, url=url, notes=item.get("notes") or "",
-                           resource_type="link")
-        created.append({"id": row.id, "title": row.title})
-    return _json({"created": created})
+    resources = validate_items(ResourceInput, resources)
+    if any(not item['title'].strip() for item in resources):
+        raise ValueError('资源标题不能为空白')
+    def action():
+        from sqlalchemy import select
+        from zhishi.domain.models import LibraryFile
+        created, skipped = [], []
+        for item in resources:
+            previous = db.scalar(select(LibraryFile).where(LibraryFile.storage_path == item['url']))
+            if previous is not None:
+                if previous.deleted_at is not None:
+                    raise ValueError('此链接已在资料库回收站，请先恢复该条目；本批未保存')
+                skipped.append({'id':previous.id, 'file_id':previous.id, 'title':previous.original_name})
+                continue
+            row = ls.save_link(db, title=item['title'].strip(), url=item['url'],
+                               notes=item.get('notes') or '', resource_type='link', commit=False)
+            created.append({'id':row.id, 'file_id':row.id, 'title':row.original_name})
+        return {'created':created, 'skipped':skipped, 'next_call':{'tool':'list_files', 'args':{}}}
+    return execute_mutation(db, tool='import_web_resources', arguments={'resources':resources},
+                            action=action, ctx=ctx, request_key=request_key)
 
 
 _WRITE_SPECS = [

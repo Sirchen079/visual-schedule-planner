@@ -457,7 +457,8 @@ def delete_conversation(cid: int, request: Request, db: Session = Depends(get_db
     conv = db.get(AIConversation, cid)
     if conv is None:
         raise HTTPException(404, "会话不存在")
-    from zhishi.domain.models import AIContextCheckpoint, AIToolExecution, AIContextArtifact, AIUserInput
+    from zhishi.domain.models import AIContextCheckpoint, AIToolExecution, AIContextArtifact, AIUserInput, AIWriteReceipt
+    db.query(AIWriteReceipt).filter(AIWriteReceipt.conversation_id == cid).delete(synchronize_session=False)
     db.query(AIUserInput).filter(AIUserInput.conversation_id == cid).delete(synchronize_session=False)
     db.query(AIContextArtifact).filter(AIContextArtifact.conversation_id == cid).delete(synchronize_session=False)
     db.query(AIContextCheckpoint).filter(AIContextCheckpoint.conversation_id == cid).delete(synchronize_session=False)

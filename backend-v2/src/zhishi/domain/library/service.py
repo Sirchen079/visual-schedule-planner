@@ -56,7 +56,7 @@ def save_local_file(db: Session, *, storage_root: Path, source: Path, notes: str
     return row
 
 
-def save_link(db: Session, **fields) -> LibraryFile:
+def save_link(db: Session, *, commit: bool = True, **fields) -> LibraryFile:
     """字段即 LinkCreate 字段（title/url/notes/resource_type）。"""
     payload = LinkCreate(**fields)
     if not payload.url.startswith(("http://", "https://")):
@@ -65,7 +65,10 @@ def save_link(db: Session, **fields) -> LibraryFile:
                       mime_type="text/uri-list", notes=payload.notes,
                       source_url=payload.url, resource_type=payload.resource_type)
     db.add(row)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(row)
     return row
 
@@ -89,9 +92,12 @@ def list_trash(db: Session) -> list[LibraryFile]:
                            .order_by(LibraryFile.deleted_at.desc())))
 
 
-def soft_delete(db: Session, file_id: int) -> None:
+def soft_delete(db: Session, file_id: int, *, commit: bool = True) -> None:
     get_file(db, file_id).deleted_at = datetime.now()
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
 
 
 def restore(db: Session, file_id: int) -> LibraryFile:

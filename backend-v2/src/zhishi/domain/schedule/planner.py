@@ -18,7 +18,7 @@ def _priority_rank(p: str) -> int:
     return {"high": 0, "medium": 1, "low": 2}.get(p, 1)
 
 
-def plan_day(db: Session, day: date) -> dict:
+def plan_day(db: Session, day: date, *, task_ids: set[int] | None = None) -> dict:
     """只读：为 day 生成建议排期（不写库）。返回 assignments/unassigned/capacity。"""
     working = settingsvc.working_hours(db)
     capacity = settingsvc.daily_capacity_minutes(db)
@@ -34,7 +34,8 @@ def plan_day(db: Session, day: date) -> dict:
 
     now = datetime.now()
     tasks = [t for t in ts.list_tasks(db, status="todo")
-             if t.id not in booked_ids and (t.due_date is None or t.due_date.date() <= day + timedelta(days=3))]
+             if t.id not in booked_ids and (task_ids is None or t.id in task_ids)
+             and (t.due_date is None or t.due_date.date() <= day + timedelta(days=3))]
     tasks.sort(key=lambda t: (
         0 if (t.due_date and t.due_date < now) else 1,
         _priority_rank(t.priority),

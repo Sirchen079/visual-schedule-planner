@@ -119,9 +119,12 @@ def _spawn_next_occurrence(db: Session, task: Task) -> None:
     _sync_tags(db, clone, [t.name for t in task.tags])
 
 
-def soft_delete_task(db: Session, task_id: int) -> None:
+def soft_delete_task(db: Session, task_id: int, *, commit: bool = True) -> None:
     _load(db, task_id).deleted_at = datetime.now()
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
 
 
 def list_trash(db: Session) -> list[Task]:

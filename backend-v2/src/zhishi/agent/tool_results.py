@@ -68,7 +68,7 @@ def externalize_results(messages: list, *, budget: int | None, archive) -> list:
     return result
 
 
-def tool_result_hooks(config, db, conversation_id):
+def tool_result_hooks(config, db, conversation_id, discovery=None):
     from pydantic_ai.capabilities import Hooks
 
     def prepare(ctx, request):
@@ -78,6 +78,13 @@ def tool_result_hooks(config, db, conversation_id):
         budget = history_budget(config, request_extra_tokens(request.model_request_parameters))
         messages = externalize_results(request.messages, budget=budget,
             archive=lambda tool, text: save_artifact(db, conversation_id, tool, text))
-        return replace(request, messages=messages)
+        parameters = request.model_request_parameters
+        if discovery is not None and 'read_tool_result' in discovery.catalog:
+            if any((part.metadata or {}).get('zhishi_result_ref') for message in messages
+                   for part in message.parts if isinstance(part, ToolReturnPart)):
+                if not any(tool.name == 'read_tool_result' for tool in parameters.function_tools):
+                    parameters = replace(parameters, function_tools=[*parameters.function_tools,
+                        discovery.catalog['read_tool_result']])
+        return replace(request, messages=messages, model_request_parameters=parameters)
 
     return Hooks(before_model_request=prepare)

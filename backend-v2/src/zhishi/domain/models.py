@@ -534,6 +534,20 @@ class AIToolExecution(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
 
+class AIWriteReceipt(Base):
+    """A local mutation and its replay result are committed in one transaction."""
+    __tablename__ = 'ai_write_receipts'
+    __table_args__ = (UniqueConstraint('conversation_id', 'scope', 'tool', 'request_key'),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey('ai_conversations.id'), index=True)
+    scope: Mapped[str] = mapped_column(String(100))
+    tool: Mapped[str] = mapped_column(String(100))
+    request_key: Mapped[str] = mapped_column(String(128))
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    result_json: Mapped[str] = mapped_column(Text, default='null')
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
 class AIWorkspace(Base):
     """Window selection and drafts survive backend port changes; surfaces stay separate."""
     __tablename__ = 'ai_workspaces'

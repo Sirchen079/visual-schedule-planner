@@ -26,14 +26,17 @@ def _resync(db: Session, task_id: int) -> None:
 
 
 def create_subtask(db: Session, task_id: int, *, title: str,
-                   estimated_minutes: int | None = None) -> Subtask:
+                   estimated_minutes: int | None = None, commit: bool = True) -> Subtask:
     task = _load(db, task_id)
     sub = Subtask(task_id=task_id, title=title, estimated_minutes=estimated_minutes)
     db.add(sub)
     db.flush()
     if task.status == "todo":
         task.status = "doing"
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(sub)
     return sub
 

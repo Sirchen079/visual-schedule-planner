@@ -12,7 +12,7 @@ from zhishi.domain.schedule.schemas import ScheduleEntryCreate, ScheduleEntryUpd
 
 def assign_task_to_day(db: Session, task_id: int, day: date, *,
                        start_time: str | None = None, end_time: str | None = None,
-                       source: str = "manual", note: str = "") -> TaskScheduleEntry:
+                       source: str = "manual", note: str = "", commit: bool = True) -> TaskScheduleEntry:
     task = db.get(Task, task_id)
     if task is None or task.deleted_at is not None:
         raise LookupError(f"task {task_id} 不存在")
@@ -24,7 +24,10 @@ def assign_task_to_day(db: Session, task_id: int, day: date, *,
     entry.start_time, entry.end_time = start_time, end_time
     if note:
         entry.note = note
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(entry)
     return entry
 

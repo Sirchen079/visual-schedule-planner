@@ -10,6 +10,7 @@ import ChatInput from './ChatInput.vue'
 import ChatThread from './ChatThread.vue'
 import ConversationList from './ConversationList.vue'
 import RunStatusBar from './RunStatusBar.vue'
+import WorkPlanSummary from './WorkPlanSummary.vue'
 
 const run = useRunStore()
 const conv = useConversationStore()
@@ -92,6 +93,7 @@ watch(
     <p v-if="conv.loading || conv.initializing" class="context-state">正在加载会话…</p>
     <div class="thread" ref="scroller">
       <ChatThread />
+      <WorkPlanSummary v-if="ownsRun" :steps="run.workPlanSteps" />
     </div>
 
     <RunStatusBar v-if="ownsRun" />

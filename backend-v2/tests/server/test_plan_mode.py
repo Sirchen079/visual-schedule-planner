@@ -150,8 +150,8 @@ def test_plan_lookup_scoped_by_conversation(tmp_path, monkeypatch):
             db.add_all([conv_a, conv_b]); db.commit(); db.refresh(conv_a); db.refresh(conv_b)
             ctx_a = SimpleNamespace(deps=SimpleNamespace(conversation_id=conv_a.id, emit=None))
             ctx_b = SimpleNamespace(deps=SimpleNamespace(conversation_id=conv_b.id, emit=None))
-            macro.propose_plan(db, ctx_a, title="会话A的计划", steps=[{"action": "x"}])
-            macro.propose_plan(db, ctx_b, title="会话B的计划", steps=[{"action": "y"}])
+            macro.propose_plan(db, ctx_a, title="会话A的计划", steps=[{"action":"x", "tool":"list_tasks", "reason":"读取任务"}])
+            macro.propose_plan(db, ctx_b, title="会话B的计划", steps=[{"action":"y", "tool":"list_tasks", "reason":"读取任务"}])
         aid, bid = conv_a.id, conv_b.id
         # 两个会话各有一个 plan_id=1：旧实现全库按 ID 找会撞车
 
@@ -189,7 +189,7 @@ def test_propose_plan_persists_to_conversation_meta(db):
     from zhishi.agent.tools import macro
     conv = AIConversation(title="t"); db.add(conv); db.commit(); db.refresh(conv)
     ctx = SimpleNamespace(deps=SimpleNamespace(conversation_id=conv.id, emit=None))
-    out = json.loads(macro.propose_plan(db, ctx, title="计划A", steps=[{"action": "x"}]))
+    out = json.loads(macro.propose_plan(db, ctx, title="计划A", steps=[{"action":"x", "tool":"list_tasks", "reason":"读取任务"}]))
     assert out["plan_id"] == 1
     out2 = json.loads(macro.propose_plan(db, ctx, title="计划B", steps=[]))
     assert out2["plan_id"] == 2      # 自增

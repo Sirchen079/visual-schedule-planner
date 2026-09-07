@@ -1,7 +1,7 @@
 {
   "name": "zhishi",
   "productName": "知时",
-  "version": "2.15.0",
+  "version": "2.16.0",
   "description": "知时：本地日程与 AI 私人秘书",
   "main": "main.js",
   "author": "zhishi-dev <dev@zhishi.local>",

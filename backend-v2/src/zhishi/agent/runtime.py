@@ -9,7 +9,7 @@ import inspect
 import json
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from inspect import Parameter, Signature
 from typing import Any, AsyncIterator
 
@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from zhishi.agent import events as ev
 from zhishi.agent import prompts
 from zhishi.agent.permissions import IRREVOCABLE_TOOLS, classify
+from zhishi.agent.tool_feedback import FailureTracker, add_followup, failure_result
 
 
 @dataclass
@@ -33,6 +34,7 @@ class AgentDeps:
     capture_key: str = ""
     storage_root: Any = None
     model_config: Any = None
+    failure_tracker: FailureTracker = field(default_factory=FailureTracker)
 
 
 # 当前执行工具调用的主 RunContext（macro.task 经此取主 usage 做并入）
@@ -126,8 +128,10 @@ class AgentRuntime:
         from zhishi.agent.tool_results import tool_result_hooks
         from zhishi.domain.models import AISkill
         from sqlalchemy import select
+        unavailable = {}
         discovery = ToolDiscovery([(row.name, row.content) for row in db.scalars(
-            select(AISkill).where(AISkill.enabled.is_(True), AISkill.is_builtin.is_(True)))])
+            select(AISkill).where(AISkill.enabled.is_(True), AISkill.is_builtin.is_(True)))], unavailable=unavailable,
+            plan_mode=plan_mode)
 
         agent = Agent(
             self.model,
@@ -135,9 +139,9 @@ class AgentRuntime:
             output_type=[str, DeferredToolRequests],
             instructions=prompts.build_instructions(db, plan_mode=plan_mode, defer_builtin=True),
             retries=2,
-            toolsets=self._mcp_toolsets(),   # MCP 动态清单（不进 registry）
+            toolsets=self._mcp_toolsets(unavailable=unavailable, readonly_only=plan_mode),
             capabilities=[discovery.hook(), media_capability_hooks(self.model_config),
-                          tool_result_hooks(self.model_config, db, conversation_id),
+                          tool_result_hooks(self.model_config, db, conversation_id, discovery),
                           self._compaction_capability(conversation_id, emit),
                           context_budget_hooks(self.model_config, allow_truncation=False)],
         )
@@ -188,12 +192,12 @@ class AgentRuntime:
             on_compaction=save if conversation_id else None,
             on_progress=(lambda stage: emit.put_nowait(_sse_event(ev.StageChanged, stage=stage))) if emit is not None else None)
 
-    def _mcp_toolsets(self) -> list:
+    def _mcp_toolsets(self, *, unavailable=None, readonly_only=False) -> list:
         """对每个 enabled 的 MCP 服务器构造带权限门的 toolset。
         stdio 服务器须 trusted=True 才装配（连 client 都不构造 → 不可能拉起
         子进程）；http 传输不受限。
         列取工具发生在 run 内（toolset.get_tools 由 pydantic-ai 异步调用）；
-        服务器不可达时该 run 以 failed 收口并透出 RunError（v1 不静默跳过）。"""
+        单个服务器不可达时记录本轮故障，其余工具仍可继续。"""
         from sqlalchemy import select
         from zhishi.adapters import mcp_client
         from zhishi.domain.models import MCPServer
@@ -204,7 +208,8 @@ class AgentRuntime:
                 continue
             client, kwargs = mcp_client.build_client(row)
             out.append(_MCPGatedToolset(
-                client, server_id=row.id, id=f"mcp-server-{row.id}",
+                client, server_id=row.id, id=f"mcp-server-{row.id}", server_row=row,
+                unavailable=unavailable, readonly_only=readonly_only,
                 init_timeout=float(row.timeout_sec or 30),
                 read_timeout=float(row.timeout_sec or 30), **kwargs))
         return out
@@ -218,7 +223,7 @@ class AgentRuntime:
         执行语义：每次调用开独立 Session（工具调用=独立事务），异常回滚后以
         ok=False 错误文本返回给模型（工具失败=错误结果回灌，绝不崩流）。"""
         from typing import get_type_hints
-        hints = get_type_hints(spec.fn)
+        hints = get_type_hints(spec.fn, include_extras=True)
         orig = inspect.signature(spec.fn)
         takes_ctx = "ctx" in orig.parameters
         params = [Parameter("ctx", kind=Parameter.POSITIONAL_OR_KEYWORD,
@@ -236,6 +241,10 @@ class AgentRuntime:
                 if verdict == "confirm":
                     from pydantic_ai.exceptions import ApprovalRequired
                     raise ApprovalRequired(metadata={"tool": spec.name, "args": kw})
+            tracker = getattr(ctx.deps, 'failure_tracker', None)
+            blocked = tracker.blocked(spec.name, kw) if tracker else None
+            if blocked:
+                return json.dumps(blocked, ensure_ascii=False)
             token = _run_ctx_var.set(ctx)   # macro.task 经 current_run_usage 并入用量
 
             async def _invoke(tool_db: Session):
@@ -249,6 +258,9 @@ class AgentRuntime:
                     tool_db.commit()
 
                 def save_result(value, status='completed'):
+                    value = add_followup(spec.name, kw, value)
+                    if tracker:
+                        tracker.record(spec.name, kw, value)
                     if receipt is not None:
                         receipt.status = status
                         receipt.result_json = json.dumps(value, ensure_ascii=False, default=str)
@@ -260,7 +272,8 @@ class AgentRuntime:
                         return save_result(await spec.fn(*call_args, **call_kw))
                     except Exception as exc:
                         tool_db.rollback()
-                        save_result({'ok':False,'error':str(exc)[:500]}, 'failed')
+                        save_result(failure_result(exc, tool=spec.name, arguments=kw,
+                                                  readonly=spec.safety == 'readonly'), 'failed')
                         raise
 
                 def invoke_sync():
@@ -268,7 +281,8 @@ class AgentRuntime:
                         return save_result(spec.fn(*call_args, **call_kw))
                     except Exception as exc:
                         tool_db.rollback()
-                        save_result({'ok':False,'error':str(exc)[:500]}, 'failed')
+                        save_result(failure_result(exc, tool=spec.name, arguments=kw,
+                                                  readonly=spec.safety == 'readonly'), 'failed')
                         raise
 
                 worker = asyncio.create_task(asyncio.to_thread(invoke_sync))
@@ -290,7 +304,7 @@ class AgentRuntime:
                             raise
                 except Exception as exc:
                     _safe_rollback(db)   # 兜底：run 级会话不得滞留「待回滚」毒化态
-                    failure = {"ok": False, "error": str(exc)[:500]}
+                    failure = failure_result(exc, tool=spec.name, arguments=kw, readonly=spec.safety == 'readonly')
                     from zhishi.domain.inbox.service import InboxConflict
                     if isinstance(exc, InboxConflict) and exc.item_id is not None:
                         failure.update(code="inbox_conflict", next_call={
@@ -751,13 +765,17 @@ class _MCPGatedToolset(MCPToolset):
       工具调用不缓存（必要行为），无活动会话时按需真连、用完即断。失效钩子
       （PUT/enable/DELETE → mcp_client.invalidate）天然覆盖 run 装配路径。"""
 
-    def __init__(self, client, *, server_id: int, **kwargs):
+    def __init__(self, client, *, server_id: int, server_row=None, unavailable=None, readonly_only=False, **kwargs):
         super().__init__(client, **kwargs)
         self._server_id = server_id
         self._prefix = f"mcp__{server_id}__"
         self._read_only: dict[str, bool] = {}
-        self._short_entries = 0   # 缓存命中短路的进入数（不得占用 _running_count，
-                                  # 否则父类按 count>0 跳过真连——工具调用会拿到未连会话）
+        self._server_row = server_row
+        self._unavailable = unavailable if unavailable is not None else {}
+        self._readonly_only = readonly_only
+        self._listing_failed = False
+        self._connection_lock = asyncio.Lock()
+        self._call_results = {}
 
     def _tools_cache_hit(self) -> list | None:
         """mcp_client 模块级 TTL 缓存命中返回记录列表，未命中/过期返回 None。"""
@@ -771,29 +789,21 @@ class _MCPGatedToolset(MCPToolset):
         return None
 
     async def __aenter__(self):
-        # 框架每 run 进入 toolset；清单缓存命中时短路（不建连接），列取走缓存。
-        # _exit_stack 非空 = 已有真连会话（嵌套进入），照走框架原路径。
-        if self._exit_stack is None and self._tools_cache_hit() is not None:
-            self._short_entries += 1
-            return self
-        return await super().__aenter__()
+        # Each network operation owns its connection. Merely enabling an offline
+        # server must not prevent the agent from entering other toolsets.
+        return self
 
     async def __aexit__(self, *args):
-        # 短路进入配对短路退出（无连接可释放）；真连接的进入/退出仍走父类计数。
-        if self._short_entries > 0:
-            self._short_entries -= 1
-            return None
-        return await super().__aexit__(*args)
+        return None
 
     async def _list_tools_connected(self) -> list:
         """真连列取：本 toolset 尚无活动会话（缓存命中短路进入）时按需连、用完即断。"""
-        if self._exit_stack is not None:
-            return await super().list_tools()
-        await super().__aenter__()
-        try:
-            return await super().list_tools()
-        finally:
-            await super().__aexit__(None, None, None)
+        async with self._connection_lock:
+            await super().__aenter__()
+            try:
+                return await super().list_tools()
+            finally:
+                await super().__aexit__(None, None, None)
 
     async def list_tools(self) -> list:
         """跨 run 工具清单缓存：先查 mcp_client._tools_cache（键 server_id，60s TTL
@@ -815,11 +825,20 @@ class _MCPGatedToolset(MCPToolset):
 
     async def get_tools(self, ctx):
         import dataclasses
-        tools = await super().get_tools(ctx)
+        if self._listing_failed:
+            return {}
+        try:
+            tools = await super().get_tools(ctx)
+        except Exception as exc:
+            self._listing_failed = True
+            self._record_failure(exc)
+            return {}
         renamed: dict = {}
         for name, t in tools.items():
             ann = (t.tool_def.metadata or {}).get("annotations") or {}
             self._read_only[name] = bool(ann.get("readOnlyHint"))
+            if self._readonly_only and not self._read_only[name]:
+                continue
             new_name = self._prefix + name
             # 与 pydantic-ai RenamedToolset 同款写法：dict 键与 tool_def.name 一并改名
             renamed[new_name] = dataclasses.replace(
@@ -840,15 +859,45 @@ class _MCPGatedToolset(MCPToolset):
             if verdict == "deny":
                 return json.dumps({"ok": False, "error": "工具不可用"}, ensure_ascii=False)
         original = self._original_name(name)
-        if self._exit_stack is None:
-            # 工具调用必须真连（不缓存）：无活动会话（清单缓存命中短路进入）时
-            # 按需建立、用完即断；direct_call_tool 内部的嵌套进入不会重复连接。
-            await super().__aenter__()
-            try:
-                return await super().call_tool(original, tool_args, ctx, tool)
-            finally:
-                await super().__aexit__(None, None, None)
-        return await super().call_tool(original, tool_args, ctx, tool)
+        tracker = getattr(ctx.deps, 'failure_tracker', None)
+        blocked = tracker.blocked(name, tool_args) if tracker else None
+        if blocked:
+            return json.dumps(blocked, ensure_ascii=False)
+        try:
+            async with self._connection_lock:
+                call_id = getattr(ctx, 'tool_call_id', None)
+                call_key = (getattr(ctx.deps, 'run_id', None) or getattr(ctx, 'run_id', None), call_id)
+                signature = FailureTracker.key(name, tool_args)
+                if call_id and call_key in self._call_results:
+                    previous_signature, previous_result = self._call_results[call_key]
+                    if previous_signature != signature:
+                        return json.dumps({'ok':False, 'code':'call_id_conflict', 'retryable':False,
+                            'error':'同一工具调用 ID 不能对应不同参数；请核对已有调用结果。'}, ensure_ascii=False)
+                    return previous_result
+                await super().__aenter__()
+                try:
+                    result = await super().call_tool(original, tool_args, ctx, tool)
+                finally:
+                    await super().__aexit__(None, None, None)
+                if call_id:
+                    self._call_results[call_key] = (signature, result)
+        except Exception as exc:
+            detail = self._record_failure(exc)
+            readonly = self._read_only.get(original, False)
+            result = {'ok':False, 'code':'external_tool_failed', 'error':detail['error'],
+                      'retryable':readonly, 'write_status':'not_applicable' if readonly else 'unknown',
+                      'next_step':'只读查询可重试一次或使用已配置的其他来源；外部写入结果不明，先核对远端状态，不重复提交。'}
+        if tracker:
+            tracker.record(name, tool_args, result)
+        return json.dumps(result, ensure_ascii=False) if isinstance(result, dict) and result.get('ok') is False else result
+
+    def _record_failure(self, exc):
+        from zhishi.adapters.mcp_client import sanitize
+        error = sanitize(str(exc), self._server_row) if self._server_row is not None else '外部工具连接或执行失败'
+        detail = {'server_id':self._server_id, 'error':error,
+                  'next_step':'本轮继续使用可用工具；需要此服务时请检查 MCP 设置后重试。'}
+        self._unavailable[self._server_id] = detail
+        return detail
 
     def _original_name(self, namespaced: str) -> str:
         if namespaced.startswith(self._prefix):
@@ -856,24 +905,40 @@ class _MCPGatedToolset(MCPToolset):
         return namespaced
 
 
-def _wrap_for_subagent(spec, db: Session, context=None):
+def _wrap_for_subagent(spec, db: Session, context=None, tracker=None, observer=None):
     """子代理只读工具包装：_wrap_tool 去权限门版（子代理只挂 readonly，天然无审批）。
     schema 同样从去掉 db 的函数签名与注解推断。异常同主工具语义：回滚后以
     ok=False 错误文本返回（子代理工具失败不崩子 run）。"""
     from typing import get_type_hints
-    hints = get_type_hints(spec.fn)
+    hints = get_type_hints(spec.fn, include_extras=True)
     orig = inspect.signature(spec.fn)
     params = [p.replace(annotation=hints.get(name, p.annotation))
               for name, p in orig.parameters.items() if name not in ("db", "ctx")]
 
     async def _fn(**kw):
+        blocked = tracker.blocked(spec.name, kw) if tracker else None
+        if blocked:
+            return json.dumps(blocked, ensure_ascii=False)
+        def invoke():
+            with Session(bind=db.get_bind(), expire_on_commit=False) as tool_db:
+                return spec.fn(tool_db, **({'ctx':context} if 'ctx' in orig.parameters else {}), **kw)
         try:
-            raw = spec.fn(db, **({'ctx': context} if 'ctx' in orig.parameters else {}), **kw)
-            if inspect.iscoroutine(raw):
-                raw = await raw
+            if inspect.iscoroutinefunction(spec.fn):
+                with Session(bind=db.get_bind(), expire_on_commit=False) as tool_db:
+                    raw = await spec.fn(tool_db, **({'ctx':context} if 'ctx' in orig.parameters else {}), **kw)
+            else:
+                worker = asyncio.create_task(asyncio.to_thread(invoke))
+                try:
+                    raw = await asyncio.shield(worker)
+                except asyncio.CancelledError:
+                    await asyncio.gather(worker, return_exceptions=True)
+                    raise
         except Exception as exc:
-            _safe_rollback(db)
-            return json.dumps({"ok": False, "error": str(exc)[:300]}, ensure_ascii=False)
+            raw = failure_result(exc, tool=spec.name, arguments=kw, readonly=True)
+        if tracker:
+            tracker.record(spec.name, kw, raw)
+        if observer:
+            observer(spec.name, kw, raw)
         return raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False, default=str)
 
     _fn.__name__ = spec.name
