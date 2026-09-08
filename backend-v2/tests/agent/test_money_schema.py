@@ -62,7 +62,7 @@ async def test_discovered_financial_tools_use_gateway_compatible_wire_schemas(db
         body = json.loads(request.content)
         requests.append(body)
         tools = body['tools']
-        functions = [tool['function'] if 'function' in tool else tool for tool in tools]
+        functions = [tool.get('function', tool) for tool in tools]
         names = {tool['name'] for tool in functions}
         financial = {'record_transaction', 'create_bill', 'update_bill', 'confirm_bill_payment'}
         if len(requests) == 1:
@@ -78,24 +78,24 @@ async def test_discovered_financial_tools_use_gateway_compatible_wire_schemas(db
         if len(requests) == 1:
             if protocol == 'chat':
                 return httpx.Response(200, json={
-                    'id': 'chatcmpl-discover', 'object': 'chat.completion', 'created': 0, 'model': 'gpt-5.6-sol',
+                    'id': 'chatcmpl-discover', 'object': 'chat.completion', 'created': 0, 'model': 'example-model',
                     'choices': [{'index': 0, 'finish_reason': 'tool_calls', 'message': {
                         'role': 'assistant', 'content': None, 'tool_calls': [{'id': 'discover', 'type': 'function',
                         'function': {'name': 'search_tools', 'arguments': search_args}}]}}]})
             return httpx.Response(200, json={
-                'id': 'resp_discover', 'object': 'response', 'created_at': 0, 'status': 'completed', 'model': 'gpt-5.6-sol',
+                'id': 'resp_discover', 'object': 'response', 'created_at': 0, 'status': 'completed', 'model': 'example-model',
                 'output': [{'id': 'fc_discover', 'call_id': 'discover', 'type': 'function_call',
                             'name': 'search_tools', 'arguments': search_args, 'status': 'completed'}]})
         if protocol == 'chat':
             return httpx.Response(200, json={
                 'id': 'chatcmpl-test', 'object': 'chat.completion', 'created': 0,
-                'model': 'gpt-5.6-sol',
+                'model': 'example-model',
                 'choices': [{'index': 0, 'finish_reason': 'stop',
                              'message': {'role': 'assistant', 'content': '你好'}}],
             })
         return httpx.Response(200, json={
             'id': 'resp_test', 'object': 'response', 'created_at': 0, 'status': 'completed',
-            'model': 'gpt-5.6-sol',
+            'model': 'example-model',
             'output': [{'id': 'msg_test', 'type': 'message', 'role': 'assistant',
                         'status': 'completed',
                         'content': [{'type': 'output_text', 'text': '你好', 'annotations': []}]}],
@@ -105,7 +105,7 @@ async def test_discovered_financial_tools_use_gateway_compatible_wire_schemas(db
         sdk = AsyncOpenAI(api_key='test-only', base_url='https://gateway.example/v1', http_client=client)
         provider = OpenAIProvider(openai_client=sdk)
         model_class = OpenAIChatModel if protocol == 'chat' else OpenAIResponsesModel
-        model = model_class('gpt-5.6-sol', provider=provider)
+        model = model_class('example-model', provider=provider)
         agent = AgentRuntime(model=model, db=db)._build_agent()
         result = await agent.run('你好', deps=AgentDeps(db=db, emit=asyncio.Queue()))
         assert result.output == '你好'

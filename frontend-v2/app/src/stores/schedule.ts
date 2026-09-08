@@ -260,7 +260,7 @@ export const useScheduleStore = defineStore('schedule', {
         )
         this.lastRefreshedAt = Date.now()
       } catch (e) {
-        this.error = e instanceof Error ? e.message : '周课表加载失败'
+        this.error = e instanceof Error ? e.message : '周日程加载失败'
       } finally {
         this.loadingWeek = false
       }

@@ -41,7 +41,7 @@ function makeConfig(partial: Partial<AiConfigInfo>): AiConfigInfo {
     id: 1,
     name: 'cfg-a',
     provider_kind: 'openai_compat',
-    model: 'glm-4-flash',
+    model: 'example-model',
     base_url: 'https://api.example.com/v4',
     enabled: false,
     ...partial,
@@ -302,7 +302,7 @@ describe('settings store', () => {
         expect(JSON.parse(String(init.body))).toEqual({
           name: 'cfg-b',
           provider_kind: 'openai_compat',
-          model: 'glm-4-flash',
+          model: 'example-model',
           base_url: 'https://api.example.com/v4',
           api_key: 'sk-secret',
           price_input: 0,
@@ -318,7 +318,7 @@ describe('settings store', () => {
       await store.addConfig({
         name: 'cfg-b',
         provider_kind: 'openai_compat',
-        model: 'glm-4-flash',
+        model: 'example-model',
         base_url: 'https://api.example.com/v4',
         api_key: 'sk-secret',
         price_input: 0,

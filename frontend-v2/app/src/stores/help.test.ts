@@ -1,11 +1,9 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import * as onboarding from '../api/onboarding'
-import * as tasks from '../api/tasks'
 import { useHelpStore } from './help'
 
 vi.mock('../api/onboarding', () => ({ readOnboarding: vi.fn(), finishOnboarding: vi.fn() }))
-vi.mock('../api/tasks', () => ({ createTask: vi.fn() }))
 beforeEach(() => { setActivePinia(createPinia()); vi.resetAllMocks() })
 
 it('a delayed first-run response cannot override a manual close', async () => {
@@ -36,25 +34,12 @@ it('reading an API chapter returns to the same guide step', () => {
   expect(help.tourOpen).toBe(true); expect(help.tourStep).toBe(4)
 })
 
-it('practice only writes on explicit save and cannot double-submit', async () => {
-  let resolve!: (value: tasks.Task) => void
-  vi.mocked(tasks.createTask).mockReturnValue(new Promise(done => { resolve = done }))
-  const help = useHelpStore(); help.startTour(); help.practiceTitle = ' My real task '
-  expect(tasks.createTask).not.toHaveBeenCalled()
-  const pending = help.savePractice()
-  await help.savePractice()
-  expect(tasks.createTask).toHaveBeenCalledTimes(1)
-  expect(tasks.createTask).toHaveBeenCalledWith({ title: 'My real task' })
-  resolve({ id: 7 } as tasks.Task); await pending
-  help.startTour(); await help.savePractice()
-  expect(tasks.createTask).toHaveBeenCalledTimes(1)
-})
-
-it('a lost save response does not invite an automatic duplicate write', async () => {
-  vi.mocked(tasks.createTask).mockRejectedValue(new Error('lost response'))
-  const help = useHelpStore(); help.practiceTitle = 'Important task'
-  await help.savePractice(); await help.savePractice()
-  expect(help.practiceUncertain).toBe(true)
-  expect(tasks.createTask).toHaveBeenCalledTimes(1)
-  expect(help.practiceError).toContain('到看板查看')
+it('only a confirmed task created during the exercise advances the tour', () => {
+  const help = useHelpStore()
+  help.taskCreated(1)
+  expect(help.createdTaskId).toBe(null)
+  help.startTour(); help.tourStep = 3; help.taskCreated(7)
+  expect(help.tourStep).toBe(4); expect(help.createdTaskId).toBe(7)
+  help.startTour()
+  expect(help.createdTaskId).toBe(null)
 })

@@ -1,7 +1,5 @@
 import { defineStore } from 'pinia'
 import { finishOnboarding, readOnboarding, type OnboardingOutcome } from '../api/onboarding'
-import { createTask } from '../api/tasks'
-import { HttpError } from '../api/http'
 import type { GuidePage } from '../content/guides'
 
 export const useHelpStore = defineStore('help', {
@@ -10,8 +8,7 @@ export const useHelpStore = defineStore('help', {
     tourOpen: false, tourStep: 0, returnToTour: false,
     initialized: false, initializing: false, interacted: false,
     savingOutcome: false, unsavedOutcome: null as OnboardingOutcome | null, saveError: '',
-    practiceTitle: '', practiceTaskId: null as number | null,
-    practiceSaving: false, practiceError: '', practiceUncertain: false,
+    createdTaskId: null as number | null,
   }),
   actions: {
     async initialize() {
@@ -40,8 +37,7 @@ export const useHelpStore = defineStore('help', {
       this.interacted = true
       this.guideOpen = false; this.returnToTour = false
       this.tourStep = 0; this.tourOpen = true
-      // Retain an already saved practice task for this session, so replay does
-      // not silently invite another copy of the same first task.
+      this.createdTaskId = null
     },
     async finishTour(outcome: OnboardingOutcome) {
       this.interacted = true
@@ -60,22 +56,11 @@ export const useHelpStore = defineStore('help', {
         this.saveError = '这次关闭引导的记录还没保存，下次启动可能再次出现。其他功能可以继续使用。'
       } finally { this.savingOutcome = false }
     },
-    async savePractice() {
-      const title = this.practiceTitle.trim()
-      if (!title || this.practiceSaving || this.practiceTaskId || this.practiceUncertain) return
-      this.practiceSaving = true; this.practiceError = ''
-      try {
-        const task = await createTask({ title })
-        this.practiceTaskId = task.id
-        if (typeof window !== 'undefined') window.dispatchEvent(new Event('zhishi:tasks-changed'))
-      } catch (error) {
-        if (error instanceof HttpError && error.status === 422) {
-          this.practiceError = '标题没有保存，请缩短到 200 个字以内后再试。'
-        } else {
-          this.practiceUncertain = true
-          this.practiceError = '没能确认保存结果。请先到看板查看，避免重复创建；你可以继续往下学。'
-        }
-      } finally { this.practiceSaving = false }
+    taskCreated(id: number) {
+      if (this.tourOpen && this.tourStep >= 1 && this.tourStep <= 3) {
+        this.createdTaskId = id
+        this.tourStep = 4
+      }
     },
   },
 })

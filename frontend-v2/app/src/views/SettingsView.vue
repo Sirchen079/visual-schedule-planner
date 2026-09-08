@@ -813,7 +813,7 @@ const AUTONOMY_TIERS: Autonomy[] = ['standard', 'careful']
           <p v-if="configFormError" class="form-error" role="alert">{{ configFormError }}</p>
           <div class="form-row">
             <span class="f-label">名称</span>
-            <input v-model="configName" aria-label="配置名称" class="t-input grow" placeholder="如 智谱Coding" />
+            <input v-model="configName" aria-label="配置名称" class="t-input grow" placeholder="例如：日常助手" />
           </div>
           <div class="form-row">
             <span class="f-label">接口格式</span>

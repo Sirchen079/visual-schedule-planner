@@ -29,9 +29,11 @@ logs/
 *.sqlite
 *.sqlite3
 *.log
-backend-v2/tests/fixtures/timetables/*.doc
-backend-v2/tests/fixtures/timetables/*.docx
-backend-v2/tests/fixtures/timetables/*.pdf
+# Test fixtures are generated in temporary directories.
+*.doc
+*.docx
+*.pdf
+*.xlsx
 
 # Local tools, caches and temporary artifacts
 .codex/

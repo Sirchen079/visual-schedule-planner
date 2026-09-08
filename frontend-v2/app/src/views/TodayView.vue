@@ -281,7 +281,7 @@ onMounted(() => {
           <!-- 空态 -->
           <div v-if="!schedule.loadingToday && entries.length === 0" class="tv-empty">
             <div class="te-mark">今日无日程</div>
-            <p class="te-line">课表与安排在这里落位。对左侧的知时说一句话，</p>
+            <p class="te-line">今天的日程会显示在这里。对左侧的知时说一句话，</p>
             <p class="te-line">就能把今天安排上 —— 写操作会先请你批准。</p>
           </div>
         </div>

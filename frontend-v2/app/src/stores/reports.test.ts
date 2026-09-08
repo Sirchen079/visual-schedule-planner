@@ -21,7 +21,7 @@ function makeReport(partial: Partial<Report>): Report {
     period_end: '2026-09-05',
     title: '日报 2026-09-05',
     content: '**今日** 完成 3 件事',
-    model_name: 'glm-5.3-flash',
+    model_name: 'example-model',
     created_at: '2026-09-05T08:00:00',
     ...partial,
   }

@@ -3,8 +3,8 @@ from zhishi.agent.providers import build_model, resolve_api_key
 
 def test_openai_compat_model_uses_base_url(db):
     from zhishi.domain.models import AIConfig
-    cfg = AIConfig(name="智谱", provider_kind="openai_compat", model="glm-5.3-flash",
-                   base_url="https://open.bigmodel.cn/api/paas/v4", api_key_ref="test-key-1")
+    cfg = AIConfig(name="Example service", provider_kind="openai_compat", model="example-model",
+                   base_url="https://example.org/v1", api_key_ref="test-key-1")
     db.add(cfg); db.commit()
     model = build_model(cfg, api_key="sk-x")
     assert type(model).__name__ == "OpenAIChatModel"

@@ -2,7 +2,53 @@
 
 [返回首页](../README.md)
 
-完整桌面构建步骤见首页。以下命令均从仓库根目录执行，默认已经安装 Python 和 npm 依赖。
+以下命令从仓库根目录执行，使用 Windows PowerShell。普通用户直接下载安装包即可。
+
+## 从源码构建
+以下命令用于 Windows PowerShell。准备 **Git、Python 3.12 和 Node.js 24（含 npm）**，首次安装依赖需要联网。源码包含前端、后端和桌面程序，需要按顺序构建。
+
+### 1. 下载源码
+
+```powershell
+git clone https://github.com/Sirchen079/visual-schedule-planner.git
+cd visual-schedule-planner
+```
+
+也可以下载源码 ZIP 并解压，然后在解压后的仓库根目录打开 PowerShell。根目录应能看到 `backend-v2`、`frontend-v2` 和 `electron-v2`。
+
+### 2. 安装依赖
+
+```powershell
+python -m venv backend-v2/.venv
+backend-v2/.venv/Scripts/python.exe -m pip install -r backend-v2/requirements-lock.txt
+backend-v2/.venv/Scripts/python.exe -m pip install -e "./backend-v2[dev]"
+npm --prefix frontend-v2/app ci
+npm --prefix electron-v2 ci
+```
+
+如果系统找不到 `python`，先确认 Python 已加入 PATH，或使用 `py -3.12` 代替第一行的 `python`。这些命令直接调用虚拟环境里的 Python，无须执行激活脚本。
+
+### 3. 构建并启动
+
+```powershell
+npm --prefix frontend-v2/app run build
+backend-v2/.venv/Scripts/python.exe backend-v2/scripts/build.py
+npm --prefix electron-v2 start
+```
+
+前端构建后由后端托管；后端构建脚本会启动临时实例，检查健康接口与正常退出。首次构建可能需要几分钟，等待命令成功结束后再执行下一条。完成后也可以双击根目录的 `start.bat` 启动。
+
+### 4. 生成 Windows 安装包
+
+完成上述构建后，在仓库根目录执行：
+
+```powershell
+npm --prefix electron-v2 run dist
+```
+
+安装包输出到 `electron-v2/dist/zhishi-Setup-2.18.0.exe`。构建产物、数据库和密钥不应提交到仓库。
+
+发布新版本时，须将同一次构建生成的安装包、`.blockmap` 和 `latest.yml` 一起上传到相应 GitHub Release，再发布该版本。自动更新检查的是 Release，不是分支提交。开发预览不自动更新，也不携带 GitHub 凭据。
 
 ## 本地开发
 
@@ -45,7 +91,7 @@ npm --prefix frontend-v2/app run build
 npm --prefix electron-v2 test
 ```
 
-后端测试使用临时数据库和模型替身。个人课表附件不发布，少数依赖这些附件的测试会跳过；合成样本仍覆盖导入流程。桌面测试检查进程配置、悬浮窗与设置逻辑；后端打包脚本另含进程启动和退出检查。Electron 中的自检入口使用隔离数据目录，供本地打包诊断使用。
+后端测试使用临时数据库、合成文件和模型替身。桌面测试检查进程配置、悬浮窗与设置逻辑；后端打包脚本另含进程启动和退出检查。Electron 中的自检入口使用隔离数据目录，供本地打包诊断使用。
 
 ## 更新接口类型
 

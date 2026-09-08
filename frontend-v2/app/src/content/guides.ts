@@ -17,9 +17,3 @@ function sections(raw: string): GuideSection[] {
 export const GUIDES: Record<GuidePage, GuideSection[]> = {
   usage: sections(usageGuide), api: sections(apiGuide),
 }
-
-export const TOUR_TITLES = [
-  '欢迎使用知时', '先认识三个地方', '一起记下第一件事',
-  '做完了，就打一个勾', '想用 AI？这一步可以稍后做',
-  '让 AI 帮忙时，看清这三种提示', '准备好了，开始使用吧',
-] as const

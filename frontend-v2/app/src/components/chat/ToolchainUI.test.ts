@@ -8,7 +8,7 @@ const request = { id: 9, run_id: 'r1', call_id: 'q1', status: 'pending', version
   { id: 'scope', question: '这次安排哪些时间？', options: [{ label: '今天', description: '只安排今天的空闲时间' }, { label: '本周', description: '查看本周日程后安排' }], multi_select: false },
   { id: 'focus', question: '希望优先考虑什么？', options: [{ label: '学习', description: '' }, { label: '休息', description: '' }], multi_select: true },
 ] }
-const markdown = '# 安排建议\n\n**重要事项**与普通正文。\n\n> 先核对时间，再决定安排。\n\n1. 第一项\n   - 子项目\n2. 第二项\n\n- [x] 已核对日程\n- [ ] 等待选择\n\n| 事项 | 时间 |\n| --- | --- |\n| 阅读 | 09:00 |\n\n```python\nprint("<safe>")\n```\n\n[发布说明](https://github.com/Sirchen079/visual-schedule-planner/releases)\n\n<script>window.XSS=true</script>'
+const markdown = '# 安排建议\n\n**重要事项**与普通正文。\n\n> 先核对时间，再决定安排。\n\n1. 第一项\n   - 子项目\n2. 第二项\n\n- [x] 已核对日程\n- [ ] 等待选择\n\n| 事项 | 时间 |\n| --- | --- |\n| 阅读 | 09:00 |\n\n```python\nprint("<safe>")\n```\n\n[发布说明](https://example.org/releases)\n\n<script>window.XSS=true</script>'
 beforeAll(async () => {
   const root = decodeURIComponent(new URL('../../..', import.meta.url).pathname).replace(/^\/([A-Za-z]:\/)/, '$1')
   server = await createServer({ configFile: false, root, cacheDir: `${root}/node_modules/.vite-toolchain-tests`, plugins: [vue(), {
@@ -115,7 +115,7 @@ it('update UI shows download progress and saves workspace before acknowledging r
   try {
     await page.addInitScript(() => {
       let changed: any, prepare: any
-      let state: any = { status: 'available', version: '2.16.0', currentVersion: '2.15.0', percent: 0, error: '', checkedAt: null, releasesUrl: 'https://github.com/Sirchen079/visual-schedule-planner/releases' }
+      let state: any = { status: 'available', version: '2.16.0', currentVersion: '2.15.0', percent: 0, error: '', checkedAt: null, releasesUrl: 'https://example.org/releases' }
       const bridge: any = { state: async () => state, onChanged: (cb: any) => { changed = cb }, onPrepare: (cb: any) => { prepare = cb },
         check: async () => {}, openReleases: async () => {}, install: async () => {},
         downloadAndInstall: async () => { state = { ...state, status: 'downloading', percent: 45 }; changed(state) } }

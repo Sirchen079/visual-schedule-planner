@@ -78,7 +78,7 @@ def _slot(title, weekday, location="示例教室A"):
 
 
 def test_same_title_location_different_weekday_both_created(db):
-    """真实课表场景：示例课程A 周二2-3节 与 周四2-3节 同教室 = 两条合法排课。
+    """重复排课场景：示例课程A 周二2-3节 与 周四2-3节 同教室 = 两条合法排课。
     旧判重键 (title, location) 把后者误跳过（reason=同名同地点已存在）；location 不参与判重。"""
     entries = [_slot("示例课程A", 2), _slot("示例课程A", 4)]
     out = json.loads(macro.import_timetable(db, semester_start="2026-09-07", entries=entries))

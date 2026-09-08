@@ -7,11 +7,11 @@ from zhishi.adapters import web
 
 def test_search_bing_rss():
     rss = '''<?xml version="1.0"?><rss><channel><item>
-      <title>智谱 AI 官网</title><link>https://z.ai</link><description>智谱</description>
+      <title>示例网站</title><link>https://example.org</link><description>示例</description>
     </item></channel></rss>'''
     transport = httpx.MockTransport(lambda req: httpx.Response(200, text=rss))
-    hits = web.search("智谱", client=httpx.Client(transport=transport))
-    assert hits[0]["title"] == "智谱 AI 官网" and hits[0]["url"] == "https://z.ai"
+    hits = web.search("示例", client=httpx.Client(transport=transport))
+    assert hits[0]["title"] == "示例网站" and hits[0]["url"] == "https://example.org"
 
 
 def test_fetch_extracts_main_text_and_caps():

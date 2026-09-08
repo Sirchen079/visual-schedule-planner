@@ -22,8 +22,10 @@ import {
 import { datePart } from '../stores/tasks'
 import type { TaskPriority } from '../api/tasks'
 import { toIsoDate } from '../utils/date'
+import { useHelpStore } from '../stores/help'
 
 const tasks = useTasksStore()
+const help = useHelpStore()
 const route = useRoute()
 const selectedTask = computed(() => {
   const value = route.query.task
@@ -77,6 +79,7 @@ async function submit(): Promise<void> {
   })
   submitting.value = false
   if (ok) {
+    help.taskCreated(ok.id)
     title.value = ''
     dueDate.value = ''
     priority.value = 'medium'
@@ -101,7 +104,7 @@ onMounted(() => {
         <button :data-on="groupMode === 'status'" @click="groupMode = 'status'">按状态</button>
         <button :data-on="groupMode === 'date'" @click="groupMode = 'date'">按日期</button>
       </div>
-      <button class="new-btn" @click="creating = !creating">
+      <button data-tour="new-task" class="new-btn" @click="creating = !creating">
         <AppIcon name="plus" :size="14" />
         {{ creating ? '收起' : '新建任务' }}
       </button>
@@ -126,14 +129,14 @@ onMounted(() => {
 
     <!-- 新建表单 -->
     <form v-if="creating" class="creator" @submit.prevent="submit">
-      <input v-model="title" class="in title-in" placeholder="任务标题（必填）" aria-label="任务标题" />
+      <input v-model="title" data-tour="task-title" maxlength="200" class="in title-in" placeholder="任务标题（必填）" aria-label="任务标题" />
       <input v-model="dueDate" class="in date-in" type="date" aria-label="截止日期" />
       <select v-model="priority" class="in prio-in" aria-label="优先级">
         <option value="high">高优先</option>
         <option value="medium">中优先</option>
         <option value="low">低优先</option>
       </select>
-      <button class="submit" type="submit" :disabled="!title.trim() || submitting">
+      <button data-tour="create-task" class="submit" type="submit" :disabled="!title.trim() || submitting">
         {{ submitting ? '创建中…' : '创建' }}
       </button>
     </form>
@@ -150,7 +153,7 @@ onMounted(() => {
     </DomainState>
 
     <!-- 看板列 -->
-    <div v-if="tasks.items && tasks.items.length > 0" class="columns" :data-mode="groupMode">
+    <div v-if="tasks.items && tasks.items.length > 0" data-tour="task-list" class="columns" :data-mode="groupMode">
       <template v-if="groupMode === 'status'">
         <section v-for="col in STATUS_COLUMNS" :key="col.key" class="column">
           <header class="col-head">
@@ -158,7 +161,7 @@ onMounted(() => {
             <span class="col-count">{{ byStatus[col.key].length }}</span>
           </header>
           <p v-if="byStatus[col.key].length === 0" class="col-empty">暂无{{ col.label }}任务</p>
-          <article v-for="t in byStatus[col.key]" :key="t.id" class="card" :data-status="t.status">
+          <article v-for="t in byStatus[col.key]" :key="t.id" class="card" :data-tour-task="t.id" :data-status="t.status">
             <button
               class="tick"
               :aria-label="t.status === 'done' ? '标记为待办' : '标记为完成'"
@@ -212,6 +215,7 @@ onMounted(() => {
           <article
             v-for="t in byDate[b.key as DateBucket]"
             :key="t.id"
+            :data-tour-task="t.id"
             class="card"
             :data-status="t.status"
           >

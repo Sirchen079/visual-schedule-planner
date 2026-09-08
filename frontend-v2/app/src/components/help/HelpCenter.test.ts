@@ -11,13 +11,13 @@ beforeAll(async () => {
     load(id) {
       if (id !== '\0help-entry') return
       return `import {createApp,h} from 'vue';import {createPinia,setActivePinia} from 'pinia';
-        import {createRouter,createMemoryHistory} from 'vue-router';
-        import Help from '/src/components/help/HelpCenter.vue';import {useHelpStore} from '/src/stores/help';import '/src/tokens.css';
+        import {createRouter,createMemoryHistory,RouterView,RouterLink} from 'vue-router';
+        import Board from '/src/views/BoardView.vue';import Help from '/src/components/help/HelpCenter.vue';import {useHelpStore} from '/src/stores/help';import '/src/tokens.css';
         const pinia=createPinia();setActivePinia(pinia);const help=useHelpStore();
-        const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:{render:()=>null}}]});
+        const router=createRouter({history:createMemoryHistory(),routes:[{path:'/board',component:Board},{path:'/:pathMatch(.*)*',component:{render:()=>null}}]});
         window.probe={help,router};
         createApp({render:()=>h('main',[h('button',{id:'open-guide',onClick:()=>help.openGuide()},'使用教程'),
-          h('button',{id:'open-tour',onClick:()=>help.startTour()},'新手指引'),h(Help)])}).use(pinia).use(router).mount('#app');
+          h('button',{id:'open-tour',onClick:()=>help.startTour()},'新手指引'),h(RouterLink,{to:'/calendar','data-tour':'nav-calendar'},()=> '日历'),h(RouterLink,{to:'/settings','data-tour':'nav-settings'},()=> '设置'),h('div',{id:'head-actions',style:'display:flex;justify-content:flex-end;margin-top:50px'}),h(RouterView),h(Help)])}).use(pinia).use(router).mount('#app');
         help.initialize();`
     },
     configureServer(vite) { vite.middlewares.use((req, res, next) => {
@@ -42,43 +42,85 @@ async function fixture(fresh = true, width = 1100) {
     if (route.request().method() === 'POST') state = route.request().postDataJSON().outcome
     await route.fulfill({ json: { status: state, has_history: !fresh, show_automatically: state === 'pending' } })
   })
+  const records: unknown[] = []
   await page.route('**/api/tasks', async route => {
+    if (route.request().method() === 'GET') { await route.fulfill({ json: records }); return }
     writes.push(route.request().postDataJSON())
-    await route.fulfill({ status: 201, json: { id: 1, title: (writes[0] as { title: string }).title } })
+    const record = { id: writes.length, ...route.request().postDataJSON(), status: 'todo', subtasks: [], due_time: null }
+    records.push(record)
+    await route.fulfill({ status: 201, json: record })
   })
   await page.goto(`${origin}/help-test`)
   return { page, writes }
 }
 
-it('walks through a real first task, returns from API help, and persists completion', async () => {
+it('points to actual board controls, saves once and resumes from API help', async () => {
   const { page, writes } = await fixture()
   try {
     const tour = page.getByRole('dialog', { name: '新手指引', exact: true })
     await tour.getByRole('heading', { name: '欢迎使用知时' }).waitFor()
     expect(writes).toHaveLength(0)
     await tour.getByRole('button', { name: '开始，一步步来' }).click()
+    await page.getByRole('button', { name: '新建任务', exact: true }).click()
+    await tour.getByRole('heading', { name: '写下你要做的事' }).waitFor()
+    expect(await tour.getByRole('button', { name: '填好了' }).isDisabled()).toBe(true)
+    await page.getByLabel('任务标题', { exact: true }).fill('取快递')
+    await tour.getByRole('button', { name: '填好了' }).click()
+    await page.getByRole('button', { name: '创建', exact: true }).click()
+    await tour.getByRole('heading', { name: '保存成功，在这里能找到它' }).waitFor()
+    expect(writes).toEqual([{ title: '取快递', due_date: null, priority: 'medium' }])
+    expect(await page.locator('[data-tour-task="1"]').innerText()).toContain('取快递')
     await tour.getByRole('button', { name: '下一步' }).click()
-    expect(await tour.getByRole('button', { name: '② 保存这条待办' }).isDisabled()).toBe(true)
-    await tour.getByLabel('① 点这里，输入待办名称').fill('第一次练习的真实待办')
-    await tour.getByRole('button', { name: '② 保存这条待办' }).click()
-    await tour.getByText('保存成功！关闭指引后，在“看板”里就能找到它。', { exact: true }).waitFor()
-    expect(writes).toEqual([{ title: '第一次练习的真实待办' }])
     await tour.getByRole('button', { name: '下一步' }).click()
-    await tour.getByRole('button', { name: '下一步' }).click()
-    await tour.getByRole('button', { name: '已有资料，教我怎么填写' }).click()
+    await tour.getByRole('button', { name: '先看 AI 接入教程' }).click()
     const guide = page.getByRole('dialog', { name: '使用教程', exact: true })
     await guide.getByRole('heading', { name: '一步步配置' }).waitFor()
     await guide.getByRole('button', { name: '返回新手指引' }).click()
-    await tour.getByRole('heading', { name: '想用 AI？这一步可以稍后做' }).waitFor()
+    await tour.getByRole('heading', { name: '想让 AI 帮忙？' }).waitFor()
     await tour.getByRole('button', { name: '下一步' }).click()
-    await tour.getByRole('button', { name: '下一步' }).click()
-    await tour.getByRole('button', { name: '开始使用，打开看板' }).click()
-    await page.waitForFunction(() => (window as any).probe.router.currentRoute.value.path === '/board')
-    await page.reload()
-    await page.waitForFunction(() => (window as any).probe.help.initialized)
+    await tour.getByRole('button', { name: '开始使用', exact: true }).click()
+    await page.reload(); await page.waitForFunction(() => (window as any).probe.help.initialized)
     expect(await page.getByRole('dialog').count()).toBe(0)
   } finally { await page.close() }
 }, 30000)
+
+it('keeps the save step on failure and allows exiting without another write', async () => {
+  const { page, writes } = await fixture()
+  try {
+    const tour = page.getByRole('dialog', { name: '新手指引', exact: true })
+    await tour.getByRole('button', { name: '开始，一步步来' }).click()
+    await page.getByRole('button', { name: '新建任务', exact: true }).click()
+    await page.getByLabel('任务标题', { exact: true }).fill('取快递')
+    await tour.getByRole('button', { name: '填好了' }).click()
+    await page.route('**/api/tasks', async route => route.fulfill({ status: 503, json: { detail: '保存失败，请核对看板' } }))
+    await page.getByRole('button', { name: '创建', exact: true }).click()
+    await page.getByRole('alert').waitFor()
+    expect(await tour.locator('h2').innerText()).toBe('点“创建”，保存到看板')
+    await tour.getByRole('button', { name: '暂时跳过' }).click()
+    expect(writes).toHaveLength(0)
+    expect(await page.getByLabel('任务标题', { exact: true }).inputValue()).toBe('取快递')
+  } finally { await page.close() }
+})
+
+it('keeps highlighted inputs clickable after a narrow resize and supports keyboard saving', async () => {
+  const { page, writes } = await fixture(true, 375)
+  try {
+    const tour = page.getByRole('dialog', { name: '新手指引', exact: true })
+    await tour.getByRole('button', { name: '开始，一步步来' }).click()
+    await page.getByRole('button', { name: '新建任务', exact: true }).click()
+    const input = page.getByLabel('任务标题', { exact: true })
+    await input.fill('整理材料')
+    await page.setViewportSize({ width: 420, height: 620 })
+    await input.click()
+    await page.keyboard.press('Enter')
+    await tour.getByRole('heading', { name: '保存成功，在这里能找到它' }).waitFor()
+    expect(writes).toHaveLength(1)
+    const rect = await tour.boundingBox()
+    expect(rect!.x).toBeGreaterThanOrEqual(0)
+    expect(rect!.x + rect!.width).toBeLessThanOrEqual(420)
+    expect(rect!.y + rect!.height).toBeLessThanOrEqual(620)
+  } finally { await page.close() }
+})
 
 it('skipping works on a small screen, preserves focus, and can be replayed manually', async () => {
   const { page, writes } = await fixture(true, 375)
