@@ -8,6 +8,7 @@ from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from tests.server.test_attachments import _parse_sse, _seed_enabled_config
 from tests.server.test_research import SPEC
 from zhishi.infra import local_clock
+from zhishi.agent.context_parts import latest_context
 from zhishi.server.app import create_app
 from zhishi.server.routes import ai
 
@@ -65,7 +66,7 @@ def test_agent_revision_conflict_approval_and_history_with_fresh_clock(tmp_path,
         rounds += 1
         parts = [p for m in messages for p in m.parts if isinstance(p,ToolReturnPart)]
         result = json.loads(parts[-1].content) if parts else None
-        assert now.isoformat(timespec='seconds') in messages[-1].instructions
+        assert now.isoformat(timespec='seconds') in latest_context(messages, 'clock')
         if rounds in (1,3):
             yield call('preview_research_revision', {'project_id':pid,'plan':{
                 'version':2, 'mode':'replace','target_link_id':99999 if rounds==1 else target,

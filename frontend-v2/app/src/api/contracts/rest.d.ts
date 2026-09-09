@@ -3027,6 +3027,20 @@ export interface components {
             /** Reasoning Effort */
             reasoning_effort?: ("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") | null;
             /**
+             * Prompt Cache Mode
+             * @default auto
+             * @enum {string}
+             */
+            prompt_cache_mode?: "auto" | "disabled" | "anthropic_compat";
+            /**
+             * Prompt Cache Ttl
+             * @default 5m
+             * @enum {string}
+             */
+            prompt_cache_ttl?: "5m" | "1h";
+            /** Prompt Cache Key */
+            prompt_cache_key?: boolean | null;
+            /**
              * Input Modalities
              * @default [
              *       "text"
@@ -3057,6 +3071,20 @@ export interface components {
             max_output_tokens?: number | null;
             /** Reasoning Effort */
             reasoning_effort?: ("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") | null;
+            /**
+             * Prompt Cache Mode
+             * @default auto
+             * @enum {string}
+             */
+            prompt_cache_mode?: "auto" | "disabled" | "anthropic_compat";
+            /**
+             * Prompt Cache Ttl
+             * @default 5m
+             * @enum {string}
+             */
+            prompt_cache_ttl?: "5m" | "1h";
+            /** Prompt Cache Key */
+            prompt_cache_key?: boolean | null;
             /**
              * Input Modalities
              * @default [

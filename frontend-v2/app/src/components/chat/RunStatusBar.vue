@@ -59,7 +59,8 @@ const phaseText = computed(() => {
 const usageText = computed(() => {
   const u = run.usage
   if (!u || (u.tokensIn === 0 && u.tokensOut === 0)) return null
-  return `↑ ${u.tokensIn.toLocaleString()} in · ↓ ${u.tokensOut.toLocaleString()} out`
+  const cache = u.cacheReadTokens === undefined ? '' : ` · 缓存读 ${u.cacheReadTokens.toLocaleString()}${u.tokensIn > 0 ? `（${Math.round(u.cacheReadTokens / u.tokensIn * 100)}%）` : ''}${u.cacheWriteTokens ? ` / 写 ${u.cacheWriteTokens.toLocaleString()}` : ''}`
+  return `输入总量 ${u.tokensIn.toLocaleString()} · 输出 ${u.tokensOut.toLocaleString()}${cache}`
 })
 
 const dotTone = computed(() => {
@@ -79,7 +80,7 @@ const dotTone = computed(() => {
       <span class="sep">·</span>
       <span class="elapsed">已进行 {{ elapsedText }}</span>
     </template>
-    <span v-if="usageText" class="tok">{{ usageText }}</span>
+    <span v-if="usageText" class="tok" title="按服务商回传用量统计。缓存读写已包含在输入总量中；0 也可能表示接口未报告。缓存部分仍占上下文，费用以服务商账单为准。">{{ usageText }}</span>
   </div>
 </template>
 

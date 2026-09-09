@@ -141,6 +141,8 @@ export interface UsageUpdated {
   type: "usage_updated";
   tokens_in: number;
   tokens_out: number;
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
   cost_estimate: number;
   model: string;
 }

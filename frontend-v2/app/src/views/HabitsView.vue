@@ -68,7 +68,7 @@ onMounted(() => {
 <template>
   <section class="habits-view">
     <Teleport defer to="#head-actions">
-      <button class="new-btn" @click="creating = !creating">
+      <button class="new-btn" data-tour="habits-create" @click="creating = !creating">
         <AppIcon name="plus" :size="14" />
         {{ creating ? '收起' : '新建习惯' }}
       </button>
@@ -89,7 +89,7 @@ onMounted(() => {
     </div>
 
     <form v-if="creating" class="creator" @submit.prevent="submit">
-      <input v-model="name" class="in name-in" placeholder="习惯名称（必填，如：晨读英语）" aria-label="习惯名称" />
+      <input v-model="name" class="in name-in" placeholder="习惯名称（必填，如：每日散步）" aria-label="习惯名称" />
       <select v-model="period" class="in" aria-label="打卡周期">
         <option value="daily">每日</option>
         <option value="weekly">每周</option>

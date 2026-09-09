@@ -7,6 +7,7 @@ from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from tests.server.test_attachments import _parse_sse, _seed_enabled_config
 from tests.server.test_research import SPEC
 from zhishi.domain.research import sources
+from zhishi.agent.context_parts import is_user_input
 from zhishi.server.app import create_app
 from zhishi.server.routes import ai
 
@@ -14,8 +15,7 @@ from zhishi.server.routes import ai
 def test_selected_project_context_is_latest_and_invalid_id_releases_slot(tmp_path, monkeypatch):
     observed = []
     async def stream(messages, info):
-        from pydantic_ai.messages import UserPromptPart
-        observed.extend(p.content for m in messages for p in m.parts if isinstance(p, UserPromptPart))
+        observed.extend(p.content for m in messages for p in m.parts if is_user_input(p))
         yield '已读取当前项目。'
     monkeypatch.setattr(ai, 'build_model', lambda *a, **k: FunctionModel(stream_function=stream))
     with TestClient(create_app(data_dir=tmp_path)) as c:

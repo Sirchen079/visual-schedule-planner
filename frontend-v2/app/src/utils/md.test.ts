@@ -49,4 +49,56 @@ describe('assistant Markdown', () => {
     expect(html).not.toContain('<img')
     expect(html).toContain('>图片说明</a>')
   })
+  it.each([
+    '$E=mc^2$', String.raw`\(\frac{1}{2}\)`,
+    '$$\nx^2+y^2=z^2\n$$', String.raw`\[\int_0^1 x\,dx=\frac12\]`,
+    '```math\nx^2\n```',
+  ])('renders common math delimiters: %s', source => {
+    const html = renderMarkdown(source)
+    expect(html).toContain('class="katex"')
+    expect(html).toContain('<math')
+    expect(html).not.toContain('katex-error')
+  })
+  it('renders aligned equations and matrices in display math', () => {
+    const html = renderMarkdown(String.raw`\[
+\begin{aligned} f(x)&=x^2 \\ f'(x)&=2x \end{aligned}
+\qquad \begin{pmatrix}1&2\\3&4\end{pmatrix}
+\]`)
+    expect(html).toContain('katex-display')
+    expect(html).toContain('<mtable')
+    expect(html).not.toContain('katex-error')
+  })
+  it('keeps code, escaped delimiters and currency literal', () => {
+    for (const source of ['`$x$`', '```latex\n\\[x^2\\]\n```', String.raw`\$x$`, '预算 $5，另一个 $10']) {
+      expect(renderMarkdown(source)).not.toContain('class="katex"')
+    }
+  })
+  it('tolerates streamed partial formulas and keeps malformed input readable', () => {
+    const source = String.raw`结果：\(\frac{1}{2}\)。
+
+$$
+\sum_{i=1}^n i=\frac{n(n+1)}{2}
+$$`
+    for (let i = 1; i <= source.length; i++) expect(() => renderMarkdown(source.slice(0, i))).not.toThrow()
+    expect(renderMarkdown(source)).not.toContain('katex-error')
+    expect(renderMarkdown(String.raw`$\frac{1}$`)).toContain('katex-error')
+    expect(renderMarkdown(String.raw`$\unknownCommand{value}$`)).toContain('\\unknownCommand')
+  })
+  it('blocks formula URLs and HTML commands, and escapes invalid math', () => {
+    const html = renderMarkdown(String.raw`$\href{javascript:alert(1)}{click}$
+
+$\includegraphics{https://example.org/tracking.png}$
+
+$\htmlStyle{background:url(https://example.org/track)}{x}$
+
+$\unknown{<img src=x onerror=alert(1)>}$`)
+    expect(html).not.toMatch(/<(?:a|img|script)\b/)
+    expect(html).not.toContain('style="background:')
+    expect(html).toContain('&lt;img')
+  })
+  it('bounds recursive macros and does not carry definitions into another message', () => {
+    expect(renderMarkdown(String.raw`$\def\loop{\loop}\loop$`)).toContain('katex-error')
+    expect(renderMarkdown(String.raw`$\gdef\custom{42}\custom$`)).not.toContain('katex-error')
+    expect(renderMarkdown(String.raw`$\custom$`)).toContain('<mtext>\\custom</mtext>')
+  })
 })

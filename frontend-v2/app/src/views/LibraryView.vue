@@ -72,7 +72,7 @@ onMounted(() => {
           aria-label="搜索资料"
         />
       </div>
-      <button class="new-btn" :disabled="library.uploading" @click="pick">
+      <button class="new-btn" data-tour="library-upload" :disabled="library.uploading" @click="pick">
         <AppIcon name="plus" :size="14" />
         {{ library.uploading ? '上传中…' : '上传资料' }}
       </button>

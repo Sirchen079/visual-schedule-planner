@@ -613,6 +613,16 @@
           "title": "Tokens Out",
           "type": "integer"
         },
+        "cache_read_tokens": {
+          "default": 0,
+          "title": "Cache Read Tokens",
+          "type": "integer"
+        },
+        "cache_write_tokens": {
+          "default": 0,
+          "title": "Cache Write Tokens",
+          "type": "integer"
+        },
         "cost_estimate": {
           "title": "Cost Estimate",
           "type": "number"

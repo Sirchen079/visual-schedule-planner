@@ -267,7 +267,11 @@ def test_ai_configs_and_skills_payload_fields_survive_response_model(tmp_path):
         rows = c.get("/ai/configs").json()
         assert set(rows[0]) == {"id", "name", "provider_kind", "model",
                                 "base_url", "enabled", "context_window", "max_output_tokens",
-                                "input_modalities", "has_api_key", "request_limit", "price_input", "price_output", "reasoning_effort"}
+                                "input_modalities", "has_api_key", "request_limit", "price_input", "price_output", "reasoning_effort",
+                                "prompt_cache_mode", "prompt_cache_ttl", "prompt_cache_key"}
+        assert rows[0]["prompt_cache_mode"] == "auto"
+        assert rows[0]["prompt_cache_ttl"] == "5m"
+        assert rows[0]["prompt_cache_key"] is None
         assert rows[0]["name"] == "本地" and rows[0]["enabled"] is False
         assert rows[0]["base_url"] is None
         assert c.post(f"/ai/configs/{created['id']}/enable").json()["ok"] is True

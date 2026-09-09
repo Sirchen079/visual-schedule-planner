@@ -1,7 +1,16 @@
 import MarkdownIt from 'markdown-it'
+import { katex } from '@mdit/plugin-katex'
+import 'katex/dist/katex.min.css'
+import './math.css'
 
 /** CommonMark/GFM rendering shared by live and saved assistant messages. */
 const markdown = new MarkdownIt({ html: false, linkify: true, breaks: true, typographer: false })
+markdown.use(katex, {
+  delimiters: 'all', mathFence: true, throwOnError: false,
+  trust: false, maxSize: 20, maxExpand: 1000,
+  logger: () => 'ignore' as const,
+  transformer: (html: string, display: boolean) => display ? html : `<span class="math-inline">${html}</span>`,
+})
 export const escapeHtml = markdown.utils.escapeHtml
 
 const defaultValidateLink = markdown.validateLink.bind(markdown)

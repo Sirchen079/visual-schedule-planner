@@ -47,7 +47,9 @@ async def test_seeded_skills_create_task_fits_small_context_without_unrelated_wo
         if result[-1].tool_name == 'search_tools':
             assert '【技能：内置·学习与研究项目】' not in info.instructions
             assert '【技能：内置·材料收件箱】' not in info.instructions
-            assert '【技能：内置·任务、提醒与日程】' in info.instructions
+            from zhishi.agent.context_parts import latest_context
+            assert '【技能：内置·任务、提醒与日程】' in latest_context(messages, 'skill:内置·任务、提醒与日程')
+            assert info.instructions == observed[0]
             return ModelResponse(parts=[ToolCallPart('create_task', {'title':'One task'}, 'create')])
         return ModelResponse(parts=[TextPart('Done')])
     config = SimpleNamespace(context_window=8192, max_output_tokens=512)

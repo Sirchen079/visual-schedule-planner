@@ -160,6 +160,11 @@ def _binary_tokens(value: BinaryContent) -> int:
 
 def estimate_value_tokens(value: Any) -> int:
     """Estimate nested content/schemas without repr-ing binary payloads."""
+    from pydantic_ai.messages import CachePoint, TextContent
+    if isinstance(value, CachePoint):
+        return 0
+    if isinstance(value, TextContent):
+        return estimate_text_tokens(value.content)
     if value is None:
         return 0
     if isinstance(value, str):
@@ -208,11 +213,12 @@ def safe_round_starts(messages: list) -> list[int]:
     A pending call pins its round until it is resolved. A mixed user/tool-return
     request belongs to the prior call's round for cutting purposes.
     """
+    from zhishi.agent.context_parts import is_user_input
     pending: set[str] = set()
     starts: list[int] = []
     for i, message in enumerate(messages):
         if (isinstance(message, ModelRequest) and not pending
-                and any(isinstance(p, UserPromptPart) for p in message.parts)):
+                and any(is_user_input(p) for p in message.parts)):
             starts.append(i)
         for part in message.parts:
             kind = getattr(part, "part_kind", "")

@@ -16,7 +16,7 @@ import UserQuestionCard from './UserQuestionCard.vue'
 import PlanCardView from './PlanCardView.vue'
 import ToolCard from './ToolCard.vue'
 import { buildTimeline, type ThreadItem } from './timeline'
-import { renderMarkdown } from '../../utils/md'
+import MarkdownContent from './MarkdownContent.vue'
 
 const run = useRunStore()
 const conv = useConversationStore()
@@ -87,11 +87,11 @@ function itemKey(item: ThreadItem, idx: number): string {
     <template v-for="(item, idx) in items" :key="itemKey(item, idx)">
       <div v-if="item.kind === 'history-user'" class="msg-user">
         <span v-for="a in item.attachments" :key="a.id" class="att">{{ a.name }}</span>
-        <span class="text">{{ item.text }}</span>
+        <MarkdownContent class="body" :content="item.text" />
       </div>
       <div v-else-if="item.kind === 'history-assistant'" class="msg-ai">
         <span class="who">知时 · 助手</span>
-        <div class="body" v-html="renderMarkdown(item.text)" />
+        <MarkdownContent class="body" :content="item.text" />
         <UserQuestionCard v-for="question in (item.display.questions ?? []).filter(q => !showLive || !run.questionRequests.some(current => current.id === q.id))" :key="question.id" :request="question" readonly />
         <p v-if="savedStatus(item.display.status)" class="saved-status">{{ savedStatus(item.display.status) }}</p>
         <p v-if="item.display.error" class="saved-status">{{ item.display.error }}</p>
@@ -100,11 +100,11 @@ function itemKey(item: ThreadItem, idx: number): string {
       </div>
       <div v-else-if="item.kind === 'sent'" class="msg-user">
         <span v-for="a in item.attachments" :key="a.id" class="att">{{ a.name }}</span>
-        <span class="text">{{ item.text }}</span>
+        <MarkdownContent class="body" :content="item.text" />
       </div>
       <div v-else-if="item.kind === 'text'" class="msg-ai">
         <span class="who">知时 · 助手</span>
-        <div class="body"><div v-html="renderMarkdown(item.content)" /><span v-if="showCaret && idx === items.length - 1" class="caret" /></div>
+        <div class="body"><MarkdownContent :content="item.content" /><span v-if="showCaret && idx === items.length - 1" class="caret" /></div>
       </div>
       <details v-else-if="item.kind === 'reasoning'" class="think">
         <summary>
@@ -205,52 +205,55 @@ function itemKey(item: ThreadItem, idx: number): string {
   color: var(--ink-3);
   margin-bottom: 5px;
 }
-.msg-ai .body {
+.body {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
   font-size: 14.5px;
   line-height: 1.72;
   color: var(--ink);
   word-break: break-word;
 }
-.msg-ai .body :deep(p) {
+.body :deep(p) {
   margin: 0 0 0.45em;
 }
-.msg-ai .body :deep(p:last-child) {
+.body :deep(p:last-child) {
   margin-bottom: 0;
 }
-.msg-ai .body :deep(h1), .msg-ai .body :deep(h2), .msg-ai .body :deep(h3),
-.msg-ai .body :deep(h4), .msg-ai .body :deep(h5), .msg-ai .body :deep(h6) {
+.body :deep(h1), .body :deep(h2), .body :deep(h3),
+.body :deep(h4), .body :deep(h5), .body :deep(h6) {
   font-family: var(--serif); line-height: 1.4; margin: 0.9em 0 0.35em; font-weight: 600;
 }
-.msg-ai .body :deep(h1) { font-size: 1.45em; }
-.msg-ai .body :deep(h2) { font-size: 1.3em; }
-.msg-ai .body :deep(h3) { font-size: 1.15em; }
-.msg-ai .body :deep(h4), .msg-ai .body :deep(h5), .msg-ai .body :deep(h6) { font-size: 1em; }
-.msg-ai .body :deep(:first-child) { margin-top: 0; }
-.msg-ai .body :deep(a) { color: var(--amber-soft); text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
-.msg-ai .body :deep(blockquote) { margin: 0.5em 0; padding: 0.3em 0.8em; border-left: 3px solid var(--line-2); color: var(--ink-2); }
-.msg-ai .body :deep(hr) { border: 0; border-top: 1px solid var(--line-2); margin: 0.8em 0; }
-.msg-ai .body :deep(pre) { max-width: 100%; overflow-x: auto; padding: 12px; margin: 0.6em 0; background: var(--bg-sink); border: 1px solid var(--line); border-radius: 7px; tab-size: 2; }
-.msg-ai .body :deep(pre code) { display: block; border: 0; padding: 0; white-space: pre; overflow-wrap: normal; word-break: normal; background: transparent; }
-.msg-ai .body :deep(.task-list-item) { list-style: none; }
-.msg-ai .body :deep(ul),
-.msg-ai .body :deep(ol) {
+.body :deep(h1) { font-size: 1.45em; }
+.body :deep(h2) { font-size: 1.3em; }
+.body :deep(h3) { font-size: 1.15em; }
+.body :deep(h4), .body :deep(h5), .body :deep(h6) { font-size: 1em; }
+.body :deep(:first-child) { margin-top: 0; }
+.body :deep(a) { color: var(--amber-soft); text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
+.body :deep(blockquote) { margin: 0.5em 0; padding: 0.3em 0.8em; border-left: 3px solid var(--line-2); color: var(--ink-2); }
+.body :deep(hr) { border: 0; border-top: 1px solid var(--line-2); margin: 0.8em 0; }
+.body :deep(pre) { max-width: 100%; overflow-x: auto; padding: 12px; margin: 0.6em 0; background: var(--bg-sink); border: 1px solid var(--line); border-radius: 7px; tab-size: 2; }
+.body :deep(pre code) { display: block; border: 0; padding: 0; white-space: pre; overflow-wrap: normal; word-break: normal; background: transparent; }
+.body :deep(.task-list-item) { list-style: none; }
+.body :deep(ul),
+.body :deep(ol) {
   padding-left: 1.5em;
   margin: 0.2em 0 0.45em;
 }
-.msg-ai .body :deep(ul) {
+.body :deep(ul) {
   list-style: disc;
 }
-.msg-ai .body :deep(ol) {
+.body :deep(ol) {
   list-style: decimal;
 }
-.msg-ai .body :deep(li) {
+.body :deep(li) {
   margin: 0.15em 0;
 }
-.msg-ai .body :deep(strong) {
+.body :deep(strong) {
   color: var(--amber-soft);
   font-weight: 600;
 }
-.msg-ai .body :deep(code) {
+.body :deep(code) {
   font-family: var(--mono);
   font-size: 0.88em;
   background: var(--bg-sink);
@@ -258,7 +261,7 @@ function itemKey(item: ThreadItem, idx: number): string {
   border-radius: 4px;
   padding: 0.1em 0.35em;
 }
-.msg-ai .body :deep(table) {
+.body :deep(table) {
   display: block;
   overflow-x: auto;
   border-collapse: collapse;
@@ -266,14 +269,14 @@ function itemKey(item: ThreadItem, idx: number): string {
   font-size: 13px;
   max-width: 100%;
 }
-.msg-ai .body :deep(th),
-.msg-ai .body :deep(td) {
+.body :deep(th),
+.body :deep(td) {
   border: 1px solid var(--line-2);
   padding: 0.3em 0.7em;
   text-align: left;
   vertical-align: top;
 }
-.msg-ai .body :deep(th) {
+.body :deep(th) {
   color: var(--amber-soft);
   background: var(--bg-sink);
   font-weight: 600;

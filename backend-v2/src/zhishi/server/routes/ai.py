@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from zhishi.agent.permissions import IRREVOCABLE_TOOLS
 from zhishi.agent.providers import build_model  # 测试 monkeypatch 锚点
-from zhishi.agent.providers import ReasoningEffort, validate_reasoning_effort
+from zhishi.agent.providers import ReasoningEffort, PromptCacheMode, validate_reasoning_effort, validate_prompt_cache
 from zhishi.agent.runtime import AgentRuntime
 from zhishi.adapters.model_catalog import ModelCatalogRequest, ModelCatalogResponse
 from zhishi.domain.models import AIConfig, AIConversation, AIMessage
@@ -83,6 +83,9 @@ class ConfigOut(BaseModel):
     context_window: int | None = None
     max_output_tokens: int | None = None
     reasoning_effort: ReasoningEffort | None = None
+    prompt_cache_mode: PromptCacheMode = 'auto'
+    prompt_cache_ttl: Literal['5m', '1h'] = '5m'
+    prompt_cache_key: bool | None = None
     input_modalities: list[Literal['text', 'image', 'audio', 'video']] = ['text']
     has_api_key: bool = False
     request_limit: int = 30
@@ -308,7 +311,8 @@ async def _load_conversation_history_async(db: Session, cid: int, config):
         # 不能把 SQLAlchemy 实体交给晚到线程，以免过期属性触发数据库懒加载。
         snapshot = SimpleNamespace(**{key: getattr(config, key) for key in (
             "api_key_ref", "name", "provider_kind", "base_url", "model",
-            "context_window", "max_output_tokens", "input_modalities_json", "reasoning_effort")})
+            "context_window", "max_output_tokens", "input_modalities_json", "reasoning_effort",
+            "prompt_cache_mode", "prompt_cache_ttl", "prompt_cache_key")})
         messages, summary, fingerprint = await asyncio.to_thread(
             compaction.summarize_history, None, snapshot, messages,
             stored_summary=meta.get("summary"),
@@ -486,11 +490,15 @@ class ConfigBody(BaseModel):
     context_window: int | None = Field(default=None, ge=1024, le=10_000_000, strict=True)
     max_output_tokens: int | None = Field(default=None, ge=1, le=1_000_000, strict=True)
     reasoning_effort: ReasoningEffort | None = None
+    prompt_cache_mode: PromptCacheMode = 'auto'
+    prompt_cache_ttl: Literal['5m', '1h'] = '5m'
+    prompt_cache_key: bool | None = None
     input_modalities: list[Literal['text', 'image', 'audio', 'video']] = Field(default=['text'], min_length=1, max_length=4)
 
     @model_validator(mode='after')
     def _capabilities(self):
         validate_reasoning_effort(self.provider_kind, self.reasoning_effort)
+        validate_prompt_cache(self.provider_kind, self.prompt_cache_mode, self.prompt_cache_ttl)
         if 'text' not in self.input_modalities:
             raise ValueError('知时助手需要文字输入，请保留文字能力')
         self.input_modalities = list(dict.fromkeys(self.input_modalities))
@@ -532,6 +540,8 @@ def list_configs(db: Session = Depends(get_db)):
              "model": r.model, "base_url": r.base_url, "enabled": r.enabled,
              "context_window": r.context_window, "max_output_tokens": r.max_output_tokens,
              "reasoning_effort": r.reasoning_effort,
+             "prompt_cache_mode": r.prompt_cache_mode, "prompt_cache_ttl": r.prompt_cache_ttl,
+             "prompt_cache_key": r.prompt_cache_key,
              "input_modalities": _config_modalities(r), "has_api_key": bool(r.api_key_ref),
              "request_limit": r.request_limit, "price_input": r.price_input,
              "price_output": r.price_output} for r in rows]
@@ -559,6 +569,8 @@ def create_config(body: ConfigBody, db: Session = Depends(get_db)):
                    request_limit=body.request_limit, context_window=body.context_window,
                    max_output_tokens=body.max_output_tokens,
                    reasoning_effort=body.reasoning_effort,
+                   prompt_cache_mode=body.prompt_cache_mode, prompt_cache_ttl=body.prompt_cache_ttl,
+                   prompt_cache_key=body.prompt_cache_key,
                    input_modalities_json=json.dumps(body.input_modalities))
     try:
         db.add(row); db.commit(); db.refresh(row)

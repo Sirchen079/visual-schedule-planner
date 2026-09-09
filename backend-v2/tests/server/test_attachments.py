@@ -3,6 +3,7 @@
 import json
 from fastapi.testclient import TestClient
 from zhishi.server.app import create_app
+from zhishi.agent.context_parts import is_user_input
 
 
 def _parse_sse(text: str) -> list[dict]:
@@ -80,7 +81,7 @@ def test_image_attachment_injected_as_binary_content(tmp_path, monkeypatch):
         seen = {}
 
         async def stream(messages, info):
-            seen["content"] = messages[-1].parts[-1].content   # 最后一条 UserPromptPart
+            seen["content"] = next(p.content for p in reversed(messages[-1].parts) if is_user_input(p))
             yield "收到图片"
 
         import zhishi.server.routes.ai as ai_route
@@ -128,7 +129,7 @@ def test_text_model_receives_unread_notice_without_image_attempt(tmp_path, monke
         _seed_enabled_config(c, ['text'])
         seen = []
         async def stream(messages, info):
-            seen.append(messages[-1].parts[-1].content)
+            seen.append(next(p.content for p in reversed(messages[-1].parts) if is_user_input(p)))
             yield '请配置视觉服务后重试。'
         import zhishi.server.routes.ai as ai_route
         monkeypatch.setattr(ai_route, 'build_model', lambda cfg: FunctionModel(stream_function=stream))

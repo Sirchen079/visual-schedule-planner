@@ -8,7 +8,8 @@ from math import sqrt
 from typing import Any
 
 from pydantic_ai import RunContext
-from pydantic_ai.messages import InstructionPart, ToolCallPart, ToolReturnPart
+from pydantic_ai.messages import ToolCallPart, ToolReturnPart
+from zhishi.agent.context_parts import append_context, latest_context
 
 CORE_TOOLS = {'search_tools', 'ask_user', 'update_work_plan'}
 SEARCH_DESCRIPTION = (
@@ -60,7 +61,7 @@ class ToolDiscovery:
     def __init__(self, skills: list[tuple[str, str]] = (), unavailable: dict | None = None,
                  plan_mode: bool = False):
         self.catalog: dict = {}
-        self.skills = list(skills)
+        self.skills = sorted(skills)
         self.unavailable = unavailable if unavailable is not None else {}
         self.core_tools = CORE_TOOLS | ({'propose_plan'} if plan_mode else set())
 
@@ -141,18 +142,35 @@ class ToolDiscovery:
                     # directory on every request, including simple follow-ups.
                     tool = replace(tool, description=SEARCH_DESCRIPTION)
                 visible.append(tool)
-            instructions = list(parameters.instruction_parts or [])
-            if self.unavailable:
-                instructions.append(InstructionPart(content='【本轮外部工具状态】' +
-                    json.dumps(list(self.unavailable.values()), ensure_ascii=False) +
-                    '继续可用工具能完成的部分；不得声称已使用不可用服务。'))
-            for title, content in self.skills:
-                relevant = (bool(SKILL_TOOLS[title] & active) if title in SKILL_TOOLS else
-                    any(re.search(r'(?<![a-zA-Z0-9_])' + re.escape(name) + r'(?![a-zA-Z0-9_])', content)
-                        for name in active - CORE_TOOLS))
-                if relevant:
-                    instructions.append(InstructionPart(content=f'【技能：{title}】\n{content}'))
-            return replace(request, model_request_parameters=replace(parameters,
-                function_tools=visible, instruction_parts=instructions if instructions else parameters.instruction_parts))
+            return self._with_context(replace(request,
+                model_request_parameters=replace(parameters, function_tools=visible)))
 
         return Hooks(before_model_request=prepare)
+
+    def context_hook(self):
+        from pydantic_ai.capabilities import Hooks
+        return Hooks(before_model_request=lambda ctx, request: self._with_context(request))
+
+    def _with_context(self, request):
+        # Run again after compaction: newly required rules cannot disappear
+        # between discovery and the actual model request.
+        active = {tool.name for tool in request.model_request_parameters.function_tools}
+        messages = request.messages
+        if self.unavailable:
+            state = ('【本轮外部工具状态】' + json.dumps(
+                [self.unavailable[key] for key in sorted(self.unavailable)], ensure_ascii=False, sort_keys=True) +
+                '继续可用工具能完成的部分；不得声称已使用不可用服务。')
+        else:
+            state = '【本轮外部工具状态】当前未报告连接不可用；实际执行仍以工具结果为准。'
+        previous = latest_context(messages, 'tool-status')
+        if previous != state and (previous is not None or self.unavailable):
+            messages = append_context(messages, 'tool-status', state)
+        for title, content in self.skills:
+            relevant = (bool(SKILL_TOOLS[title] & active) if title in SKILL_TOOLS else
+                any(re.search(r'(?<![a-zA-Z0-9_])' + re.escape(name) + r'(?![a-zA-Z0-9_])', content)
+                    for name in active - CORE_TOOLS))
+            if relevant:
+                text = f'【技能：{title}】\n{content}'
+                if latest_context(messages, f'skill:{title}') != text:
+                    messages = append_context(messages, f'skill:{title}', text)
+        return replace(request, messages=messages)

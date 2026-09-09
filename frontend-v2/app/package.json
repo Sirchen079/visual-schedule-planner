@@ -12,7 +12,9 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@mdit/plugin-katex": "1.1.1",
     "@vueuse/core": "^13.9.0",
+    "katex": "0.18.7",
     "markdown-it": "15.0.1",
     "pinia": "^3.0.4",
     "vue": "^3.5.12",

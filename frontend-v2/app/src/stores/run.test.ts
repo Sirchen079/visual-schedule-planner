@@ -47,6 +47,12 @@ describe('run store 状态机（录制序列）', () => {
     store = useRunStore()
   })
 
+  it('keeps cached input inside total input and accepts canonical persisted usage names', () => {
+    store.consume({ v: 1, type: 'run_completed', run_id: 'cached', done_reason: 'end_turn', elapsed_ms: 3,
+      usage: { input_tokens: 10000, output_tokens: 90, cache_read_tokens: 8000, cache_write_tokens: 1500 } })
+    expect(store.usage).toMatchObject({ tokensIn: 10000, tokensOut: 90, cacheReadTokens: 8000, cacheWriteTokens: 1500 })
+  })
+
   it('idle 起步，run_started 后进入 streaming 并记录 run/conversation', () => {
     expect(store.phase).toBe('idle')
     store.consume(RECORDED[0])

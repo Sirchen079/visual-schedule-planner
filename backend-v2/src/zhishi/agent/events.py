@@ -116,6 +116,8 @@ class UsageUpdated(_Frame):
     type: Literal["usage_updated"] = "usage_updated"
     tokens_in: int
     tokens_out: int
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
     cost_estimate: float
     model: str
 

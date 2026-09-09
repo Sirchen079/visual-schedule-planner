@@ -1,11 +1,13 @@
 import { defineStore } from 'pinia'
 import { finishOnboarding, readOnboarding, type OnboardingOutcome } from '../api/onboarding'
 import type { GuidePage } from '../content/guides'
+import { FEATURE_LESSONS, FEATURE_START } from '../content/features'
 
 export const useHelpStore = defineStore('help', {
   state: () => ({
     guideOpen: false, page: 'usage' as GuidePage, section: 0,
     tourOpen: false, tourStep: 0, returnToTour: false,
+    tourPhase: 'entry' as 'entry' | 'page', seenFeatures: [] as string[],
     initialized: false, initializing: false, interacted: false,
     savingOutcome: false, unsavedOutcome: null as OnboardingOutcome | null, saveError: '',
     createdTaskId: null as number | null,
@@ -37,7 +39,21 @@ export const useHelpStore = defineStore('help', {
       this.interacted = true
       this.guideOpen = false; this.returnToTour = false
       this.tourStep = 0; this.tourOpen = true
+      this.tourPhase = 'entry'; this.seenFeatures = []
       this.createdTaskId = null
+    },
+    startFeatureTour(id: string) {
+      const index = FEATURE_LESSONS.findIndex(feature => feature.id === id)
+      if (index < 0) return
+      this.interacted = true; this.guideOpen = false; this.returnToTour = false
+      this.tourStep = FEATURE_START + index; this.tourPhase = 'entry'; this.tourOpen = true
+    },
+    resumeTour() {
+      this.interacted = true; this.guideOpen = false; this.returnToTour = false
+      this.tourOpen = true
+    },
+    markFeatureRead(id: string) {
+      if (!this.seenFeatures.includes(id)) this.seenFeatures.push(id)
     },
     async finishTour(outcome: OnboardingOutcome) {
       this.interacted = true

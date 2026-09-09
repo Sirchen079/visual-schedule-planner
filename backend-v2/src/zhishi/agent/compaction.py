@@ -68,8 +68,9 @@ def window_history(messages: list[dict], keep: int = 12) -> list[dict]:
 
 def model_message_round_start(msg) -> bool:
     """ModelMessage 版的轮边界：ModelRequest 且含 UserPromptPart。"""
-    from pydantic_ai.messages import ModelRequest, UserPromptPart
-    return isinstance(msg, ModelRequest) and any(isinstance(p, UserPromptPart) for p in msg.parts)
+    from pydantic_ai.messages import ModelRequest
+    from zhishi.agent.context_parts import is_user_input
+    return isinstance(msg, ModelRequest) and any(is_user_input(p) for p in msg.parts)
 
 
 def window_model_messages(messages: list, keep: int = 12) -> list:
@@ -148,7 +149,9 @@ def _render_messages(messages: list) -> str:
         if isinstance(m, ModelRequest):
             for p in m.parts:
                 if isinstance(p, UserPromptPart):
-                    lines.append(f"用户: {_render_content(p.content)}")
+                    from zhishi.agent.context_parts import context_items
+                    if not context_items(p):
+                        lines.append(f"用户: {_render_content(p.content)}")
                 elif isinstance(p, ToolReturnPart):
                     lines.append(f"（工具 {p.tool_name} 结果: {_render_content(p.content)}）")
         elif isinstance(m, ModelResponse):
@@ -221,6 +224,7 @@ def _summary_config(config, max_tokens: int):
     """Plain snapshot; cap output without mutating a live SQLAlchemy config."""
     snapshot = SimpleNamespace(**{key: getattr(config, key, None) for key in (
         "api_key_ref", "name", "provider_kind", "base_url", "model", "context_window", "reasoning_effort",
+        "prompt_cache_mode", "prompt_cache_ttl", "prompt_cache_key",
     )})
     snapshot.max_output_tokens = max_tokens
     return snapshot

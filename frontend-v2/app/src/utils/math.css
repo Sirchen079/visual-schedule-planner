@@ -1,0 +1,6 @@
+/* Formula fonts are bundled locally; long expressions scroll inside their message. */
+.katex-block { max-width:100%; overflow-x:auto; overflow-y:hidden; padding:4px 0; }
+.katex-block .katex-display { width:max-content; min-width:100%; margin:.5em 0; }
+.math-inline { display:inline-block; max-width:100%; overflow-x:auto; overflow-y:hidden; vertical-align:middle; padding:2px 0; line-height:normal; }
+.katex { text-indent:0; white-space:normal; word-break:normal; }
+.katex-error { color:var(--ink-2) !important; font-family:var(--mono); white-space:pre-wrap; overflow-wrap:anywhere; }

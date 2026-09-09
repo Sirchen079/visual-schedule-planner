@@ -158,7 +158,7 @@ useViewHotkeys(
   <section class="calendar-view">
     <!-- 视图切换 + 换页控件：挂到壳层内容头右侧 -->
     <Teleport defer to="#head-actions">
-      <div class="seg" role="tablist" aria-label="日历视图切换">
+      <div class="seg" data-tour="calendar-controls" role="tablist" aria-label="日历视图切换">
         <button
           v-for="m in MODES"
           :key="m.key"

@@ -136,3 +136,54 @@ it('update UI shows download progress and saves workspace before acknowledging r
     expect(await page.evaluate(() => (window as any).probe.conv.workspaceDirty)).toBe(false)
   } finally { await page.close() }
 }, 15000)
+
+it('renders user, saved and streamed formulas with local fonts in a narrow chat', async () => {
+  const { page } = await fixture()
+  const failures: string[] = []
+  page.on('pageerror', error => failures.push(error.message))
+  try {
+    await page.goto(`${origin}/toolchain-test`)
+    await page.locator('h1').waitFor()
+    const content = String.raw`# 公式与排版
+
+**勾股定理**：$a^2+b^2=c^2$。
+
+\[
+\begin{aligned} E &= mc^2 \\ f'(x) &= 2x \end{aligned}
+\]
+
+| 写法 | 用途 |
+| --- | --- |
+| $\frac{1}{2}$ | 行内公式 |
+
+\[
+\underbrace{a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a+a}_{30\text{ 项}}=30a
+\]`
+    await page.evaluate(({content}) => {
+      const {conv,run} = (window as any).probe
+      run.reset(1);run.phase='streaming';run.runId='math-live'
+      conv.messages=[
+        {id:10,role:'user',created_at:'2026-09-09T10:00:00',display:{text:String.raw`**问题**：解释 \(x^2\)。`}},
+        {id:11,role:'assistant',created_at:'2026-09-09T10:01:00',display:{text:content}},
+      ]
+      run.segments=[{kind:'text',seq:1,content:String.raw`继续：\(\frac{1}`}]
+    }, {content})
+    await page.locator('.msg-user .katex').waitFor()
+    expect(await page.locator('.msg-user strong').innerText()).toBe('问题')
+    expect(await page.locator('.msg-ai .katex-display').count()).toBe(2)
+    await page.evaluate(() => { (window as any).probe.run.segments[0].content=String.raw`继续：\(\frac{1}{2}\)。` })
+    await page.locator('.msg-ai').last().locator('.katex').waitFor()
+    await page.evaluate(() => document.fonts.ready)
+    expect(await page.evaluate(() => document.fonts.check('16px KaTeX_Main'))).toBe(true)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    expect(await page.locator('.katex-block').last().evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true)
+    expect(await page.locator('.body script,.body img').count()).toBe(0)
+    expect(failures).toEqual([])
+    const screenshotDir = (globalThis as any).process?.env.ZHISHI_QA_SCREENSHOT_DIR
+    if (screenshotDir) {
+      await page.screenshot({path:`${screenshotDir}/chat-formulas-dark-v219.png`,fullPage:true})
+      await page.evaluate(() => document.documentElement.dataset.theme='light')
+      await page.screenshot({path:`${screenshotDir}/chat-formulas-light-v219.png`,fullPage:true})
+    }
+  } finally { await page.close() }
+}, 15000)

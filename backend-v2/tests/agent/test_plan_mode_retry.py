@@ -4,10 +4,11 @@ plan_card 也无审批/错误时，以追加指令再驱动一轮（仅一次，
 run trace 的 steps 随多轮正常累加。"""
 import json
 
-from pydantic_ai.messages import ModelRequest, UserPromptPart
+from pydantic_ai.messages import ModelRequest
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
 from zhishi.agent.runtime import AgentRuntime
+from zhishi.agent.context_parts import is_user_input
 
 
 def make_runtime(db, model=None) -> AgentRuntime:
@@ -43,7 +44,7 @@ async def test_plan_mode_retry_after_plain_text_round(db):
         elif state["n"] == 2:
             last = [m for m in messages if isinstance(m, ModelRequest)][-1]
             state["retry_input"] = "".join(
-                p.content for p in last.parts if isinstance(p, UserPromptPart))
+                p.content for p in last.parts if is_user_input(p))
             yield {0: DeltaToolCall(
                 name="propose_plan",
                 json_args=json.dumps({"title": "导入课表计划",

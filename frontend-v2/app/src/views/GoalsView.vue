@@ -78,7 +78,7 @@ onMounted(() => {
 <template>
   <section class="goals-view">
     <Teleport defer to="#head-actions">
-      <button class="new-btn" @click="creating = !creating">
+      <button class="new-btn" data-tour="goals-create" @click="creating = !creating">
         <AppIcon name="plus" :size="14" />
         {{ creating ? '收起' : '新建目标' }}
       </button>
@@ -98,7 +98,7 @@ onMounted(() => {
     </div>
 
     <form v-if="creating" class="creator" @submit.prevent="submitGoal">
-      <input v-model="goalTitle" class="in t-in" placeholder="目标标题（必填，如：学期不挂科）" aria-label="目标标题" />
+      <input v-model="goalTitle" class="in t-in" placeholder="目标标题（必填，如：整理家庭照片）" aria-label="目标标题" />
       <input v-model="goalRange" class="in r-in" type="date" aria-label="开始日期（可选）" />
       <input v-model="goalNotes" class="in n-in" placeholder="备注（可选）" aria-label="目标备注" />
       <button class="submit" type="submit" :disabled="!goalTitle.trim() || submittingGoal">
@@ -177,7 +177,7 @@ onMounted(() => {
 
         <!-- KR 内联表单 -->
         <form v-if="krFormFor === g.id" class="kr-form" @submit.prevent="submitKr(g.id)">
-          <input v-model="krTitle" class="in kt-in" placeholder="关键结果（必填，如：专业课均分 85）" aria-label="关键结果标题" />
+          <input v-model="krTitle" class="in kt-in" placeholder="关键结果（必填，如：完成相册数量）" aria-label="关键结果标题" />
           <input v-model.number="krTarget" class="in kn-in" type="number" min="1" aria-label="目标值" />
           <input v-model="krUnit" class="in ku-in" placeholder="单位" aria-label="单位" />
           <button class="submit" type="submit" :disabled="!krTitle.trim() || submittingKr">

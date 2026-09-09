@@ -314,6 +314,10 @@ const configApiKey = ref('')
 const configContextWindow = ref<string | number>('')
 const configMaxOutputTokens = ref<string | number>('')
 const configReasoningEffort = ref<ReasoningEffort | ''>('')
+const configCacheMode = ref<'auto' | 'disabled' | 'anthropic_compat'>('auto')
+const configCacheTtl = ref<'5m' | '1h'>('5m')
+const configCacheKey = ref<boolean | null>(null)
+watch(configProtocol, protocol => { if (protocol !== 'openai_compat' && configCacheMode.value === 'anthropic_compat') configCacheMode.value = 'auto' })
 const configInputModalities = ref<InputModality[]>(['text'])
 const configFormError = ref<string | null>(null)
 const configConnectionChanged = computed(() => !!configEdit.value && (
@@ -343,6 +347,9 @@ function resetConfigFields(c: AiConfigInfo | null): void {
   configContextWindow.value = c?.context_window ?? ''
   configMaxOutputTokens.value = c?.max_output_tokens ?? ''
   configReasoningEffort.value = c?.reasoning_effort ?? ''
+  configCacheMode.value = c?.prompt_cache_mode ?? 'auto'
+  configCacheTtl.value = c?.prompt_cache_ttl ?? '5m'
+  configCacheKey.value = c?.prompt_cache_key ?? null
   configInputModalities.value = [...(c?.input_modalities ?? ['text'])]
   configFormError.value = null
   catalog.clear()
@@ -394,6 +401,8 @@ async function submitConfigForm(): Promise<void> {
     api_key: configApiKey.value.trim() || null,
     context_window: contextWindow, max_output_tokens: maxOutputTokens,
     input_modalities: [...configInputModalities.value], reasoning_effort: configReasoningEffort.value || null,
+    prompt_cache_mode: configCacheMode.value, prompt_cache_ttl: configCacheTtl.value,
+    prompt_cache_key: configCacheKey.value,
     // PUT 为完整 ConfigBody；保持不在此表单编辑的价格与请求限制。
     ...(original ? { price_input: original.price_input ?? 0, price_output: original.price_output ?? 0, request_limit: original.request_limit ?? 30 } : {}),
   }
@@ -854,6 +863,15 @@ const AUTONOMY_TIERS: Autonomy[] = ['standard', 'careful']
           <span class="f-hint">{{ configEdit ? 'Key 留空会保留已保存的密钥，填写新 Key 则替换。' : 'Key 仅在添加配置时保存，之后不再回显。' }} 获取模型列表不会保存配置。</span>
           <span v-if="configEdit && !configApiKey.trim()" class="f-hint">{{ configConnectionChanged ? '接口格式或地址已更改，获取列表前请填写该服务的 Key。' : configEdit.has_api_key ? '获取列表将使用此配置已保存的 Key。' : '此配置尚未保存 Key，可填写后获取模型列表。' }}</span>
           <ModelCapabilities :provider-kind="configProtocol" v-model:reasoning-effort="configReasoningEffort" v-model:context-window="configContextWindow" v-model:max-output-tokens="configMaxOutputTokens" v-model:input-modalities="configInputModalities" />
+          <details class="cache-settings">
+            <summary>缓存与消费 · 默认即可，使用中转服务时可调整</summary>
+            <div class="form-row"><label for="config-cache-mode" class="f-label">缓存参数</label><select id="config-cache-mode" v-model="configCacheMode" class="t-input grow"><option value="auto">按接口默认（推荐）</option><option v-if="configProtocol === 'openai_compat'" value="anthropic_compat">Anthropic 中转缓存标记</option><option value="disabled">不发送缓存参数</option></select></div>
+            <span class="f-hint">原生 Anthropic 默认启用缓存标记；OpenAI 兼容接口使用服务商的自动缓存。只有中转服务明确支持在 Chat Completions 消息中接收 cache_control 时，才选择中转标记；不要仅凭模型名称判断。</span>
+            <div v-if="configCacheMode !== 'disabled' && (configProtocol === 'anthropic' || configCacheMode === 'anthropic_compat')" class="form-row"><label for="config-cache-ttl" class="f-label">保留时间</label><select id="config-cache-ttl" v-model="configCacheTtl" class="t-input grow"><option value="5m">5 分钟（推荐）</option><option value="1h">1 小时（服务商支持时）</option></select></div>
+            <span v-if="configCacheTtl === '1h' && configCacheMode !== 'disabled' && (configProtocol === 'anthropic' || configCacheMode === 'anthropic_compat')" class="f-hint">1 小时缓存通常有更高的写入价格。仅在对话间隔较长、确实会复用内容时考虑；实际费用以服务商为准。</span>
+            <div v-if="configProtocol !== 'anthropic' && configCacheMode !== 'disabled'" class="form-row"><label for="config-cache-key" class="f-label">会话缓存键</label><select id="config-cache-key" v-model="configCacheKey" class="t-input grow"><option :value="null">自动（OpenAI 官方地址启用）</option><option :value="true">发送（服务商支持时）</option><option :value="false">不发送</option></select></div>
+            <span class="f-hint">缓存键帮助同一会话的请求路由，不保证命中。缓存读写用量会显示在对话状态栏；输入总量包含缓存部分。“不发送缓存参数”也不能关闭服务商自己的自动缓存。</span>
+          </details>
           <div class="form-row foot">
             <button type="submit" class="act" :disabled="settings.savingConfig">
               {{ settings.savingConfig ? '保存中…' : configEdit ? '保存更改' : '添加' }}
@@ -978,6 +996,7 @@ const AUTONOMY_TIERS: Autonomy[] = ['standard', 'careful']
 </template>
 
 <style scoped>
+.cache-settings { margin-top:12px; padding:12px; border:1px solid var(--line-2); border-radius:7px; }.cache-settings summary { cursor:pointer; font-size:13px; line-height:1.8; color:var(--ink-2); }.cache-settings[open] summary { margin-bottom:12px; }.cache-settings .f-hint { display:block; margin:8px 0; }
 .help-start { display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap; padding:18px 20px; margin:18px 0; border:1px solid var(--amber-border); border-radius:10px; background:var(--amber-wash); }
 .help-start strong { font-size:15px; font-weight:600; }
 .help-start p { font-size:13px; color:var(--ink-2); line-height:1.8; margin-top:5px; }

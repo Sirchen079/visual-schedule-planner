@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from pydantic_ai.messages import ToolReturnPart
+from pydantic_ai.messages import ToolReturnPart, UserPromptPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
 from zhishi.agent.runtime import AgentRuntime
@@ -44,8 +44,9 @@ async def test_live_instructions_refresh_inside_one_run_without_changing_message
     async def stream(messages, info):
         nonlocal now, rounds
         rounds += 1
-        instructions = messages[-1].instructions
-        assert '【实时本机时钟】' in instructions
+        instructions = next(str(p.content) for p in messages[-1].parts
+                            if isinstance(p, UserPromptPart) and '【实时本机时钟】' in str(p.content))
+        assert '【实时本机时钟】' not in (info.instructions or '')
         if rounds == 1:
             assert '2026-12-31T23:59:00+08:00' in instructions
             now = now + timedelta(minutes=2)

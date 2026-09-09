@@ -80,6 +80,8 @@ export interface SubagentItem {
 export interface UsageSnapshot {
   tokensIn: number
   tokensOut: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
   costEstimate: number
   model: string
 }
@@ -228,8 +230,10 @@ function mergeUsage(state: RunState, usage: Record<string, unknown> | undefined)
   if (!usage) return
   const prev = state.usage ?? { tokensIn: 0, tokensOut: 0, costEstimate: 0, model: '' }
   state.usage = {
-    tokensIn: typeof usage.tokens_in === 'number' ? usage.tokens_in : prev.tokensIn,
-    tokensOut: typeof usage.tokens_out === 'number' ? usage.tokens_out : prev.tokensOut,
+    tokensIn: typeof usage.input_tokens === 'number' ? usage.input_tokens : typeof usage.tokens_in === 'number' ? usage.tokens_in : prev.tokensIn,
+    tokensOut: typeof usage.output_tokens === 'number' ? usage.output_tokens : typeof usage.tokens_out === 'number' ? usage.tokens_out : prev.tokensOut,
+    cacheReadTokens: typeof usage.cache_read_tokens === 'number' ? usage.cache_read_tokens : prev.cacheReadTokens,
+    cacheWriteTokens: typeof usage.cache_write_tokens === 'number' ? usage.cache_write_tokens : prev.cacheWriteTokens,
     costEstimate: typeof usage.cost_estimate === 'number' ? usage.cost_estimate : prev.costEstimate,
     model: typeof usage.model === 'string' ? usage.model : prev.model,
   }
@@ -383,6 +387,8 @@ export function applyEvent(state: RunState, ev: SSEEvent): void {
       state.usage = {
         tokensIn: ev.tokens_in,
         tokensOut: ev.tokens_out,
+        cacheReadTokens: ev.cache_read_tokens,
+        cacheWriteTokens: ev.cache_write_tokens,
         costEstimate: ev.cost_estimate,
         model: ev.model,
       }

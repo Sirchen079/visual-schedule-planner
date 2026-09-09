@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "zhishi-backend",
-    "version": "2.18.0"
+    "version": "2.19.0"
   },
   "paths": {
     "/api/tasks": {
@@ -9631,6 +9631,36 @@
             ],
             "title": "Reasoning Effort"
           },
+          "prompt_cache_mode": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "disabled",
+              "anthropic_compat"
+            ],
+            "title": "Prompt Cache Mode",
+            "default": "auto"
+          },
+          "prompt_cache_ttl": {
+            "type": "string",
+            "enum": [
+              "5m",
+              "1h"
+            ],
+            "title": "Prompt Cache Ttl",
+            "default": "5m"
+          },
+          "prompt_cache_key": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Cache Key"
+          },
           "input_modalities": {
             "items": {
               "type": "string",
@@ -9731,6 +9761,36 @@
               }
             ],
             "title": "Reasoning Effort"
+          },
+          "prompt_cache_mode": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "disabled",
+              "anthropic_compat"
+            ],
+            "title": "Prompt Cache Mode",
+            "default": "auto"
+          },
+          "prompt_cache_ttl": {
+            "type": "string",
+            "enum": [
+              "5m",
+              "1h"
+            ],
+            "title": "Prompt Cache Ttl",
+            "default": "5m"
+          },
+          "prompt_cache_key": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Cache Key"
           },
           "input_modalities": {
             "items": {

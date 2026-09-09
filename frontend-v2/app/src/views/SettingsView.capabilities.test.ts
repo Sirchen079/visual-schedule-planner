@@ -16,6 +16,7 @@ interface Form {
   configBaseUrl: Ref<string>; configApiKey: Ref<string>; configProtocol: Ref<string>
   configContextWindow: Ref<string | number>; configMaxOutputTokens: Ref<string | number>
   configReasoningEffort: Ref<string>; configInputModalities: Ref<string[]>; configFormError: Ref<string | null>; catalogError: Ref<string>
+  configCacheMode: Ref<string>; configCacheTtl: Ref<string>; configCacheKey: Ref<boolean | null>
   openConfigCreate(): void; openConfigEdit(c: AiConfigInfo): void; closeConfigForm(): void
   submitConfigForm(): Promise<void>; discoverModels(): Promise<void>
 }
@@ -63,7 +64,7 @@ describe('AI model settings form', () => {
     const s = useSettingsStore(), save = vi.spyOn(s, 'addConfig').mockResolvedValue(true)
     const f = form(); f.openConfigCreate(); f.configName.value = '新模型'; f.configModel.value = 'vision-audio-video-pro'
     await f.submitConfigForm()
-    expect(save).toHaveBeenCalledWith({ name: '新模型', model: 'vision-audio-video-pro', provider_kind: 'openai_compat', base_url: null, api_key: null, context_window: null, max_output_tokens: null, input_modalities: ['text'], reasoning_effort: null })
+    expect(save).toHaveBeenCalledWith({ name: '新模型', model: 'vision-audio-video-pro', provider_kind: 'openai_compat', base_url: null, api_key: null, context_window: null, max_output_tokens: null, input_modalities: ['text'], reasoning_effort: null, prompt_cache_mode: 'auto', prompt_cache_ttl: '5m', prompt_cache_key: null })
     expect(f.configFormOpen.value).toBe(false)
   })
   it('edits all capabilities and preserves existing prices / request limit without echoing a secret', async () => {
@@ -77,8 +78,20 @@ describe('AI model settings form', () => {
       name: existing.name, model: existing.model, provider_kind: existing.provider_kind, base_url: existing.base_url,
       api_key: null, context_window: null, max_output_tokens: null, input_modalities: ['text', 'audio', 'video'], reasoning_effort: null,
       price_input: 2.5, price_output: 8, request_limit: 42,
+      prompt_cache_mode: 'auto', prompt_cache_ttl: '5m', prompt_cache_key: null,
     })
     expect(existing.input_modalities).toEqual(['text', 'image'])
+  })
+  it('preserves saved cache options and permits disabling explicit cache parameters', async () => {
+    const save = vi.spyOn(useSettingsStore(), 'saveConfig').mockResolvedValue(false)
+    const f = form(); f.openConfigEdit({ ...existing, prompt_cache_mode: 'anthropic_compat', prompt_cache_ttl: '1h', prompt_cache_key: true })
+    expect(f.configCacheMode.value).toBe('anthropic_compat')
+    expect(f.configCacheTtl.value).toBe('1h'); expect(f.configCacheKey.value).toBe(true)
+    await f.submitConfigForm()
+    expect(save).toHaveBeenLastCalledWith(7, expect.objectContaining({ prompt_cache_mode: 'anthropic_compat', prompt_cache_ttl: '1h', prompt_cache_key: true }))
+    f.configCacheMode.value = 'disabled'; f.configCacheKey.value = false
+    await f.submitConfigForm()
+    expect(save).toHaveBeenLastCalledWith(7, expect.objectContaining({ prompt_cache_mode: 'disabled', prompt_cache_key: false }))
   })
   it.each([
     [1023, '', '上下文窗口'], [10000001, '', '上下文窗口'], [1024.5, '', '上下文窗口'],

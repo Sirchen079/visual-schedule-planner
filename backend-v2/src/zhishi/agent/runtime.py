@@ -123,6 +123,7 @@ class AgentRuntime:
         from zhishi.agent.tools import web_tools  # noqa: F401 触发注册
         from zhishi.agent.tools.registry import specs_for
         from zhishi.agent.context_budget import context_budget_hooks
+        from zhishi.agent.prompt_cache import live_clock_hooks
         from zhishi.agent.attachments import media_capability_hooks
         from zhishi.agent.tool_discovery import ToolDiscovery, SEARCH_DESCRIPTION
         from zhishi.agent.tool_results import tool_result_hooks
@@ -143,11 +144,11 @@ class AgentRuntime:
             capabilities=[discovery.hook(), media_capability_hooks(self.model_config),
                           tool_result_hooks(self.model_config, db, conversation_id, discovery),
                           self._compaction_capability(conversation_id, emit),
+                          discovery.context_hook(),
+                          live_clock_hooks(self.model_config, conversation_id),
                           context_budget_hooks(self.model_config, allow_truncation=False)],
         )
 
-        from zhishi.infra.local_clock import live_instructions
-        agent.instructions(live_instructions)
         agent.tool(discovery.search, name='search_tools', description=SEARCH_DESCRIPTION)
         from zhishi.agent.user_input import ask_user
         agent.tool_plain(ask_user)
@@ -429,7 +430,7 @@ class AgentRuntime:
             return _sse_event(ev.StageChanged, stage=s)
 
         # 1) 会话先解析（run_started 首帧需要真实 conversation_id）
-        from zhishi.domain.models import AIConversation, AIMessage, AIRun
+        from zhishi.domain.models import AIConversation, AIMessage
         if conversation_id is None:
             conv = AIConversation(title=(user_text or "审批恢复")[:30])
             db.add(conv); db.commit(); db.refresh(conv)
@@ -673,6 +674,8 @@ class AgentRuntime:
             db.commit()
             yield _sse_event(ev.UsageUpdated, tokens_in=usage_dict["input_tokens"],
                              tokens_out=usage_dict["output_tokens"],
+                             cache_read_tokens=usage_dict["cache_read_tokens"],
+                             cache_write_tokens=usage_dict["cache_write_tokens"],
                              cost_estimate=0.0, model=meta.get("model") or str(self.model))
 
         yield _sse_event(ev.RunCompleted, run_id=run_id, usage=usage_dict,
@@ -948,8 +951,8 @@ def _wrap_for_subagent(spec, db: Session, context=None, tracker=None, observer=N
 
 
 def _usage_dict(usage) -> dict:
-    if usage is None:
-        return {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
     inp = getattr(usage, "input_tokens", 0) or 0
     outp = getattr(usage, "output_tokens", 0) or 0
-    return {"input_tokens": inp, "output_tokens": outp, "total_tokens": inp + outp}
+    return {"input_tokens": inp, "output_tokens": outp, "total_tokens": inp + outp,
+            "cache_read_tokens": getattr(usage, "cache_read_tokens", 0) or 0,
+            "cache_write_tokens": getattr(usage, "cache_write_tokens", 0) or 0}

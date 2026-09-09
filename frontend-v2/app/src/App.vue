@@ -13,6 +13,7 @@ import FocusBar from './components/shell/FocusBar.vue'
 import ShortcutsOverlay from './components/shell/ShortcutsOverlay.vue'
 import HelpCenter from './components/help/HelpCenter.vue'
 import { useHelpStore } from './stores/help'
+import { FEATURE_LESSONS, FEATURE_START } from './content/features'
 import { useHotkeys } from './composables/useHotkeys'
 import { CHAT_FOCUS_KEY, registerEscLayer, type ChatFocusRegistry } from './composables/hotkeyPorts'
 import { useConversationStore } from './stores/conversation'
@@ -153,6 +154,11 @@ provide(CHAT_FOCUS_KEY, {
 const narrowMQ = window.matchMedia('(max-width: 999px)')
 const isNarrow = ref(narrowMQ.matches)
 const chatDrawerOpen = ref(false)
+watch(() => [help.tourOpen, help.tourStep, help.tourPhase], () => {
+  if (help.tourOpen && help.tourStep >= FEATURE_START) {
+    chatDrawerOpen.value = FEATURE_LESSONS[help.tourStep - FEATURE_START]?.id === 'chat' && help.tourPhase === 'page'
+  }
+})
 const onNarrowMQChange = (e: MediaQueryListEvent): void => {
   isNarrow.value = e.matches
   chatDrawerOpen.value = false

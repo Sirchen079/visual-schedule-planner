@@ -70,8 +70,5 @@ def resolve_date(expression: str, reference_date: str | None = None) -> dict:
 
 
 def live_instructions() -> str:
-    import json
-    return ('【实时本机时钟】'+json.dumps(snapshot(), ensure_ascii=False)
-            +'\n此块在每次模型请求前刷新。新消息的明天/后天按该消息时间换算；'
-            '历史消息及已经确认的明确日期保持原义，跨午夜或审批恢复不能自动顺延。'
-            '工具参数使用明确ISO日期；预定时刻已过去时说明情况并重新核对安排。')
+    now = local_now()
+    return f'【实时本机时钟】{now.isoformat(timespec="seconds")} {WEEKDAYS[now.weekday()]}（本机本地时间）。'

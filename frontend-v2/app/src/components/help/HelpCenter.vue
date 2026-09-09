@@ -6,14 +6,19 @@ import GuideDialog from './GuideDialog.vue'
 import { GUIDES, type GuidePage } from '../../content/guides'
 import { useHelpStore } from '../../stores/help'
 import { renderMarkdown } from '../../utils/md'
+import { featureForArticle, FEATURE_START, TOUR_END } from '../../content/features'
 
 const help = useHelpStore(), router = useRouter()
 const article = ref<HTMLElement | null>(null)
 const guideSections = computed(() => GUIDES[help.page])
 const selected = computed(() => guideSections.value[help.section] ?? guideSections.value[0]!)
 const content = computed(() => renderMarkdown(selected.value.content))
+const search = ref('')
+watch(() => help.guideOpen, open => { if (open) search.value = '' })
+const matches = computed(() => guideSections.value.map((section, index) => ({ ...section, index })).filter(section => !search.value.trim() || `${section.title}\n${section.content}`.toLowerCase().includes(search.value.trim().toLowerCase())))
+const selectedFeature = computed(() => help.page === 'usage' ? featureForArticle(selected.value.title) : undefined)
 
-function selectPage(page: GuidePage) { help.page = page; help.section = 0 }
+function selectPage(page: GuidePage) { help.page = page; help.section = 0; search.value = '' }
 function switchTab(event: KeyboardEvent) {
   if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
   event.preventDefault()
@@ -44,14 +49,17 @@ async function configure() {
     <div class="guide-layout">
       <nav class="guide-contents" aria-label="教程目录">
         <span class="contents-label">想学哪一步，点这里</span>
-        <button v-for="(section, index) in guideSections" :key="section.title"
-          :aria-current="help.section === index ? 'page' : undefined" @click="help.section = index">
-          <span>{{ String(index + 1).padStart(2, '0') }}</span>{{ section.title }}
+        <input v-model="search" class="guide-search" aria-label="搜索教程" placeholder="搜索功能或问题…" />
+        <p v-if="!matches.length" role="status">没有匹配章节，请换个关键词。</p>
+        <button v-for="section in matches" :key="section.title"
+          :aria-current="help.section === section.index ? 'page' : undefined" @click="help.section = section.index">
+          <span>{{ String(section.index + 1).padStart(2, '0') }}</span>{{ section.title }}
         </button>
       </nav>
       <article id="guide-content" ref="article" class="guide-article" role="tabpanel" :aria-labelledby="`guide-tab-${help.page}`" tabindex="0">
         <p class="eyebrow">{{ help.page === 'api' ? '连接你自己的 AI' : '从第一件小事开始' }}</p>
         <h1>{{ selected.title }}</h1>
+        <button v-if="selectedFeature" class="quiet-button lesson-launch" @click="help.startFeatureTour(selectedFeature.id)">打开实际页面，跟着箭头学 →</button>
         <div class="guide-prose" v-html="content" />
         <div class="chapter-actions">
           <button v-if="help.section > 0" @click="help.section--">← 上一节</button>
@@ -61,6 +69,7 @@ async function configure() {
     </div>
     <footer class="guide-footer">
       <button v-if="help.returnToTour" class="quiet-button" @click="help.closeGuide()">← 返回新手指引</button>
+      <button v-else-if="help.tourStep >= FEATURE_START && help.tourStep < TOUR_END" class="quiet-button" @click="help.resumeTour()">继续栏目学习</button>
       <button v-else class="quiet-button" @click="help.startTour()">新手指引</button>
       <button v-if="help.page === 'api'" class="primary-button" @click="configure()">{{ help.returnToTour ? '结束引导，去配置 AI' : '打开 AI 模型设置' }} ↗</button>
       <button v-else class="primary-button" @click="help.closeGuide()">{{ help.returnToTour ? '看完了，继续引导' : '知道了，关闭教程' }}</button>
@@ -74,6 +83,7 @@ async function configure() {
 
 <style scoped>
 .guide-tabs { display:flex; align-items:center; gap:8px; flex:none; padding:12px 22px; border-bottom:1px solid var(--line); }
+.guide-search { width:100%; padding:9px; margin-bottom:8px; border:1px solid var(--line-2); border-radius:7px; background:var(--bg-sink); color:var(--ink); font-size:13px; }.lesson-launch { margin-bottom:20px; }
 .guide-tabs button { padding:10px 18px; border-radius:7px; color:var(--ink-2); font-size:14px; }
 .guide-tabs button[aria-selected=true] { background:var(--amber-wash-strong); color:var(--amber-soft); font-weight:600; }
 .offline-note { margin-left:auto; font-size:12px; color:var(--ink-3); }

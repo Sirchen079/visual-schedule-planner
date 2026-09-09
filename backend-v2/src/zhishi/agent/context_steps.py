@@ -1,10 +1,11 @@
 """Safe compaction boundaries inside a long tool-using turn."""
 from pydantic_ai.messages import (
     ModelRequest, ModelResponse, RetryPromptPart, SystemPromptPart,
-    ToolCallPart, ToolReturnPart, UserPromptPart,
+    ToolCallPart, ToolReturnPart,
 )
 
 from zhishi.agent.context_budget import safe_round_starts
+from zhishi.agent.context_parts import is_user_input
 
 
 def step_boundaries(messages: list) -> list[int]:
@@ -37,5 +38,5 @@ def retained_prefix(messages: list, cut: int) -> list:
     system = [part for message in messages[:cut] if isinstance(message, ModelRequest)
               for part in message.parts if isinstance(part, SystemPromptPart)]
     user = [part for message in messages[current:cut] if isinstance(message, ModelRequest)
-            for part in message.parts if isinstance(part, UserPromptPart)] if cut > current else []
+            for part in message.parts if is_user_input(part)] if cut > current else []
     return ([ModelRequest(parts=system)] if system else []) + ([ModelRequest(parts=user)] if user else [])

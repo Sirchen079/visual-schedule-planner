@@ -18,6 +18,9 @@ log = logging.getLogger(__name__)
 
 # 轻量幂等列迁移清单：create_all 只建新表不 ALTER 旧表，存量库靠这里补列。
 _SCHEMA_PATCHES: list[tuple[str, str, str]] = [
+    ('ai_configs', 'prompt_cache_mode', "ALTER TABLE ai_configs ADD COLUMN prompt_cache_mode VARCHAR(24) NOT NULL DEFAULT 'auto'"),
+    ('ai_configs', 'prompt_cache_ttl', "ALTER TABLE ai_configs ADD COLUMN prompt_cache_ttl VARCHAR(8) NOT NULL DEFAULT '5m'"),
+    ('ai_configs', 'prompt_cache_key', 'ALTER TABLE ai_configs ADD COLUMN prompt_cache_key BOOLEAN'),
     ('research_sources', 'superseded_by', 'ALTER TABLE research_sources ADD COLUMN superseded_by INTEGER'),
     ('events', 'remind_offsets', "ALTER TABLE events ADD COLUMN remind_offsets TEXT NOT NULL DEFAULT '[]'"),
     ('events', 'reminder_time', 'ALTER TABLE events ADD COLUMN reminder_time VARCHAR(5)'),
