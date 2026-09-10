@@ -11,10 +11,12 @@ from pydantic_ai import RunContext
 from pydantic_ai.messages import ToolCallPart, ToolReturnPart
 from zhishi.agent.context_parts import append_context, latest_context
 
-CORE_TOOLS = {'search_tools', 'ask_user', 'update_work_plan'}
+CORE_TOOLS = {'search_tools', 'execute_tool', 'ask_user', 'update_work_plan', 'read_tool_result'}
+EXECUTE_DESCRIPTION = ('执行 search_tools 返回的工具。name 填准确工具名，arguments 按返回的 parameters 填写。'
+                       '工作流和 next_call 中的工具也通过此入口调用；未获得参数定义时先查询。权限仍由系统检查。')
 SEARCH_DESCRIPTION = (
     '按用途或准确名称查找并加载工具。query可用中文或英文，names可给已知工具名。'
-    '一次加载最多6个；下一次请求即可调用。未找到时换关键词，不猜参数。'
+    '一次返回最多6个工具的完整参数定义；使用 execute_tool(name, arguments) 执行。未找到时换关键词，不猜参数。'
     '任务/日程/提醒、账本/账单、收件箱、学习研究、资料阅读、联网、习惯、目标、日记、计时、MCP均可查询。'
 )
 
@@ -55,7 +57,8 @@ class ToolDiscovery:
 
     Discovery runs locally, never emits native ``tool_search`` protocol fields,
     and only advertises tools present in this run's enabled/plan-mode toolset.
-    A bounded recent working set survives resume through ordinary tool history.
+    Wire entry points stay fixed; full schemas travel in discovery results.
+    A recent working set selects relevant skill context through ordinary history.
     """
 
     def __init__(self, skills: list[tuple[str, str]] = (), unavailable: dict | None = None,
@@ -94,26 +97,53 @@ class ToolDiscovery:
         if not route and not exact_name:
             selected += [name for _, name in sorted(scored)[:6 - len(selected)]]
         return json.dumps({'loaded_tools': selected,
-            'tools': [{'name': name, 'description': (available[name].description or '')[:220]}
+            'tools': [{'name': name, 'description': available[name].description or '',
+                       'parameters': available[name].parameters_json_schema}
                       for name in selected],
             'unknown_names': [name for name in requested if name not in available],
             **({'workflow':route} if route else {}),
             **({'unavailable_services':list(self.unavailable.values())} if self.unavailable else {}),
-            'next_step': ('现在使用对应工具定义中的参数调用；执行权限仍由系统检查。' if selected else
+            'next_step': ('使用 execute_tool(name=工具名, arguments=按 parameters 填写的参数对象)；执行权限仍由系统检查。' if selected else
                           '没有匹配工具。换用更短关键词或准确工具名；工具未启用时说明缺口。')}, ensure_ascii=False)
+
+    async def execute(self, ctx: RunContext[Any], name: str, arguments: dict[str, Any]) -> Any:
+        """Dispatch through the registered SDK toolset, including its validation and permission gate."""
+        from pydantic import ValidationError
+        from pydantic_ai import ModelRetry
+        from pydantic_ai.tools import ToolDenied
+        # ctx.tool_manager is rebuilt on resume, before the first model request.
+        if name in self.core_tools:
+            raise ModelRetry('此工具是固定入口，请直接调用，不要经 execute_tool 嵌套调用。')
+        if name not in ctx.tools:
+            raise ModelRetry('工具不存在或本轮未启用，请重新 search_tools 查询可用工具。')
+        try:
+            result = await ctx.tool_manager.handle_call(
+                ToolCallPart(name, arguments, tool_call_id=ctx.tool_call_id),
+                approved=ctx.tool_call_approved, wrap_validation_errors=False)
+        except ValidationError as exc:
+            raise ModelRetry(str(exc)) from exc
+        if isinstance(result, ToolDenied):
+            return {'ok': False, 'denied': True}
+        # The SDK counts both inner execution and this wrapper; only one business
+        # call occurred. No await between adjustment and returning to the SDK.
+        ctx.usage.tool_calls -= 1
+        return result
 
     def _working_set(self, messages: list) -> set[str]:
         recent = []
+        call_names = {}
         for message in messages:
             for part in message.parts:
                 names = []
                 if isinstance(part, ToolCallPart) and part.tool_name in self.catalog:
-                    names = [part.tool_name]
+                    names = [actual_tool_call(part).tool_name]
+                    call_names[part.tool_call_id] = names[0]
                 elif isinstance(part, ToolReturnPart):
                     try:
                         value = json.loads(part.content) if isinstance(part.content, str) else part.content
                         found = value.get('loaded_tools', []) if isinstance(value, dict) and part.tool_name == 'search_tools' else []
-                        if isinstance(value, dict) and not part.tool_name.startswith('mcp__'):
+                        source = call_names.get(part.tool_call_id, part.tool_name)
+                        if isinstance(value, dict) and not source.startswith('mcp__'):
                             next_call = value.get('next_call')
                             if isinstance(next_call, dict) and isinstance(next_call.get('tool'), str):
                                 found = [*found, next_call['tool']]
@@ -132,7 +162,7 @@ class ToolDiscovery:
         def prepare(ctx, request):
             parameters = request.model_request_parameters
             self.catalog = {tool.name: tool for tool in parameters.function_tools}
-            active = self._working_set(request.messages)
+            active = self.core_tools
             visible = []
             for tool in parameters.function_tools:
                 if tool.name not in active:
@@ -154,7 +184,7 @@ class ToolDiscovery:
     def _with_context(self, request):
         # Run again after compaction: newly required rules cannot disappear
         # between discovery and the actual model request.
-        active = {tool.name for tool in request.model_request_parameters.function_tools}
+        active = self._working_set(request.messages)
         messages = request.messages
         if self.unavailable:
             state = ('【本轮外部工具状态】' + json.dumps(
@@ -174,3 +204,15 @@ class ToolDiscovery:
                 if latest_context(messages, f'skill:{title}') != text:
                     messages = append_context(messages, f'skill:{title}', text)
         return replace(request, messages=messages)
+
+
+def actual_tool_call(call):
+    """Unwrap for previews/traces only; wire history keeps its original call name."""
+    if call.tool_name == 'execute_tool':
+        try:
+            args = call.args_as_dict()
+            if isinstance(args.get('name'), str) and isinstance(args.get('arguments'), dict):
+                return replace(call, tool_name=args['name'], args=args['arguments'])
+        except (ValueError, TypeError):
+            pass
+    return call

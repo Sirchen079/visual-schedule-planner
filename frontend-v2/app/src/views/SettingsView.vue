@@ -40,7 +40,7 @@ const help = useHelpStore()
 const run = useRunStore()
 const route = useRoute()
 const sections = [
-  ['desktop', '悬浮窗与通知'], ['assistant', '外观与 AI 助手'], ['automation', '自动跟进'],
+  ['desktop', '悬浮窗与通知'], ['diagnostics', '诊断日志'], ['assistant', '外观与 AI 助手'], ['automation', '自动跟进'],
   ['configs', 'AI 模型'], ['network', '联网与视觉'], ['skills', '技能'], ['mcp', '外部工具'], ['grants', '授权'],
 ] as const
 function jump(section: string) {

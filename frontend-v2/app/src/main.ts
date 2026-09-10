@@ -7,6 +7,7 @@ import { useSettingsStore } from './stores/settings'
 import { useUpdatesStore } from './stores/updates'
 import { applyTheme, readLocalTheme } from './utils/theme'
 import './tokens.css'
+import { installDiagnostics } from './utils/diagnostics'
 
 // 主题首帧引导：必须在挂载前落到 documentElement 上，否则首帧会闪色。
 // localStorage 只是本 origin 的首帧缓存；跨端口权威源是后端 ui.theme（
@@ -18,7 +19,9 @@ applyTheme(readLocalTheme())
 // 不挂载 isReady 永不 resolve。首帧 route 未就绪的容错由 App.vue 的 headTitle 处理。
 const widgetMode = new URLSearchParams(location.search).get('widget') === '1'
 if (widgetMode) document.documentElement.classList.add('widget-mode')
-createApp(widgetMode ? WidgetApp : App).use(createPinia()).use(router).mount('#app')
+const app = createApp(widgetMode ? WidgetApp : App)
+installDiagnostics(app)
+app.use(createPinia()).use(router).mount('#app')
 
 void useSettingsStore().reconcileTheme()
 void useUpdatesStore().initialize()

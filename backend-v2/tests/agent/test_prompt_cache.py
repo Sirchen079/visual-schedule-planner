@@ -144,7 +144,7 @@ def test_application_context_does_not_replace_user_input_during_compaction():
 
 
 def test_skills_append_once_and_are_restored_after_compaction():
-    from pydantic_ai.messages import ModelRequest, UserPromptPart, InstructionPart
+    from pydantic_ai.messages import ModelRequest, UserPromptPart, InstructionPart, ToolReturnPart
     from pydantic_ai.models import ModelRequestContext, ModelRequestParameters
     from pydantic_ai.models.test import TestModel
     from pydantic_ai.tools import ToolDefinition
@@ -152,7 +152,9 @@ def test_skills_append_once_and_are_restored_after_compaction():
     from zhishi.agent.context_parts import context_items, latest_context
     skill = '内置·任务、提醒与日程'
     discovery = ToolDiscovery([(skill, 'Use explicit dates.')])
-    request = ModelRequestContext(model=TestModel(), messages=[ModelRequest(parts=[UserPromptPart('hello')])],
+    discovery.catalog = {'create_task': ToolDefinition(name='create_task')}
+    request = ModelRequestContext(model=TestModel(), messages=[ModelRequest(parts=[UserPromptPart('hello'),
+        ToolReturnPart('search_tools', {'loaded_tools': ['create_task']}, 'search')])],
         model_settings=None, model_request_parameters=ModelRequestParameters(
             function_tools=[ToolDefinition(name='create_task')], instruction_parts=[InstructionPart('Stable rules')]))
     first = discovery._with_context(request)

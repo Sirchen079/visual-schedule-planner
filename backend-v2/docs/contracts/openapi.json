@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "zhishi-backend",
-    "version": "2.19.0"
+    "version": "2.20.0"
   },
   "paths": {
     "/api/tasks": {
@@ -8461,6 +8461,62 @@
         }
       }
     },
+    "/api/diagnostics/frontend": {
+      "post": {
+        "tags": [
+          "diagnostics"
+        ],
+        "summary": "Frontend Event",
+        "operationId": "frontend_event_api_diagnostics_frontend_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FrontendEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/diagnostics/export": {
+      "get": {
+        "tags": [
+          "diagnostics"
+        ],
+        "summary": "Export",
+        "operationId": "export_api_diagnostics_export_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "summary": "Health",
@@ -11862,6 +11918,63 @@
           "minutes"
         ],
         "title": "FreeSlotOut"
+      },
+      "FrontendEvent": {
+        "properties": {
+          "event": {
+            "type": "string",
+            "enum": [
+              "window_error",
+              "unhandled_rejection",
+              "vue_error",
+              "resource_error"
+            ],
+            "title": "Event"
+          },
+          "error_type": {
+            "type": "string",
+            "enum": [
+              "Error",
+              "TypeError",
+              "RangeError",
+              "ReferenceError",
+              "SyntaxError",
+              "URIError",
+              "EvalError",
+              "DOMException",
+              "Unknown"
+            ],
+            "title": "Error Type",
+            "default": "Unknown"
+          },
+          "asset": {
+            "type": "string",
+            "maxLength": 100,
+            "pattern": "^(?:[A-Za-z0-9_-]+\\.(?:js|css))?$",
+            "title": "Asset",
+            "default": ""
+          },
+          "line": {
+            "type": "integer",
+            "maximum": 10000000.0,
+            "minimum": 0.0,
+            "title": "Line",
+            "default": 0
+          },
+          "column": {
+            "type": "integer",
+            "maximum": 10000000.0,
+            "minimum": 0.0,
+            "title": "Column",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "event"
+        ],
+        "title": "FrontendEvent"
       },
       "GatherInput": {
         "properties": {

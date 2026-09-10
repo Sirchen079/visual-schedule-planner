@@ -78,6 +78,8 @@
 
 更新后，在同一会话、同一配置下继续正常对话，再到服务商用量明细比较后续请求。缓存读显示 0 也可能是接口未报告；以服务商明细为准。不要为了增加命中率反复预热或塞入不需要的内容。[OpenAI 缓存说明](https://developers.openai.com/api/docs/guides/prompt-caching)、[Anthropic 缓存说明](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
 
+如果缓存仍大幅波动，可在正常使用后打开**设置 → 诊断日志 → 导出诊断日志**，随问题反馈附上 ZIP。日志会记录请求结构是否变化和接口返回的缓存用量，帮助区分应用变化与服务商缓存策略。此功能也用于排查其他软件问题；日志自动脱敏，保存在本地，不会自动上传。
+
 ## 常见问题
 
 | 现象 | 先检查什么 |

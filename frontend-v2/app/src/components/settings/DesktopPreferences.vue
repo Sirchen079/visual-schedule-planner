@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
 import AppUpdate from '../shell/AppUpdate.vue'
+import DiagnosticExport from './DiagnosticExport.vue'
 
 const desktop = window.zhishiDesktop
 const state = ref<DesktopPreferences | null>(null)
@@ -54,6 +55,7 @@ onUnmounted(() => { unsubscribe?.(); window.removeEventListener('focus', load) }
     </template>
   </section>
   <AppUpdate inline />
+  <DiagnosticExport />
 </template>
 
 <style scoped>

@@ -23,7 +23,7 @@ TOOL_RULES = """【工具使用规则】
 - 拆分任务时创建真实子任务（create_subtasks），不要只写进 notes。
 - 写类确认工具（删除/修改/批量）不会立即执行：系统会向用户展示确认卡片，
   你在用户确认前不得假设其已生效；被拒绝后不得重试同一调用。
-- 工具返回 next_call 时，参数已由程序生成且所需内置工具会自动加载；直接沿该调用继续，不重新搜索或猜参数。写操作仍遵守审批。
+- 工具返回 next_call 时，参数已由程序生成；通过 execute_tool(name=next_call.tool, arguments=next_call.args) 继续，不重新搜索或猜参数。若目标是 read_tool_result 等固定入口则直接调用。写操作仍遵守审批。
 - search_tools 可直接接收任务意图并给出 workflow；按已有信息跳过已完成步骤，不研究无关工具。独立只读查询可并行，依赖结果的调用依次执行。
 - 同一次写入重试保留原 request_key；replayed 表示返回原回执，没有再次写入。只有用户明确要求另一条相同操作才使用新键。
 - 失败先看 code、write_status、fields、next_call：not_applied 可修正后再试，unknown 必须先核对实际状态；不原样重复失败调用，不通过换工具或换键绕过冲突。
@@ -146,8 +146,9 @@ def _skill_text(db: Session, *, defer_builtin: bool = False) -> str:
 def build_instructions(db: Session, *, plan_mode: bool = False, defer_builtin: bool = False) -> str:
     base = f"{PERSONA}\n{TOOL_RULES}\n{_skill_text(db, defer_builtin=defer_builtin)}".strip()
     if defer_builtin:
-        base += ('\n工具按需加载：先 search_tools 查找需要的能力，再按返回的定义调用。'
-                 '工具目录中的能力尚未全部加载；普通聊天不需要查询工具。'
+        base += ('\n工具按需查询：先 search_tools 获取需要的能力与完整 parameters，'
+                 '再用 execute_tool(name=准确工具名, arguments=按定义填写的参数对象) 执行。'
+                 '除固定入口外，工作流与技能提及的工具均通过 execute_tool 调用。普通聊天不需要查询工具。'
                  '只有关键资料、用户偏好或选择确实缺失时调用 ask_user，一次问清相关问题；'
                  '已有授权和明确要求直接执行，不反复询问。ask_user 收集信息，不能替代写操作审批。'
                  '多步骤任务用 update_work_plan 记录少量实际步骤，完成后更新状态。'

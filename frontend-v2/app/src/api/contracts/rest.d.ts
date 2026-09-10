@@ -2503,6 +2503,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagnostics/frontend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Frontend Event */
+        post: operations["frontend_event_api_diagnostics_frontend_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/diagnostics/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export */
+        get: operations["export_api_diagnostics_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -3835,6 +3869,35 @@ export interface components {
             end: string;
             /** Minutes */
             minutes: number;
+        };
+        /** FrontendEvent */
+        FrontendEvent: {
+            /**
+             * Event
+             * @enum {string}
+             */
+            event: "window_error" | "unhandled_rejection" | "vue_error" | "resource_error";
+            /**
+             * Error Type
+             * @default Unknown
+             * @enum {string}
+             */
+            error_type?: "Error" | "TypeError" | "RangeError" | "ReferenceError" | "SyntaxError" | "URIError" | "EvalError" | "DOMException" | "Unknown";
+            /**
+             * Asset
+             * @default
+             */
+            asset?: string;
+            /**
+             * Line
+             * @default 0
+             */
+            line?: number;
+            /**
+             * Column
+             * @default 0
+             */
+            column?: number;
         };
         /** GatherInput */
         GatherInput: {
@@ -11790,6 +11853,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    frontend_event_api_diagnostics_frontend_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FrontendEvent"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_api_diagnostics_export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
                 };
             };
         };

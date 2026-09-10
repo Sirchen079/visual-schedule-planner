@@ -125,8 +125,9 @@ class AgentRuntime:
         from zhishi.agent.context_budget import context_budget_hooks
         from zhishi.agent.prompt_cache import live_clock_hooks
         from zhishi.agent.attachments import media_capability_hooks
-        from zhishi.agent.tool_discovery import ToolDiscovery, SEARCH_DESCRIPTION
+        from zhishi.agent.tool_discovery import ToolDiscovery, SEARCH_DESCRIPTION, EXECUTE_DESCRIPTION
         from zhishi.agent.tool_results import tool_result_hooks
+        from zhishi.agent.diagnostics import request_diagnostic_hooks
         from zhishi.domain.models import AISkill
         from sqlalchemy import select
         unavailable = {}
@@ -146,10 +147,12 @@ class AgentRuntime:
                           self._compaction_capability(conversation_id, emit),
                           discovery.context_hook(),
                           live_clock_hooks(self.model_config, conversation_id),
-                          context_budget_hooks(self.model_config, allow_truncation=False)],
+                          context_budget_hooks(self.model_config, allow_truncation=False),
+                          request_diagnostic_hooks(self.model_config, conversation_id, str(db.get_bind().url))],
         )
 
         agent.tool(discovery.search, name='search_tools', description=SEARCH_DESCRIPTION)
+        agent.tool(discovery.execute, name='execute_tool', description=EXECUTE_DESCRIPTION)
         from zhishi.agent.user_input import ask_user
         agent.tool_plain(ask_user)
 
@@ -305,6 +308,8 @@ class AgentRuntime:
                             raise
                 except Exception as exc:
                     _safe_rollback(db)   # 兜底：run 级会话不得滞留「待回滚」毒化态
+                    from zhishi.infra.diagnostics import record, error_details
+                    record('application', level='ERROR', module='agent.tools', function=spec.name, **error_details(exc))
                     failure = failure_result(exc, tool=spec.name, arguments=kw, readonly=spec.safety == 'readonly')
                     from zhishi.domain.inbox.service import InboxConflict
                     if isinstance(exc, InboxConflict) and exc.item_id is not None:
@@ -628,6 +633,8 @@ class AgentRuntime:
                 db.refresh(question)
                 yield _sse_event(ev.UserInputRequested, request=to_read(question).model_dump())
             for call in run_output.approvals:
+                from zhishi.agent.tool_discovery import actual_tool_call
+                call = actual_tool_call(call)
                 args = _args_dict(call.args)
                 from zhishi.agent.approval_preview import build as approval_preview
                 preview = approval_preview(db, call.tool_name, args)
@@ -723,9 +730,11 @@ def _translate(evt) -> list[dict]:
                 out.append(_sse_event(ev.ToolCallArgsDelta, call_id=evt.delta.tool_call_id or "",
                                       args_delta=str(frag)))
     elif isinstance(evt, FunctionToolCallEvent):
+        from zhishi.agent.tool_discovery import actual_tool_call
+        call = actual_tool_call(evt.part)
         out.append(_sse_event(ev.ToolCallStarted, call_id=evt.part.tool_call_id,
-                              tool=evt.part.tool_name,
-                              args_preview=str(_args_dict(evt.part.args))[:200]))
+                              tool=call.tool_name,
+                              args_preview=str(_args_dict(call.args))[:200]))
     elif isinstance(evt, FunctionToolResultEvent):
         result = getattr(evt.part, "content", "")
         from pydantic_ai.messages import RetryPromptPart

@@ -134,10 +134,15 @@ def _patch_server(monkeypatch, server):
 def _capture_discovered_tools(seen):
     from pydantic_ai.models.function import DeltaToolCall
     async def stream(messages, info):
-        seen['names'] = [t.name for t in info.function_tools]
-        loaded = any(getattr(p, 'tool_name', None) == 'search_tools' and p.part_kind == 'tool-return'
-                     for m in messages for p in m.parts)
+        wire = [t.name for t in info.function_tools]
+        seen.setdefault('wire', wire)
+        assert wire == seen['wire']
+        loaded = next((p for m in reversed(messages) for p in m.parts
+                       if getattr(p, 'tool_name', None) == 'search_tools' and p.part_kind == 'tool-return'), None)
         if loaded:
+            found = json.loads(loaded.content)
+            seen['names'] = [tool['name'] for tool in found['tools']]
+            assert all('parameters' in tool for tool in found['tools'])
             yield '好的'
         else:
             yield {0: DeltaToolCall(name='search_tools', json_args='{"query":"mcp"}', tool_call_id='discover-mcp')}
@@ -170,9 +175,7 @@ async def test_mcp_disabled_server_not_injected(db, monkeypatch):
 
     seen = {}
 
-    async def stream(messages, info):
-        seen["names"] = [t.name for t in info.function_tools]
-        yield "好的"
+    stream = _capture_discovered_tools(seen)
 
     rt = AgentRuntime(model=FunctionModel(stream_function=stream), db=db)
     _ = [e async for e in rt.run_stream(user_text="有什么工具")]
@@ -192,8 +195,8 @@ async def test_mcp_readonly_direct_when_auto_approve(db, monkeypatch):
     async def stream(messages, info):
         step["n"] += 1
         if step["n"] == 1:
-            yield {0: DeltaToolCall(name=f"mcp__{row.id}__add",
-                                    json_args=json.dumps({"a": 1, "b": 2}),
+            yield {0: DeltaToolCall(name='execute_tool',
+                                    json_args=json.dumps({'name':f"mcp__{row.id}__add", 'arguments':{"a": 1, "b": 2}}),
                                     tool_call_id="t1")}
         else:
             yield "算完了"
@@ -213,8 +216,8 @@ async def test_mcp_non_readonly_requires_approval(db, monkeypatch):
     from zhishi.agent.runtime import AgentRuntime
 
     async def stream(messages, info):
-        yield {0: DeltaToolCall(name=f"mcp__{row.id}__del_file",
-                                json_args=json.dumps({"path": "a.txt"}),
+        yield {0: DeltaToolCall(name='execute_tool',
+                                json_args=json.dumps({'name':f"mcp__{row.id}__del_file", 'arguments':{"path": "a.txt"}}),
                                 tool_call_id="t2")}
 
     rt = AgentRuntime(model=FunctionModel(stream_function=stream), db=db)

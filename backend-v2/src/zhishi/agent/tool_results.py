@@ -42,11 +42,15 @@ def externalize_results(messages: list, *, budget: int | None, archive) -> list:
     under_pressure = budget is not None and estimate_messages_tokens(messages) > budget * .75
     for order, (i, j) in enumerate(returns):
         part = result[i].parts[j]
-        if (part.metadata or {}).get('zhishi_result_ref') or part.tool_name in ('read_tool_result', 'search_tools'):
+        if ((part.metadata or {}).get('zhishi_result_ref') or (part.metadata or {}).get('zhishi_result_checked')
+                or part.tool_name in ('read_tool_result', 'search_tools')):
             continue
         text = _text(part.content)
         threshold = min(limit, 768) if under_pressure and order < len(returns) - 2 else limit
         if text is None or estimate_text_tokens(text) <= threshold:
+            parts = list(result[i].parts)
+            parts[j] = replace(part, metadata={**(part.metadata or {}), 'zhishi_result_checked': True})
+            result[i] = replace(result[i], parts=parts)
             continue
         ref = archive(part.tool_name, text)
         value = {'result_ref': ref, 'tool': part.tool_name, 'characters': len(text),

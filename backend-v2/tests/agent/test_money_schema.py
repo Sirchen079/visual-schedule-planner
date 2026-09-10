@@ -69,7 +69,15 @@ async def test_discovered_financial_tools_use_gateway_compatible_wire_schemas(db
             assert not financial & names
             assert 'search_tools' in names and len(names) <= 6
         else:
-            assert financial <= names
+            assert body['tools'] == requests[0]['tools']
+            if protocol == 'chat':
+                result = next(message['content'] for message in body['messages'] if message.get('role') == 'tool')
+            else:
+                result = next(item['output'] for item in body['input'] if item.get('type') == 'function_call_output')
+            definitions = json.loads(result)['tools']
+            assert financial == {tool['name'] for tool in definitions}
+            for tool in definitions:
+                check_patterns(tool['parameters'])
         assert all(tool['type'] == 'function' for tool in tools)
         # Gateways may validate every tool before processing even a plain greeting.
         for tool in functions:

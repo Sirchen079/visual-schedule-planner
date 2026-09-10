@@ -27,6 +27,7 @@ let tray = null
 let backend = null
 let backendPort = 0
 let dataRoot = null
+let diagnosticEvent = () => {}
 let isQuitting = false
 let backendGaveUp = false // 启动失败已判定，避免 exit 事件再叠加弹框
 let notifyTimer = null
@@ -124,6 +125,7 @@ function backendLogPath() {
 
 // 启动失败/崩溃：中文对话框（含日志路径）后退出
 function fatal(title, detail) {
+  diagnosticEvent('startup_failed')
   backendGaveUp = true
   if (backend) {
     try { backend.kill() } catch (_) { /* 已退出 */ }
@@ -151,12 +153,14 @@ function startBackend(port) {
     env: { ...process.env, ZHISHI_DATA_DIR: dataRoot },
   })
   backendPid = backend.pid
+  diagnosticEvent('backend_started')
   console.log(`[shell] 后端已启动 pid=${backend.pid} port=${port} dataRoot=${dataRoot} exe=${exe}`)
   backend.stdout.on('data', (d) => process.stdout.write(d))
   backend.stderr.on('data', (d) => process.stderr.write(d))
   // spawn 失败（exe 缺失/权限不足）走 'error' 而非 'exit'，必须单独处理
   backend.on('error', (e) => fatal('无法启动后端服务', e.message))
   backend.on('exit', (code) => {
+    diagnosticEvent('backend_exit', code)
     backend = null
     if (isQuitting || backendGaveUp) return // 主动退出流程中的正常谢幕，不打扰
     fatal('后端服务异常退出', `进程退出代码：${code}`)
@@ -274,6 +278,9 @@ function createWindow() {
     },
   })
   mainWindow.loadURL(`http://127.0.0.1:${backendPort}/`)
+  mainWindow.webContents.on('did-fail-load', (_event, code) => diagnosticEvent('window_load_failed', code))
+  mainWindow.webContents.on('render-process-gone', (_event, details) => diagnosticEvent('renderer_gone', details.exitCode))
+  mainWindow.on('unresponsive', () => diagnosticEvent('unresponsive'))
   mainWindow.once('ready-to-show', () => mainWindow.show())
   // 钉住中文标题「知时」：SPA 会把 document.title 改为「今日 · 知时」等页内标题，窗口保持壳标题
   mainWindow.on('page-title-updated', (e) => e.preventDefault())
@@ -289,6 +296,7 @@ function createWindow() {
     return { action: 'deny' }
   })
   mainWindow.webContents.on('did-finish-load', () => {
+    diagnosticEvent('window_loaded')
     smokePageLoaded = true
     console.log(`[shell] 页面已加载 url=http://127.0.0.1:${backendPort}/`)
   })
@@ -390,6 +398,7 @@ function stopNotifyPolling() {
 async function shutdownAndQuit(opts = {}) {
   if (isQuitting) return
   isQuitting = true
+  diagnosticEvent('shutdown')
   stopNotifyPolling()
   if (desktopSettings) { desktopSettings.dispose(); desktopSettings = null }
   if (widget) { widget.dispose(); widget = null }
@@ -631,6 +640,8 @@ if (gotLock) {
   app.whenReady().then(async () => {
     app.setAppUserModelId(APP_ID)
     dataRoot = resolveDataRoot()
+    diagnosticEvent = require('./diagnostics').createDiagnostics(dataRoot, app.getVersion())
+    diagnosticEvent('startup')
     let port
     try {
       port = await findFreePort()
@@ -646,6 +657,7 @@ if (gotLock) {
       return fatal('后端服务启动失败', e.message)
     }
     console.log(`[shell] /health 就绪（第 ${tries} 次探测）`)
+    diagnosticEvent('backend_ready')
     createWindow()
     createTray()
     widget = require('./widget').createWidget({ electron: require('electron'),
@@ -658,6 +670,7 @@ if (gotLock) {
       getWindows: () => [mainWindow, widget?.getWindow()], baseUrl: `http://127.0.0.1:${backendPort}`,
       request: widgetRequest, shutdown: shutdownAndQuit, openReleases: url => shell.openExternal(url),
       onInstallFailure: message => {
+        diagnosticEvent('update_install_failed')
         dialog.showErrorBox(APP_NAME, message)
         app.relaunch()
         app.quit()
@@ -682,6 +695,7 @@ if (gotLock) {
       })
     }
   }).catch((e) => {
+    diagnosticEvent('startup_failed')
     dialog.showErrorBox(APP_NAME, `启动失败：${e && e.message ? e.message : e}`)
     app.exit(1)
   })

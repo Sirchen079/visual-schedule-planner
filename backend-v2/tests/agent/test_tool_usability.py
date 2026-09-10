@@ -69,7 +69,7 @@ async def test_large_result_loads_reader_in_same_request(db):
     def model(messages, info):
         result = returns(messages)
         if not result:
-            assert 'read_tool_result' not in {tool.name for tool in info.function_tools}
+            assert 'read_tool_result' in {tool.name for tool in info.function_tools}
             return ModelResponse(parts=[ToolCallPart('search_tools', {'names':['get_task']}, 'find')])
         if result[-1].tool_name == 'search_tools':
             return ModelResponse(parts=[ToolCallPart('get_task', {'task_id':task.id}, 'read')])
@@ -137,20 +137,23 @@ async def test_create_and_verify_needs_one_search_and_no_argument_guessing(db):
             return ModelResponse(parts=[ToolCallPart('search_tools', {'names':['create_task']}, 'discover')])
         if result[-1].tool_name == 'search_tools':
             stages.append('create_task')
-            return ModelResponse(parts=[ToolCallPart('create_task', {'title':'Check tool flow','due_date':'2026-09-08',
-                                                                      'due_time':'10:00','remind_offsets':[0]}, 'create')])
-        if result[-1].tool_name == 'create_task':
+            schema = parsed_result(result[-1].content)['tools'][0]['parameters']
+            assert 'title' in schema['properties']
+            return ModelResponse(parts=[ToolCallPart('execute_tool', {'name':'create_task', 'arguments':{
+                'title':'Check tool flow','due_date':'2026-09-08','due_time':'10:00','remind_offsets':[0]}}, 'create')])
+        if result[-1].tool_call_id == 'create':
             next_call = parsed_result(result[-1].content)['next_call']
-            assert next_call['tool'] in seen[-1]
+            assert 'execute_tool' in seen[-1]
             stages.append(next_call['tool'])
-            return ModelResponse(parts=[ToolCallPart(next_call['tool'], next_call['args'], 'verify')])
+            return ModelResponse(parts=[ToolCallPart('execute_tool',
+                {'name':next_call['tool'], 'arguments':next_call['args']}, 'verify')])
         details = parsed_result(result[-1].content)
         assert details['due_time'] == '10:00' and details['remind_offsets'] == [0]
         return ModelResponse(parts=[TextPart('Created and verified')])
     events = [event async for event in AgentRuntime(model=scripted_model(model), db=db).run_stream(user_text='创建明天十点提醒')]
     assert stages == ['search_tools','create_task','get_task']
     assert not [event for event in events if event['type'] == 'run_error']
-    assert 'create_task' not in seen[0] and 'get_task' in seen[-1]
+    assert 'create_task' not in seen[0] and all(tools == seen[0] for tools in seen)
 
 
 async def test_same_failed_arguments_stop_executing_but_corrected_arguments_work(db, monkeypatch):

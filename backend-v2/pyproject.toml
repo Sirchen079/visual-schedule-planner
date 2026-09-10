@@ -1,6 +1,6 @@
 [project]
 name = "zhishi"
-version = "2.19.0"
+version = "2.20.0"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115",

@@ -108,6 +108,9 @@ def create_app(data_dir: Path | None = None, port: int | None = None) -> FastAPI
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         setup_logging(logs_dir=root / "logs", console=False)
+        from zhishi.infra import diagnostics as diagnostic_log
+        app.state.logs_dir = root / 'logs'
+        diagnostic_log.setup(app.state.logs_dir)
         new_database = not (root / 'backend.db').exists()
         engine = make_engine(root / "backend.db")
         create_all(engine)
@@ -191,8 +194,11 @@ def create_app(data_dir: Path | None = None, port: int | None = None) -> FastAPI
         if app.state.run_tasks:
             await asyncio.gather(*list(app.state.run_tasks), return_exceptions=True)
         engine.dispose()
+        diagnostic_log.record('shutdown')
 
     app = FastAPI(title="zhishi-backend", version=__version__, lifespan=lifespan)
+    from zhishi.infra.diagnostics import DiagnosticHTTPMiddleware
+    app.add_middleware(DiagnosticHTTPMiddleware)
     # 安全：Host 回环白名单 + Origin 同源防护（原 allow_origins=["*"] 通配 CORS 已移除；
     # bearer token 认证待新 Electron 壳支持请求头后引入）
     import os as _os
@@ -202,9 +208,9 @@ def create_app(data_dir: Path | None = None, port: int | None = None) -> FastAPI
 
     from zhishi.server.routes import (tasks, schedule, goals, habits, journal,
                                        focus, library, notifications, stats, settings, ical, ai,
-                                        reports, ledger, bills, inbox, research, followups, materials, web_services, vision, ai_sessions)
+                                        reports, ledger, bills, inbox, research, followups, materials, web_services, vision, ai_sessions, diagnostics)
     for module in (tasks, schedule, goals, habits, journal,
-                   focus, library, notifications, stats, settings, ical, ai, reports, ledger, bills, inbox, research, followups, materials, web_services, vision, ai_sessions):
+                   focus, library, notifications, stats, settings, ical, ai, reports, ledger, bills, inbox, research, followups, materials, web_services, vision, ai_sessions, diagnostics):
         app.include_router(module.router)
 
     @app.get("/health")

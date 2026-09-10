@@ -1,6 +1,7 @@
 """Durable conversation state; presentation, execution and compacted context stay distinct."""
 # ruff: noqa: DTZ005
 import json
+from dataclasses import replace
 from datetime import datetime
 
 from pydantic_ai.messages import (
@@ -58,7 +59,7 @@ def close_unresolved_calls(messages: list, results: dict | None = None) -> list:
     if not pending:
         return list(messages)
     known = results or {}
-    returns = [known.get(key) or ToolReturnPart(tool_name=call.tool_name, tool_call_id=key,
+    returns = [replace(known[key], tool_name=call.tool_name) if key in known else ToolReturnPart(tool_name=call.tool_name, tool_call_id=key,
         content={'ok':False, 'interrupted':True,
             'message':'执行已中断，结果未确认。先读取实际业务状态核对；不要自动重复写入。'})
         for key, call in pending.items()]
