@@ -1097,6 +1097,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai/cache/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Cache Stats */
+        get: operations["get_cache_stats_ai_cache_stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ai/attachments": {
         parameters: {
             query?: never;
@@ -2919,6 +2936,61 @@ export interface components {
             /** Minutes */
             minutes: number;
         };
+        /** CacheStats */
+        CacheStats: {
+            /** Days */
+            days: number;
+            /**
+             * Metric
+             * @default sum(cache_read_tokens) / sum(measured_input_tokens)
+             */
+            metric?: string;
+            /**
+             * Scope
+             * @default logged AI usage; chat includes child agents; unmeasured records excluded; SDK-normalized counters, absent provider cache counters count as zero
+             */
+            scope?: string;
+            totals: components["schemas"]["CacheTotals"];
+            /** By Model */
+            by_model: components["schemas"]["ModelCacheTotals"][];
+        };
+        /** CacheTotals */
+        CacheTotals: {
+            /**
+             * Usage Records
+             * @default 0
+             */
+            usage_records?: number;
+            /**
+             * Measured Records
+             * @default 0
+             */
+            measured_records?: number;
+            /**
+             * Input Tokens
+             * @default 0
+             */
+            input_tokens?: number;
+            /**
+             * Measured Input Tokens
+             * @default 0
+             */
+            measured_input_tokens?: number;
+            /**
+             * Cache Read Tokens
+             * @default 0
+             */
+            cache_read_tokens?: number;
+            /**
+             * Cache Write Tokens
+             * @default 0
+             */
+            cache_write_tokens?: number;
+            /** Cache Hit Rate */
+            cache_hit_rate?: number | null;
+            /** Measurement Coverage */
+            measurement_coverage?: number | null;
+        };
         /**
          * CancelOut
          * @description 运行取消回包：无该 run 令牌时 ok=false。
@@ -4668,6 +4740,47 @@ export interface components {
             };
             /** Created At */
             created_at: string;
+        };
+        /** ModelCacheTotals */
+        ModelCacheTotals: {
+            /**
+             * Usage Records
+             * @default 0
+             */
+            usage_records?: number;
+            /**
+             * Measured Records
+             * @default 0
+             */
+            measured_records?: number;
+            /**
+             * Input Tokens
+             * @default 0
+             */
+            input_tokens?: number;
+            /**
+             * Measured Input Tokens
+             * @default 0
+             */
+            measured_input_tokens?: number;
+            /**
+             * Cache Read Tokens
+             * @default 0
+             */
+            cache_read_tokens?: number;
+            /**
+             * Cache Write Tokens
+             * @default 0
+             */
+            cache_write_tokens?: number;
+            /** Cache Hit Rate */
+            cache_hit_rate?: number | null;
+            /** Measurement Coverage */
+            measurement_coverage?: number | null;
+            /** Provider */
+            provider: string;
+            /** Model */
+            model: string;
         };
         /** ModelCatalogRequest */
         ModelCatalogRequest: {
@@ -8593,6 +8706,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IcalImportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_cache_stats_ai_cache_stats_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CacheStats"];
                 };
             };
             /** @description Validation Error */

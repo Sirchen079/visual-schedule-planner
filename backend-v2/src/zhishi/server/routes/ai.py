@@ -5,7 +5,7 @@ import asyncio
 import json
 import uuid
 from typing import Literal
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from sqlalchemy import func, select
@@ -15,6 +15,7 @@ from zhishi.agent.permissions import IRREVOCABLE_TOOLS
 from zhishi.agent.providers import build_model  # 测试 monkeypatch 锚点
 from zhishi.agent.providers import ReasoningEffort, PromptCacheMode, validate_reasoning_effort, validate_prompt_cache
 from zhishi.agent.runtime import AgentRuntime
+from zhishi.agent.cache_metrics import CacheStats, cache_stats
 from zhishi.adapters.model_catalog import ModelCatalogRequest, ModelCatalogResponse
 from zhishi.domain.models import AIConfig, AIConversation, AIMessage
 
@@ -130,6 +131,12 @@ class ResumeBlockedOut(BaseModel):
 from zhishi.server.deps import get_db
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+
+
+@router.get('/cache/stats', response_model=CacheStats)
+def get_cache_stats(days: int = Query(7, ge=1, le=365), db: Session = Depends(get_db)):
+    return cache_stats(db, days=days)
+
 
 
 class ChatBody(BaseModel):

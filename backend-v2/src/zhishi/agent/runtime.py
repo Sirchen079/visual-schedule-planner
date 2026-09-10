@@ -964,4 +964,6 @@ def _usage_dict(usage) -> dict:
     outp = getattr(usage, "output_tokens", 0) or 0
     return {"input_tokens": inp, "output_tokens": outp, "total_tokens": inp + outp,
             "cache_read_tokens": getattr(usage, "cache_read_tokens", 0) or 0,
-            "cache_write_tokens": getattr(usage, "cache_write_tokens", 0) or 0}
+            "cache_write_tokens": getattr(usage, "cache_write_tokens", 0) or 0,
+            "cache_hit_rate": (getattr(usage, "cache_read_tokens", 0) or 0) / inp if inp else None,
+            "requests": getattr(usage, "requests", 0) or 0}

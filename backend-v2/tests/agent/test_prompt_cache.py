@@ -119,7 +119,8 @@ def test_cache_markers_stable_prefix_and_reported_usage_reach_wire(protocol, cac
 
 def test_missing_usage_keeps_zero_totals():
     assert _usage_dict(None) == dict(input_tokens=0, output_tokens=0, total_tokens=0,
-                                    cache_read_tokens=0, cache_write_tokens=0)
+                                    cache_read_tokens=0, cache_write_tokens=0,
+                                    cache_hit_rate=None, requests=0)
 
 
 def test_application_context_does_not_replace_user_input_during_compaction():

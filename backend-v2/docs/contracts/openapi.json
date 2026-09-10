@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "zhishi-backend",
-    "version": "2.20.0"
+    "version": "2.20.1"
   },
   "paths": {
     "/api/tasks": {
@@ -3559,6 +3559,51 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/IcalImportOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ai/cache/stats": {
+      "get": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Get Cache Stats",
+        "operationId": "get_cache_stats_ai_cache_stats_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 365,
+              "minimum": 1,
+              "default": 7,
+              "title": "Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CacheStats"
                 }
               }
             }
@@ -9327,6 +9372,99 @@
         ],
         "title": "ByTaskItem"
       },
+      "CacheStats": {
+        "properties": {
+          "days": {
+            "type": "integer",
+            "title": "Days"
+          },
+          "metric": {
+            "type": "string",
+            "title": "Metric",
+            "default": "sum(cache_read_tokens) / sum(measured_input_tokens)"
+          },
+          "scope": {
+            "type": "string",
+            "title": "Scope",
+            "default": "logged AI usage; chat includes child agents; unmeasured records excluded; SDK-normalized counters, absent provider cache counters count as zero"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/CacheTotals"
+          },
+          "by_model": {
+            "items": {
+              "$ref": "#/components/schemas/ModelCacheTotals"
+            },
+            "type": "array",
+            "title": "By Model"
+          }
+        },
+        "type": "object",
+        "required": [
+          "days",
+          "totals",
+          "by_model"
+        ],
+        "title": "CacheStats"
+      },
+      "CacheTotals": {
+        "properties": {
+          "usage_records": {
+            "type": "integer",
+            "title": "Usage Records",
+            "default": 0
+          },
+          "measured_records": {
+            "type": "integer",
+            "title": "Measured Records",
+            "default": 0
+          },
+          "input_tokens": {
+            "type": "integer",
+            "title": "Input Tokens",
+            "default": 0
+          },
+          "measured_input_tokens": {
+            "type": "integer",
+            "title": "Measured Input Tokens",
+            "default": 0
+          },
+          "cache_read_tokens": {
+            "type": "integer",
+            "title": "Cache Read Tokens",
+            "default": 0
+          },
+          "cache_write_tokens": {
+            "type": "integer",
+            "title": "Cache Write Tokens",
+            "default": 0
+          },
+          "cache_hit_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Hit Rate"
+          },
+          "measurement_coverage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurement Coverage"
+          }
+        },
+        "type": "object",
+        "title": "CacheTotals"
+      },
       "CancelOut": {
         "properties": {
           "ok": {
@@ -13716,6 +13854,76 @@
         ],
         "title": "MessageOut",
         "description": "会话消息项：display 为展示元数据对象（{\"text\": ...}）。"
+      },
+      "ModelCacheTotals": {
+        "properties": {
+          "usage_records": {
+            "type": "integer",
+            "title": "Usage Records",
+            "default": 0
+          },
+          "measured_records": {
+            "type": "integer",
+            "title": "Measured Records",
+            "default": 0
+          },
+          "input_tokens": {
+            "type": "integer",
+            "title": "Input Tokens",
+            "default": 0
+          },
+          "measured_input_tokens": {
+            "type": "integer",
+            "title": "Measured Input Tokens",
+            "default": 0
+          },
+          "cache_read_tokens": {
+            "type": "integer",
+            "title": "Cache Read Tokens",
+            "default": 0
+          },
+          "cache_write_tokens": {
+            "type": "integer",
+            "title": "Cache Write Tokens",
+            "default": 0
+          },
+          "cache_hit_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Hit Rate"
+          },
+          "measurement_coverage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurement Coverage"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "model"
+        ],
+        "title": "ModelCacheTotals"
       },
       "ModelCatalogRequest": {
         "properties": {
