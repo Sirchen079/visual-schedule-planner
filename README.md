@@ -2,7 +2,7 @@
 
 把待办、日程、账本和资料放在一起的桌面助手。可以手动记录，也可以接入自己的 AI 服务，用一句话安排事情、整理文件或制定计划。
 
-**Windows x64 · 源码 2.20.0（安装包待发布）· MIT 开源**
+**Windows x64 · 2.20.0 · MIT 开源**
 
 [下载安装包](https://github.com/Sirchen079/visual-schedule-planner/releases/latest) · [使用教程](docs/getting-started.md) · [AI 接入教程](docs/ai-api-guide.md) · [开发指南](docs/development.md)
 
