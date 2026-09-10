@@ -8,11 +8,11 @@ import { FEATURE_LESSONS, FEATURE_START, TOUR_END } from '../../content/features
 const help = useHelpStore(), router = useRouter(), route = useRoute()
 const titles = ['欢迎使用知时', '点这里，新建一条待办', '写下你要做的事', '点“创建”，保存到看板', '保存成功，在这里能找到它']
 const descriptions = [
-  '接下来会用亮框和箭头指着实际按钮，带你保存一条待办。鼠标左键点一下就是“点击”。无需先配置 AI，随时可以退出。',
-  '用鼠标左键点击亮框中的“新建任务”。点击后，会出现填写任务的输入框。',
-  '点击亮框中的输入框，写一件真正要做的事，例如“取快递”。日期和优先级可以先不改。写好后，点本提示中的“填好了”。',
-  '点击亮框中的“创建”。等它保存成功，指引会自动继续。也可以按 Enter 保存。若页面提示失败，请先核对提示和看板中的记录。',
-  '这就是刚才保存的真实待办。真正做完后，点任务前面的圆圈可标为完成；误点可以再点一次取消。现在先不用勾选。',
+  '跟着亮框和箭头，试着记一条待办。也可以点“先去使用”，以后从教程里继续。',
+  '点击亮框中的“新建任务”，打开输入框。',
+  '在输入框写下要做的事，例如“取快递”。日期和优先级可以先不改。写好后点“填好了”。',
+  '点击“创建”或按 Enter 保存，成功后指引会自动继续。如果保存失败，按页面提示重试。',
+  '任务已经保存在看板上。做完后点前面的圆圈标记完成，误点可以再点一次取消。',
 ]
 const card = ref<HTMLElement | null>(null)
 const collapsed = ref(false)
@@ -171,7 +171,6 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer); document.removeEventLis
         <template v-if="feature">
           <p v-if="help.tourPhase === 'entry'" class="example">{{ feature.example }}</p>
           <ol v-else class="lesson-steps"><li v-for="step in feature.steps" :key="step">{{ step }}</li></ol>
-          <p class="difference"><strong>别混淆：</strong>{{ feature.difference }}</p>
           <div class="extra"><button @click="openArticle">完整操作教程</button><button v-if="feature.id === 'settings' || feature.id === 'chat'" @click="openApi">AI 接入教程</button></div>
           <button v-if="help.tourPhase === 'page'" class="practice-toggle" @click="collapsed = true">收起提示，按步骤操作 ↘</button>
         </template>
@@ -217,6 +216,6 @@ button:focus-visible { outline:2px solid var(--amber); outline-offset:2px; }
 .extra { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }.extra button { border:1px solid var(--line-2); }
 .tour-directory { display:block; font-size:12px; color:var(--ink-3); margin-top:10px; }.tour-directory select { display:block; width:100%; margin-top:5px; padding:8px; border:1px solid var(--line-2); border-radius:7px; background:var(--bg-sink); color:var(--ink); }
 .resume-lesson { position:fixed; bottom:20px; right:20px; max-width:calc(100vw - 40px); pointer-events:auto; background:var(--bg-raise); color:var(--amber-soft); border:1px solid var(--amber-border); box-shadow:var(--shadow-panel); }.practice-toggle { margin:0 0 12px; color:var(--amber-soft); }
-.lesson-steps { list-style:decimal; padding-left:20px; font-size:13px; line-height:1.8; color:var(--ink-2); margin-bottom:14px; }.lesson-steps li { margin:6px 0; }.difference { padding:10px; background:var(--bg-sink); border-radius:7px; font-size:12px; line-height:1.8; }.example { font-size:13px; }
+.lesson-steps { list-style:decimal; padding-left:20px; font-size:13px; line-height:1.8; color:var(--ink-2); margin-bottom:14px; }.lesson-steps li { margin:6px 0; }.example { font-size:13px; }
 @media(max-height:540px) { .tour-card { padding:12px 16px; width:330px; }h2 { font-size:18px; margin:4px 0; }p { font-size:13px; line-height:1.6; margin-bottom:10px; } }
 </style>

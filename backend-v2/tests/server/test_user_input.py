@@ -38,6 +38,32 @@ def start(client):
     return events[0]['conversation_id'], question, events
 
 
+def test_brainstorm_interview_keeps_readonly_mode_after_restart_and_answer(tmp_path, monkeypatch):
+    modes = []
+    async def stream(messages, info):
+        modes.append({t.name for t in info.function_tools})
+        results = [p for m in messages for p in m.parts if isinstance(p, ToolReturnPart)]
+        if not any(p.tool_name == 'ask_user' for p in results):
+            yield {0: DeltaToolCall(name='ask_user', json_args=json.dumps({'questions': QUESTIONS}), tool_call_id='plan-question')}
+        else:
+            yield '下一轮讨论时间和预算。'
+    monkeypatch.setattr(ai, 'build_model', lambda *a, **k: FunctionModel(stream_function=stream))
+    with TestClient(create_app(data_dir=tmp_path)) as client:
+        _seed_enabled_config(client)
+        events = _parse_sse(client.post('/ai/chat/stream', json={'message': '帮我理清需求', 'brainstorm_mode': True}).text)
+        cid = events[0]['conversation_id']
+        question = next(e['request'] for e in events if e['type'] == 'user_input_requested')
+    with TestClient(create_app(data_dir=tmp_path)) as client:
+        response = client.post(f'/ai/conversations/{cid}/questions/{question["id"]}/answer', json={
+            'version': 0, 'answers': {'scope': {'selected': ['今天']}, 'detail': {'text': '保留午休'}}})
+        assert response.status_code == 200
+        events = _parse_sse(client.post(f'/ai/conversations/{cid}/resume/stream').text)
+        assert events[-1]['type'] == 'done'
+        assert not any(e['type'] in ('plan_card', 'run_error') for e in events)
+    assert len(modes) == 2
+    assert all('propose_plan' not in names and 'create_task' not in names for names in modes)
+
+
 @pytest.mark.parametrize('mixed', [False, True])
 def test_restart_answer_and_exactly_once_resume(tmp_path, monkeypatch, mixed):
     captured = install_model(monkeypatch, mixed)

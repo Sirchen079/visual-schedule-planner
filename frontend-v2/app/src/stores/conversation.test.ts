@@ -34,6 +34,24 @@ describe('conversation store', () => {
     setActivePinia(createPinia())
   })
 
+  it('keeps brainstorming choices per conversation and restores the last sent mode', () => {
+    const conv = useConversationStore()
+    expect(conv.activeBrainstormMode).toBe(false)
+    conv.activeId = 1
+    conv.messages = [{ id: 1, role: 'user', display: { text: '梳理需求', brainstorm_mode: true }, created_at: '' }]
+    expect(conv.activeBrainstormMode).toBe(true)
+    conv.setBrainstormMode(false)
+    expect(conv.activeBrainstormMode).toBe(false)
+    conv.activeId = 2
+    conv.messages = []
+    expect(conv.activeBrainstormMode).toBe(false)
+    conv.setBrainstormMode(true)
+    conv.activeId = 1
+    expect(conv.activeBrainstormMode).toBe(false)
+    conv.activeId = 2
+    expect(conv.activeBrainstormMode).toBe(true)
+  })
+
   it('refresh 拉取会话列表；select 加载历史并落活跃指针', async () => {
     const calls: string[] = []
     vi.stubGlobal(

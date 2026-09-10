@@ -145,6 +145,13 @@ class ChatBody(BaseModel):
     conversation_id: int | None = None
     attachment_ids: list[int] = []          # 对话附件：解析文本注入模型输入
     plan_mode: bool = False                 # 计划模式：只读工具 + propose_plan
+    brainstorm_mode: bool = False          # 头脑风暴：只读调研与多轮提问
+
+    @model_validator(mode='after')
+    def exclusive_modes(self):
+        if self.plan_mode and self.brainstorm_mode:
+            raise ValueError('计划与头脑风暴模式请选一种')
+        return self
 
 
 @router.post("/attachments", status_code=201, response_model=AttachmentOut)
@@ -355,7 +362,8 @@ def _release_run_slot(app, run_id: str, conversation_id: int | None) -> None:
 
 async def _start_run(app, *, message: str, conversation_id: int | None,
                      attachment_ids: list[int] | None = None,
-                     plan_mode: bool = False, research_project_id: int | None = None) -> StreamingResponse:
+                     plan_mode: bool = False, research_project_id: int | None = None,
+                     brainstorm_mode: bool = False) -> StreamingResponse:
     """chat 与计划批准共用：并发锁/session/模型/runtime/SSE 组装一致。"""
     if getattr(app.state, 'update_preparing', False):
         raise HTTPException(409, '知时正在保存并准备更新，请稍后继续。')
@@ -417,6 +425,7 @@ async def _start_run(app, *, message: str, conversation_id: int | None,
                                            history=history,
                                            attachment_ids=attachment_ids or [],
                                            plan_mode=plan_mode,
+                                           brainstorm_mode=brainstorm_mode,
                                            research_project_id=research_project_id,
                                            run_id=run_id, cancel_token=token,
                                            usage_meta={"config_id": cfg.id,
@@ -430,7 +439,8 @@ async def chat_stream(body: ChatBody, request: Request):
     return await _start_run(request.app, message=body.message,
                             conversation_id=body.conversation_id,
                             attachment_ids=body.attachment_ids,
-                            plan_mode=body.plan_mode, research_project_id=body.research_project_id)
+                            plan_mode=body.plan_mode, research_project_id=body.research_project_id,
+                            brainstorm_mode=body.brainstorm_mode)
 
 
 @router.get("/conversations", response_model=list[ConversationOut])

@@ -557,7 +557,7 @@ export const useRunStore = defineStore('run', {
     /** 发送消息开新 run。run 进行中时拒绝重入（同会话单 run，后端亦会 409）。 */
     async sendMessage(
       message: string,
-      opts: { conversationId?: number | null; attachmentIds?: number[]; planMode?: boolean; researchProjectId?: number; onConversationStarted?: (id: number) => void } = {},
+      opts: { conversationId?: number | null; attachmentIds?: number[]; planMode?: boolean; brainstormMode?: boolean; researchProjectId?: number; onConversationStarted?: (id: number) => void } = {},
     ): Promise<void> {
       if (this.isActive) return
       // Explicit null means a new conversation. Only omitted/undefined means continue.
@@ -569,6 +569,7 @@ export const useRunStore = defineStore('run', {
         conversation_id: conversationId,
         attachment_ids: opts.attachmentIds ?? [],
         plan_mode: opts.planMode ?? false,
+        brainstorm_mode: opts.brainstormMode ?? false,
       }
       if (opts.researchProjectId !== undefined) body.research_project_id = opts.researchProjectId
       await this.openStream('/ai/chat/stream', body, opts.onConversationStarted)

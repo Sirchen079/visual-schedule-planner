@@ -11,7 +11,7 @@ def test_health(tmp_path):
     with make_client(tmp_path) as c:
         r = c.get("/health")
         assert r.status_code == 200
-        assert r.json() == {"ok": True, "version": "2.20.1"}
+        assert r.json() == {"ok": True, "version": "2.21.0"}
 
 
 def test_shutdown(tmp_path):

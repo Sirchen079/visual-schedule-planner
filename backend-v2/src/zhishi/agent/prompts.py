@@ -2,6 +2,7 @@
 用户消息保留当时的时间/业务摘要；实时系统时钟另在每次模型请求前刷新。"""
 from __future__ import annotations
 from datetime import datetime
+from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from zhishi.domain.models import AISkill
@@ -46,7 +47,17 @@ PLAN_MODE_INSTRUCTION = (
 # 计划模式受控重试指令：上一轮未提交计划时以用户输入追加再驱动一轮（仅一次）。
 PLAN_RETRY_INSTRUCTION = "你上一轮未提交计划。现在必须调用 propose_plan 提交结构化计划。"
 
+_SKILLS_DIR = Path(__file__).with_name('skills')
+THINKING_SKILLS = {'内置·梳理想法', '内置·完整决策访谈'}
+
+
+def _thinking_skill(folder: str) -> str:
+    text = (_SKILLS_DIR / folder / 'SKILL.md').read_text(encoding='utf-8')
+    return text.split('---', 2)[-1].strip()
+
 BUILTIN_SKILLS = {
+    '内置·梳理想法': ('默认模式：用少量关键问题理清需求和下一步', _thinking_skill('brainstorm')),
+    '内置·完整决策访谈': ('头脑风暴模式：逐轮问清全部决策，整理需求摘要', _thinking_skill('grilling')),
     '内置·长材料阅读': (
         '分段读取、关键词检索与可核对出处',
         '''- 附件和项目正文是开头预览，不代表全文。总结全文时用 read_material 按 next_call 继续；回答具体问题先 search_materials 用短关键词定位，再读取命中片段。
@@ -136,6 +147,7 @@ def _skill_text(db: Session, *, defer_builtin: bool = False) -> str:
                       .order_by(AISkill.is_builtin.desc(), AISkill.id)).all()
     if not rows:
         return "【技能】（暂无激活技能）"
+    rows = [r for r in rows if r.name not in THINKING_SKILLS]
     parts = [f"【技能：{r.name}】\n{r.content}" for r in rows
              if not defer_builtin or not r.is_builtin]
     if defer_builtin:
@@ -143,7 +155,7 @@ def _skill_text(db: Session, *, defer_builtin: bool = False) -> str:
     return "\n".join(parts)
 
 
-def build_instructions(db: Session, *, plan_mode: bool = False, defer_builtin: bool = False) -> str:
+def build_instructions(db: Session, *, plan_mode: bool = False, brainstorm_mode: bool = False, defer_builtin: bool = False) -> str:
     base = f"{PERSONA}\n{TOOL_RULES}\n{_skill_text(db, defer_builtin=defer_builtin)}".strip()
     if defer_builtin:
         base += ('\n工具按需查询：先 search_tools 获取需要的能力与完整 parameters，'
@@ -155,6 +167,9 @@ def build_instructions(db: Session, *, plan_mode: bool = False, defer_builtin: b
                  '工具返回原文引用时，用 read_tool_result 分页或关键词核对，不能把预览当全文。')
     if plan_mode:
         base = f"{base}\n{PLAN_MODE_INSTRUCTION}"
+    if not plan_mode:
+        skill = '内置·完整决策访谈' if brainstorm_mode else '内置·梳理想法'
+        base += f"\n【技能：{skill}】\n{BUILTIN_SKILLS[skill][1]}"
     return base
 
 

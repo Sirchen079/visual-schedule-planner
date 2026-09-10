@@ -17,6 +17,7 @@ export interface AttachmentMeta {
 /** 持久化消息的展示数据，包括文本、附件、推理和工具执行记录。 */
 export interface ConversationMessageDisplay {
   text: string
+  brainstorm_mode?: boolean
   run_id?: string
   status?: string
   error?: string | null

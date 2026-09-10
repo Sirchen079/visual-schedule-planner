@@ -31,11 +31,11 @@ def returns(messages):
 
 
 async def test_seeded_skills_create_task_fits_small_context_without_unrelated_workflows(db):
-    from zhishi.agent.prompts import BUILTIN_SKILLS, seed_builtin_skills
+    from zhishi.agent.prompts import BUILTIN_SKILLS, THINKING_SKILLS, seed_builtin_skills
     from zhishi.agent.runtime import AgentDeps
     from zhishi.agent.tool_discovery import SKILL_TOOLS
 
-    assert set(SKILL_TOOLS) == set(BUILTIN_SKILLS)
+    assert set(SKILL_TOOLS) == set(BUILTIN_SKILLS) - THINKING_SKILLS
     assert all(get_spec(name) for names in SKILL_TOOLS.values() for name in names)
     seed_builtin_skills(db)
     observed = []

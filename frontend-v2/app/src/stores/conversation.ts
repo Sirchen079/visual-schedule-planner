@@ -8,6 +8,7 @@ import type { UserAnswer } from '../api/userInput'
 
 export const useConversationStore = defineStore('conversation', {
   state: () => ({
+    brainstormModes: {} as Record<string, boolean>,
     questionDrafts: {} as Record<string, Record<string, UserAnswer>>,
     conversations: [] as ConversationSummary[], activeId: null as number | null,
     messages: [] as ConversationMessage[], loading: false, error: null as string | null,
@@ -20,11 +21,18 @@ export const useConversationStore = defineStore('conversation', {
     sessionState: null as ConversationState | null, syncing: false,
   }),
   getters: {
+    activeBrainstormMode(s): boolean {
+      const key = String(s.activeId ?? 'new')
+      if (key in s.brainstormModes) return s.brainstormModes[key]!
+      const lastUser = [...s.messages].reverse().find(message => message.role === 'user')
+      return lastUser?.display?.brainstorm_mode === true
+    },
     activeTitle(s): string { return s.conversations.find(c => c.id === s.activeId)?.title ?? (s.activeId === null ? '新对话' : `会话 ${s.activeId}`) },
     attachmentIds(s): number[] { return s.draftAttachments.map(a => a.id) },
     remoteRunId(s): string | null { return s.sessionState?.conversation_id === s.activeId ? s.sessionState.active_run_id : null },
   },
   actions: {
+    setBrainstormMode(value: boolean): void { this.brainstormModes[String(this.activeId ?? 'new')] = value },
     async initialize(): Promise<void> {
       if (this.initialized || this.initializing) return
       this.initializing = true
@@ -112,6 +120,7 @@ export const useConversationStore = defineStore('conversation', {
     startNew(): void {
       const run = useRunStore()
       if (run.hasLiveStream() || this.sending) return
+      delete this.brainstormModes.new
       this.rememberDraft()
       this.viewVersion++
       run.reset(null)
@@ -149,7 +158,7 @@ export const useConversationStore = defineStore('conversation', {
       } catch (e) { if (this.activeId === cid && this.viewVersion === version) this.error = e instanceof Error ? e.message : '会话同步失败' }
       finally { this.syncing = false }
     },
-    async sendMessage(message: string, opts: { attachmentIds?: number[]; planMode?: boolean; researchProjectId?: number } = {}): Promise<void> {
+    async sendMessage(message: string, opts: { attachmentIds?: number[]; planMode?: boolean; brainstormMode?: boolean; researchProjectId?: number } = {}): Promise<void> {
       const run = useRunStore()
       if (run.isActive || this.sending || this.remoteRunId) return
       const version = this.viewVersion, conversationId = this.activeId
@@ -165,6 +174,8 @@ export const useConversationStore = defineStore('conversation', {
         }
         this.stageSentEcho(attachments)
         await run.sendMessage(message, { ...opts, conversationId, onConversationStarted: id => {
+          this.brainstormModes[String(id)] = opts.brainstormMode ?? false
+          if (conversationId === null) delete this.brainstormModes.new
           accepted = true
           if (this.viewVersion === version) {
             if (this.draftText.trim() === message) this.draftText = ''

@@ -3083,6 +3083,11 @@ export interface components {
              * @default false
              */
             plan_mode?: boolean;
+            /**
+             * Brainstorm Mode
+             * @default false
+             */
+            brainstorm_mode?: boolean;
         };
         /** CheckInOut */
         CheckInOut: {

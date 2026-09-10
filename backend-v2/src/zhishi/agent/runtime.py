@@ -117,7 +117,7 @@ class AgentRuntime:
             from sqlalchemy.orm import sessionmaker
             self.session_factory = sessionmaker(bind=db.get_bind(), expire_on_commit=False)
 
-    def _build_agent(self, plan_mode: bool = False, conversation_id: int | None = None, emit=None) -> Agent:
+    def _build_agent(self, plan_mode: bool = False, conversation_id: int | None = None, emit=None, brainstorm_mode: bool = False) -> Agent:
         db = self.db
         from zhishi.agent.tools import atomic_read  # noqa: F401 触发注册
         from zhishi.agent.tools import web_tools  # noqa: F401 触发注册
@@ -132,16 +132,16 @@ class AgentRuntime:
         from sqlalchemy import select
         unavailable = {}
         discovery = ToolDiscovery([(row.name, row.content) for row in db.scalars(
-            select(AISkill).where(AISkill.enabled.is_(True), AISkill.is_builtin.is_(True)))], unavailable=unavailable,
+            select(AISkill).where(AISkill.enabled.is_(True), AISkill.is_builtin.is_(True))) if row.name not in prompts.THINKING_SKILLS], unavailable=unavailable,
             plan_mode=plan_mode)
 
         agent = Agent(
             self.model,
             deps_type=AgentDeps,
             output_type=[str, DeferredToolRequests],
-            instructions=prompts.build_instructions(db, plan_mode=plan_mode, defer_builtin=True),
+            instructions=prompts.build_instructions(db, plan_mode=plan_mode, brainstorm_mode=brainstorm_mode, defer_builtin=True),
             retries=2,
-            toolsets=self._mcp_toolsets(unavailable=unavailable, readonly_only=plan_mode),
+            toolsets=self._mcp_toolsets(unavailable=unavailable, readonly_only=plan_mode or brainstorm_mode),
             capabilities=[discovery.hook(), media_capability_hooks(self.model_config),
                           tool_result_hooks(self.model_config, db, conversation_id, discovery),
                           self._compaction_capability(conversation_id, emit),
@@ -157,6 +157,8 @@ class AgentRuntime:
         agent.tool_plain(ask_user)
 
         for spec in specs_for(db):
+            if brainstorm_mode and (spec.safety != "readonly" or spec.name == "propose_plan"):
+                continue
             # 计划模式：只挂只读工具 + propose_plan（写类一律不注册，模型无从调用）
             if plan_mode and spec.safety != "readonly" and spec.name != "propose_plan":
                 continue
@@ -424,7 +426,7 @@ class AgentRuntime:
                          run_id: str | None = None, cancel_token=None,
                          usage_meta: dict | None = None,
                          attachment_ids: list[int] | None = None,
-                         plan_mode: bool = False, research_project_id: int | None = None) -> AsyncIterator[dict]:
+                         plan_mode: bool = False, research_project_id: int | None = None, brainstorm_mode: bool = False) -> AsyncIterator[dict]:
         """user_text=None + history + deferred_results = 审批复活轮：
         不新增用户消息，直接从 CallToolsNode 继续（logical run 跨 execution）。"""
         db = self.db
@@ -496,14 +498,24 @@ class AgentRuntime:
             user_row = db.scalar(select(AIMessage).where(AIMessage.conversation_id == conversation_id,
                 AIMessage.role == 'user').order_by(AIMessage.id.desc()).limit(1))
             display = session_store.metadata(user_row.display_json)
+            display['brainstorm_mode'] = brainstorm_mode
             if attachment_meta:
                 display['attachments'] = attachment_meta
             user_row.display_json = json.dumps(display, ensure_ascii=False)
             session_store.checkpoint(db, run_row, assistant_row,
                 [*(history or []), ModelRequest(parts=[UserPromptPart(model_input)])], [])
 
+        # Deferred answers resume the mode recorded with their original user message.
+        if user_text is None:
+            from sqlalchemy import select
+            source_user = db.scalar(select(AIMessage).where(
+                AIMessage.conversation_id == conversation_id, AIMessage.role == 'user'
+            ).order_by(AIMessage.id.desc()).limit(1))
+            if source_user is not None:
+                brainstorm_mode = session_store.metadata(source_user.display_json).get('brainstorm_mode', False) is True
+
         queue: asyncio.Queue = asyncio.Queue()
-        agent = self._build_agent(plan_mode=plan_mode, conversation_id=conversation_id, emit=queue)
+        agent = self._build_agent(plan_mode=plan_mode, conversation_id=conversation_id, emit=queue, brainstorm_mode=brainstorm_mode)
         # per-run 注入：事件外发通道/子代理模型工厂/会话 id 全部进 deps（并发 run 不串线）
         capture_key = run_id
         if user_text is None:

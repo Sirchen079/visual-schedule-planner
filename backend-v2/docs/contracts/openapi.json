@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "zhishi-backend",
-    "version": "2.20.1"
+    "version": "2.21.0"
   },
   "paths": {
     "/api/tasks": {
@@ -9685,6 +9685,11 @@
           "plan_mode": {
             "type": "boolean",
             "title": "Plan Mode",
+            "default": false
+          },
+          "brainstorm_mode": {
+            "type": "boolean",
+            "title": "Brainstorm Mode",
             "default": false
           }
         },

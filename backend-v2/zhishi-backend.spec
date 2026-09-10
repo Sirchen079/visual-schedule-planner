@@ -15,6 +15,7 @@ datas = sum((copy_metadata(p) for p in (
 )), [])
 binaries = []
 datas.append(('src/zhishi/agent/vocab/cl100k_base.tiktoken', 'zhishi/agent/vocab'))
+datas.append(('src/zhishi/agent/skills', 'zhishi/agent/skills'))
 hiddenimports = [
     # uvicorn 动态导入常见坑
     'uvicorn.logging',

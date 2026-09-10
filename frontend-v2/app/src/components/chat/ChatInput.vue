@@ -23,6 +23,15 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const ta = ref<HTMLTextAreaElement | null>(null)
 /** 计划模式：AI 先给 plan_card，批准后才执行（POST /ai/chat/stream body.plan_mode） */
 const planMode = ref(false)
+const brainstormMode = computed({ get: () => conv.activeBrainstormMode, set: value => conv.setBrainstormMode(value) })
+function togglePlan(): void {
+  planMode.value = !planMode.value
+  if (planMode.value) brainstormMode.value = false
+}
+function toggleBrainstorm(): void {
+  brainstormMode.value = !brainstormMode.value
+  if (brainstormMode.value) planMode.value = false
+}
 watch(() => conv.viewVersion, () => {
   planMode.value = false
   if (ta.value) ta.value.style.height = 'auto'
@@ -87,7 +96,7 @@ function send(): void {
   // 草稿和附件仅在服务端 run_started 确认接收后清理。
   const planModeOn = planMode.value
   planMode.value = false // 计划模式是一次性意图：随本条消息生效
-  void conv.sendMessage(message, { attachmentIds, planMode: planModeOn, researchProjectId: useProject.value ? research.project?.id : undefined })
+  void conv.sendMessage(message, { attachmentIds, planMode: planModeOn, brainstormMode: brainstormMode.value, researchProjectId: useProject.value ? research.project?.id : undefined })
 }
 
 async function stopRemote(): Promise<void> {
@@ -144,7 +153,7 @@ function autogrow(e: Event): void {
         v-model="text"
         class="ta"
         rows="1"
-        :placeholder="run.isActive ? '知时正在执行…' : '告诉知时要做什么…'"
+        :placeholder="run.isActive ? '知时正在执行…' : brainstormMode ? '想讨论什么？写下你的想法…' : '告诉知时要做什么…'"
         :disabled="conv.initializing"
         @keydown="onKeydown"
         @input="autogrow"
@@ -158,10 +167,17 @@ function autogrow(e: Event): void {
           class="plan-toggle"
           :data-on="planMode ? '' : null"
           title="计划模式：知时先给出执行计划，你批准后才开始执行"
-          @click="planMode = !planMode"
+          @click="togglePlan"
         >
           计划
         </button>
+        <button
+          class="plan-toggle"
+          :data-on="brainstormMode ? '' : null"
+          :aria-pressed="brainstormMode"
+          title="头脑风暴：逐轮问清想法和决策，再次点击退出"
+          @click="toggleBrainstorm"
+        >头脑风暴</button>
         <span class="model-chip">
           知时 Agent
           <AppIcon name="chevron-down" :size="11" />
@@ -265,6 +281,7 @@ function autogrow(e: Event): void {
 }
 .row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
 }

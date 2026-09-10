@@ -68,7 +68,7 @@ def verify(exe, report_path):
                         if time.monotonic() > deadline:
                             raise RuntimeError('Packaged backend did not start') from None
                         time.sleep(.2)
-                assert health['version'] == '2.20.1', health
+                assert health['version'] == '2.21.0', health
                 assert request('/ai/cache/stats')['totals']['cache_hit_rate'] is None
                 assert '<html' in request('/', text=True).lower()
                 config = request('/ai/configs', {'name': 'Isolated cache acceptance',

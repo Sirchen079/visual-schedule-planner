@@ -46,7 +46,7 @@ npm --prefix electron-v2 start
 npm --prefix electron-v2 run dist
 ```
 
-安装包输出到 `electron-v2/dist/zhishi-Setup-2.18.0.exe`。构建产物、数据库和密钥不应提交到仓库。
+安装包输出到 `electron-v2/dist/zhishi-Setup-2.21.0.exe`。构建产物、数据库和密钥不应提交到仓库。
 
 发布新版本时，须将同一次构建生成的安装包、`.blockmap` 和 `latest.yml` 一起上传到相应 GitHub Release，再发布该版本。自动更新检查的是 Release，不是分支提交。开发预览不自动更新，也不携带 GitHub 凭据。
 
