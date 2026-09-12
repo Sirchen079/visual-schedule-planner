@@ -12,7 +12,7 @@ function newerVersion(candidate, current) {
 }
 
 function createDesktopUpdates({ updater, ipcMain, app, getWindows, baseUrl, request,
-  shutdown, openReleases, notify = () => {}, onInstallFailure = () => {}, enabled = app.isPackaged,
+  shutdown, openReleases, diagnosticEvent = () => {}, notify = () => {}, onInstallFailure = () => {}, enabled = app.isPackaged,
   prepareTimeout = 10000, startDelay = 20000, interval = 6 * 60 * 60 * 1000 }) {
   const origin = new URL(baseUrl).origin
   let state = { status: enabled ? 'idle' : 'unavailable', currentVersion: app.getVersion(),
@@ -57,6 +57,7 @@ function createDesktopUpdates({ updater, ipcMain, app, getWindows, baseUrl, requ
     else failure('下载的版本不是更新版本，请重新检查。')
   })
   listen('error', error => {
+    diagnosticEvent('update_error')
     const wasInstalling = stoppedForInstall
     const code = String(error?.code || '')
     failure(/sha|checksum|signature/i.test(code + ' ' + String(error?.message || ''))
@@ -105,6 +106,7 @@ function createDesktopUpdates({ updater, ipcMain, app, getWindows, baseUrl, requ
     installPending = (async () => {
       let locked = false
       try {
+        diagnosticEvent('update_prepare')
         publish({ status: 'preparing', error: '' })
         // Claim the backend's run gate before asking both renderers to flush.
         await request('/ai/runtime/update-prepare', 'POST', {})
@@ -113,8 +115,11 @@ function createDesktopUpdates({ updater, ipcMain, app, getWindows, baseUrl, requ
         publish({ status: 'installing', error: '' })
         await shutdown({ quit: false })
         stoppedForInstall = true
-        updater.quitAndInstall(false, true)
+        diagnosticEvent('update_installer_requested')
+        // Install without a wizard and relaunch after the replacement completes.
+        updater.quitAndInstall(true, true)
       } catch (error) {
+        diagnosticEvent('update_install_failed')
         if (stoppedForInstall && !recoveredInstallFailure) {
           recoveredInstallFailure = true
           onInstallFailure('安装程序未能启动，知时将重新打开。数据与草稿已经保存。')

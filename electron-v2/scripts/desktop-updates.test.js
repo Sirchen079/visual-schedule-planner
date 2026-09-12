@@ -48,7 +48,7 @@ test('one click downloads, flushes both windows and installs after shutdown', as
     assert.equal(f.calls.filter(x => x === 'download').length, 1)
     assert(f.calls.indexOf('shutdown') > f.calls.indexOf('flush1'))
     assert(f.calls.indexOf('shutdown') > f.calls.indexOf('flush2'))
-    assert.deepEqual(f.calls.at(-1), ['install', false, true])
+    assert.deepEqual(f.calls.at(-1), ['install', true, true])
   } finally { f.service.dispose() }
 })
 
@@ -133,5 +133,26 @@ test('an installer launch error after shutdown recovers the application once', a
     assert.equal(recovered.length, 1)
     assert.match(recovered[0], /重新打开/)
     assert(f.calls.includes('shutdown'))
+  } finally { f.service.dispose() }
+})
+
+test('a backend that cannot exit cancels installation and reports the failure', async () => {
+  const f = fixture({ shutdown: async () => { throw new Error('后端进程尚未退出，已停止安装') } })
+  try {
+    await f.service.check(); await f.service.downloadAndInstall()
+    assert.equal(f.service.snapshot().status, 'downloaded')
+    assert.match(f.service.snapshot().error, /后端进程尚未退出/)
+    assert(f.calls.includes('/ai/runtime/update-cancel'))
+    assert(!f.calls.some(value => Array.isArray(value) && value[0] === 'install'))
+  } finally { f.service.dispose() }
+})
+
+
+test('update diagnostics identify preparation and installer request in order', async () => {
+  const recorded = []
+  const f = fixture({ diagnosticEvent: event => recorded.push(event) })
+  try {
+    await f.service.check(); await f.service.downloadAndInstall()
+    assert.deepEqual(recorded, ['update_prepare', 'update_installer_requested'])
   } finally { f.service.dispose() }
 })

@@ -29,6 +29,8 @@ let backendPort = 0
 let dataRoot = null
 let diagnosticEvent = () => {}
 let isQuitting = false
+let shutdownPromise = null
+let shutdownComplete = false
 let backendGaveUp = false // 启动失败已判定，避免 exit 事件再叠加弹框
 let notifyTimer = null
 let notifiedIds = new Set() // 已弹过系统通知的未读 id，防止每 30s 重复弹同一条
@@ -59,7 +61,7 @@ if (!gotLock) {
   app.on('second-instance', (_e, commandLine) => {
     // 第二实例带 --quit：让已有实例优雅退出（更新器/脚本的干净退出入口）
     if (commandLine.includes('--quit')) {
-      shutdownAndQuit()
+      shutdownAndQuit().catch(error => dialog.showErrorBox(APP_NAME, error.message))
       return
     }
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -324,7 +326,7 @@ function updateTrayMenu() {
       click: () => widget?.toggle() },
     { label: '悬浮窗与功能设置', click: () => showMainWindow('/settings?section=desktop') },
     { type: 'separator' },
-    { label: '退出', click: () => shutdownAndQuit() },
+    { label: '退出', click: () => shutdownAndQuit().catch(error => dialog.showErrorBox(APP_NAME, error.message)) },
   ]))
 }
 
@@ -393,44 +395,71 @@ function stopNotifyPolling() {
 // ---------- 优雅退出 ----------
 // 先 POST /shutdown（2s 超时）让后端备份落盘，等其自行退出；超时兜底 kill，最后 app.quit。
 // 托盘「退出」与 before-quit（系统关机等）统一走此路径。
-// opts.quit=false：自检模式复用同一关闭链（销毁托盘/窗口→/shutdown→等后端退出）但先不退出进程，
+// opts.quit=false：自检和更新等待后端退出，再销毁窗口，暂不退出主进程，
 // 留给调用方做 OS 级断言后显式退出，保证退出码语义确定。
+async function stopBackendForShutdown(child, port) {
+  // Capture the child before its exit handler clears the global reference, and
+  // subscribe before /shutdown can make it exit.
+  let exited = child.exitCode != null || child.signalCode != null
+  let onExit
+  const exit = new Promise(resolve => {
+    onExit = () => { exited = true; resolve(true) }
+    if (exited) resolve(true)
+    else child.once('exit', onExit)
+  })
+  const waitForExit = async () => {
+    let timer
+    try {
+      return await Promise.race([exit, new Promise(resolve => {
+        timer = setTimeout(() => resolve(false), SHUTDOWN_TIMEOUT)
+      })])
+    } finally { clearTimeout(timer) }
+  }
+  try {
+    await postShutdown(port, SHUTDOWN_TIMEOUT)
+    if (exited || await waitForExit()) return
+    console.log('[shell] 后端未在超时内退出，强杀兜底')
+    try { child.kill() } catch (error) { if (!exited) throw error }
+    if (!exited && !await waitForExit()) {
+      throw new Error('后端进程尚未退出，已停止安装，请关闭知时后重试。')
+    }
+  } finally { child.removeListener('exit', onExit) }
+}
+
 async function shutdownAndQuit(opts = {}) {
-  if (isQuitting) return
-  isQuitting = true
-  diagnosticEvent('shutdown')
-  stopNotifyPolling()
-  if (desktopSettings) { desktopSettings.dispose(); desktopSettings = null }
-  if (widget) { widget.dispose(); widget = null }
-  if (tray) { tray.destroy(); tray = null }
-  if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.destroy(); mainWindow = null }
-  if (backend && backendPort) {
-    console.log(`[shell] 优雅退出：POST /shutdown -> 127.0.0.1:${backendPort}`)
-    await postShutdown(backendPort, SHUTDOWN_TIMEOUT)
-    await new Promise((resolve) => {
-      const t = setTimeout(() => {
-        console.log('[shell] 后端未在超时内退出，强杀兜底')
-        try { backend.kill() } catch (_) { /* 已退出 */ }
-        resolve()
-      }, SHUTDOWN_TIMEOUT)
-      if (backend) {
-        backend.once('exit', () => { clearTimeout(t); resolve() })
-      } else {
-        clearTimeout(t)
-        resolve()
+  if (!shutdownPromise) {
+    isQuitting = true
+    shutdownPromise = (async () => {
+      diagnosticEvent('shutdown')
+      if (backend && backendPort) {
+        console.log(`[shell] 优雅退出：POST /shutdown -> 127.0.0.1:${backendPort}`)
+        await stopBackendForShutdown(backend, backendPort)
       }
+      // Keep the UI available to report a failed shutdown instead of leaving
+      // an invisible old process behind when installation must be cancelled.
+      stopNotifyPolling()
+      if (desktopSettings) { desktopSettings.dispose(); desktopSettings = null }
+      if (widget) { widget.dispose(); widget = null }
+      if (tray) { tray.destroy(); tray = null }
+      if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.destroy(); mainWindow = null }
+      shutdownComplete = true
+      console.log('[shell] 退出完成')
+    })().catch(error => {
+      isQuitting = false
+      shutdownPromise = null
+      throw error
     })
   }
-  console.log('[shell] 退出完成')
-  if (opts.quit === false) return
-  app.quit()
+  // Every caller must await completion, including a concurrent update request.
+  await shutdownPromise
+  if (opts.quit !== false) app.quit()
 }
 
 // before-quit 钩子：任何退出来源（系统关机/登出、app.quit）都先走优雅关闭
 app.on('before-quit', (e) => {
-  if (!isQuitting) {
+  if (!shutdownComplete) {
     e.preventDefault()
-    shutdownAndQuit()
+    shutdownAndQuit().catch(error => dialog.showErrorBox(APP_NAME, error.message))
   }
 })
 
@@ -668,7 +697,7 @@ if (gotLock) {
     desktopUpdates = require('./desktop-updates').createDesktopUpdates({
       updater: require('electron-updater').autoUpdater, ipcMain: require('electron').ipcMain, app,
       getWindows: () => [mainWindow, widget?.getWindow()], baseUrl: `http://127.0.0.1:${backendPort}`,
-      request: widgetRequest, shutdown: shutdownAndQuit, openReleases: url => shell.openExternal(url),
+      diagnosticEvent, request: widgetRequest, shutdown: shutdownAndQuit, openReleases: url => shell.openExternal(url),
       onInstallFailure: message => {
         diagnosticEvent('update_install_failed')
         dialog.showErrorBox(APP_NAME, message)

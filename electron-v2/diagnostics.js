@@ -3,7 +3,7 @@ const fs = require('fs')
 const path = require('path')
 
 const events = new Set(['startup', 'backend_started', 'backend_exit', 'backend_ready', 'startup_failed',
-  'window_loaded', 'window_load_failed', 'renderer_gone', 'unresponsive', 'update_install_failed', 'shutdown'])
+  'window_loaded', 'window_load_failed', 'renderer_gone', 'unresponsive', 'update_install_failed', 'update_prepare', 'update_installer_requested', 'update_error', 'shutdown'])
 
 function createDiagnostics(dataRoot, version) {
   const file = path.join(dataRoot, 'v2', 'logs', 'desktop-diagnostics.jsonl')
