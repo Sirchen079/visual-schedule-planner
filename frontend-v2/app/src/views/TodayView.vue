@@ -13,10 +13,16 @@
 import { computed, onMounted, ref } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useScheduleStore } from '../stores/schedule'
-import type { ConflictItem } from '../api/schedule'
+import type { ConflictItem, EventOccurrence } from '../api/schedule'
+import TaskDetailCard from '../components/calendar/TaskDetailCard.vue'
+import EventDetailCard from '../components/calendar/EventDetailCard.vue'
+import AgendaExtras from '../components/calendar/AgendaExtras.vue'
+import { fitsCalendarAxis, occurrenceKey, occurrenceTitle, occurrenceLanes } from '../utils/eventPlacement'
 import { blockPercent, hmToMinutes, hourLines, nowPercent } from '../utils/date'
 
 const schedule = useScheduleStore()
+const selectedItem = ref<EventOccurrence | null>(null)
+function openItem(item: EventOccurrence): void { selectedItem.value = item }
 
 /** 本地时钟（30s 粒度足够「现在」指示与进行中判定） */
 const now = ref(new Date())
@@ -36,6 +42,7 @@ const longDate = computed(() => {
 })
 
 interface TodayEntry {
+  source: EventOccurrence
   key: string
   title: string
   location: string | null
@@ -49,12 +56,16 @@ interface TodayEntry {
 const entries = computed<TodayEntry[]>(() => {
   const items = schedule.today ?? []
   const nowMin = now.value.getHours() * 60 + now.value.getMinutes()
-  const withMin = items.map((it, i) => {
+  const withMin = items.map((it) => {
     const s = it.start_time ? hmToMinutes(it.start_time) : null
     const e = it.end_time ? hmToMinutes(it.end_time) : null
+    const source: EventOccurrence = { ...it, date: it.date ?? schedule.todayDate,
+      event_id: it.event_id ?? null, start_time: it.start_time ?? null,
+      end_time: it.end_time ?? null, location: it.location ?? '', category: it.category ?? '' }
     return {
-      key: `${it.kind}-${it.event_id ?? it.task_id ?? i}`,
-      title: it.title,
+      source,
+      key: occurrenceKey(source),
+      title: occurrenceTitle(source),
       location: it.location ?? null,
       start: it.start_time ?? '--:--',
       end: it.end_time ?? '',
@@ -67,23 +78,28 @@ const entries = computed<TodayEntry[]>(() => {
   // 状态判定：已结束 / 进行中 / 下一节（未来最早一条）/ 未开始
   let nextAssigned = false
   return withMin.map((it) => {
+    if (it.source.task_status === 'done') return { ...it, state: 'past' as const }
     if (it.startMin === null) {
-      return { key: it.key, title: it.title, location: it.location, start: it.start, end: it.end, startMin: null, state: 'upcoming' as const }
+      return { source: it.source, key: it.key, title: it.title, location: it.location, start: it.start, end: it.end, startMin: null, state: 'upcoming' as const }
     }
     const endKnown = it.hasEnd ? (hmToMinutes(it.end) ?? it.startMin) : it.startMin
     if (endKnown <= nowMin) {
-      return { key: it.key, title: it.title, location: it.location, start: it.start, end: it.end, startMin: it.startMin, state: 'past' as const }
+      return { source: it.source, key: it.key, title: it.title, location: it.location, start: it.start, end: it.end, startMin: it.startMin, state: 'past' as const }
     }
     if (it.startMin <= nowMin) {
-      return { key: it.key, title: it.title, location: it.location, start: it.start, end: it.end, startMin: it.startMin, state: 'now' as const }
+      return { source: it.source, key: it.key, title: it.title, location: it.location, start: it.start, end: it.end, startMin: it.startMin, state: 'now' as const }
     }
     if (!nextAssigned) {
       nextAssigned = true
-      return { key: it.key, title: it.title, location: it.location, start: it.start, end: it.end, startMin: it.startMin, state: 'next' as const }
+      return { source: it.source, key: it.key, title: it.title, location: it.location, start: it.start, end: it.end, startMin: it.startMin, state: 'next' as const }
     }
-    return { key: it.key, title: it.title, location: it.location, start: it.start, end: it.end, startMin: it.startMin, state: 'upcoming' as const }
+    return { source: it.source, key: it.key, title: it.title, location: it.location, start: it.start, end: it.end, startMin: it.startMin, state: 'upcoming' as const }
   })
 })
+
+const lanes = computed(() => occurrenceLanes(entries.value.map(e => e.source)))
+const timedEntries = computed(() => entries.value.filter(e => fitsCalendarAxis(e.source)))
+const otherEntries = computed(() => entries.value.filter(e => !fitsCalendarAxis(e.source)))
 
 const stats = computed(() => {
   const list = entries.value
@@ -236,7 +252,7 @@ onMounted(() => {
 
       <div class="tv-foot">
         <template v-if="schedule.loadingToday">正在拉取今日日程…</template>
-        <template v-else-if="schedule.lastRefreshedAt">数据已就绪 · AI 写操作后自动刷新</template>
+        <template v-else-if="schedule.lastRefreshedAt">安排变更后自动刷新</template>
       </div>
 
       <div v-if="schedule.error" class="tv-error">
@@ -247,17 +263,19 @@ onMounted(() => {
 
     <!-- 右：当日时间轴 -->
     <div class="tv-main">
+      <AgendaExtras :items="otherEntries.map(e => e.source)" :paper="false" :show-date="false" @open="openItem" />
       <div class="tv-axis">
         <div class="gutter">
           <span v-for="t in hourTicks" :key="t.hm" :style="{ top: `${t.pct}%` }">{{ t.hm }}</span>
         </div>
         <div class="col" :data-empty="entries.length === 0">
           <!-- 日程块 -->
-          <template v-for="e in entries" :key="e.key">
+          <template v-for="e in timedEntries" :key="e.key">
             <div
               v-if="blockStyle(e.start, e.end)"
-              class="ev"
-              :style="blockStyle(e.start, e.end)!"
+              class="ev" role="button" tabindex="0" :title="`${e.title} · 查看详情`"
+              @click="openItem(e.source)" @keydown.enter.prevent="openItem(e.source)" @keydown.space.prevent="openItem(e.source)"
+              :style="[blockStyle(e.start, e.end)!, lanes[e.key]]"
               :data-state="isNowBlock(e.start, e.end) ? 'now' : isPastBlock(e.end) ? 'past' : 'todo'"
             >
               <div class="ev-title">{{ e.title }}</div>
@@ -281,16 +299,19 @@ onMounted(() => {
           <!-- 空态 -->
           <div v-if="!schedule.loadingToday && entries.length === 0" class="tv-empty">
             <div class="te-mark">今日无日程</div>
-            <p class="te-line">今天的日程会显示在这里。对左侧的知时说一句话，</p>
-            <p class="te-line">就能把今天安排上 —— 写操作会先请你批准。</p>
+            <p class="te-line">今天的日程、任务排期和截止事项会显示在这里。</p>
           </div>
         </div>
       </div>
     </div>
+    <TaskDetailCard :task-id="selectedItem?.task_id ?? null" :occurrence-date="selectedItem?.date" @close="selectedItem = null" />
+    <EventDetailCard :event-id="selectedItem?.event_id ?? null" :occurrence-date="selectedItem?.date" @close="selectedItem = null" />
   </section>
 </template>
 
 <style scoped>
+.ev { cursor: pointer; }
+
 .today-view {
   flex: 1;
   min-height: 0;

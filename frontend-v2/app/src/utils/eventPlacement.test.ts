@@ -1,11 +1,30 @@
 import { describe, expect, it } from 'vitest'
-import { fitsCalendarAxis, occurrenceTime } from './eventPlacement'
+import { fitsCalendarAxis, occurrenceTime, occurrenceKey, occurrenceLanes } from './eventPlacement'
 import { groupOccurrencesByDate } from '../stores/schedule'
 import type { EventOccurrence } from '../api/schedule'
 
 const base = { event_id: 1, title: '会议', date: '2032-01-16', location: '', category: 'general' }
 const make = (start_time: string | null, end_time: string | null): EventOccurrence => ({ ...base, start_time, end_time })
 describe('general calendar occurrences', () => {
+  it('separates event, schedule and deadline IDs and labels deadline times', () => {
+    const event = make('09:00', '10:00')
+    const task = { ...event, event_id: null, task_id: 1, entry_id: 1, kind: 'task' }
+    const due = { ...task, entry_id: null, kind: 'task_due', end_time: null }
+    expect(new Set([event, task, due].map(occurrenceKey)).size).toBe(3)
+    expect(occurrenceTime(due)).toBe('09:00 截止')
+    expect(fitsCalendarAxis(due)).toBe(false)
+  })
+  it('lays overlapping tasks and events side by side, reusing space after the group', () => {
+    const first = make('09:00', '10:00')
+    const second = { ...make('09:30', '10:30'), event_id: null, task_id: 1, entry_id: 1, kind: 'task' }
+    const third = { ...make('10:30', '11:00'), event_id: 3 }
+    const nextDay = { ...first, date: '2032-01-17' }
+    const lanes = occurrenceLanes([nextDay, third, second, first])
+    expect(lanes[occurrenceKey(first)].width).toContain('50%')
+    expect(lanes[occurrenceKey(second)].left).toContain('50%')
+    expect(lanes[occurrenceKey(third)].width).toContain('100%')
+    expect(lanes[occurrenceKey(nextDay)].width).toContain('100%')
+  })
   it('keeps all-day and incomplete intervals out of positioned blocks without inventing times', () => {
     expect(fitsCalendarAxis(make(null, null))).toBe(false)
     expect(occurrenceTime(make(null, null))).toBe('全天')

@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import AgendaExtras from './AgendaExtras.vue'
+import { occurrenceKey, occurrenceTitle, subtaskSummary, occurrenceLanes } from '../../utils/eventPlacement'
 /**
  * 周日历：展示后端展开的日程与待审批排期，支持打开事件详情。
  * 全天及轴外事件单独排列，定时事件按时间轴定位。
  */
-import { fitsCalendarAxis, occurrenceTime } from '../../utils/eventPlacement'
+import { fitsCalendarAxis } from '../../utils/eventPlacement'
 import { computed, onMounted, ref } from 'vue'
 import { useIntervalFn, useResizeObserver } from '@vueuse/core'
 import { useRunStore } from '../../stores/run'
@@ -14,6 +16,7 @@ import { blockPercent, cnNumber, hourLines, isoWeekNumber, mondayOf, parseIsoDat
 const emit = defineEmits<{ (e: 'open', occ: EventOccurrence): void }>()
 
 const schedule = useScheduleStore()
+const lanes = computed(() => occurrenceLanes(schedule.occurrences))
 const run = useRunStore()
 
 const WEEKDAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
@@ -113,7 +116,7 @@ function itemsOf(date: string): EventOccurrence[] {
 /** 课程块 tooltip：标题 + 查看详情提示 + repeat_note 周次规则（expand 透出时） */
 function blockTitle(o: EventOccurrence): string {
   const note = o.repeat_note?.trim()
-  return `${o.title} · 查看详情${note ? ` · ${note}` : ''}`
+  return `${occurrenceTitle(o)} · ${subtaskSummary(o)} · 查看详情${note ? ` · ${note}` : ''}`
 }
 
 function blockStyle(start: string, end: string): Record<string, string> | null {
@@ -148,7 +151,7 @@ onMounted(() => {
         </div>
         <div class="cell">
           <div class="num">{{ summary.days }}<small>天</small></div>
-          <div class="lbl">有课日</div>
+          <div class="lbl">有安排的天数</div>
         </div>
         <div v-if="pendingCount" class="cell">
           <div class="num warn">{{ pendingCount }}<small>项</small></div>
@@ -162,10 +165,7 @@ onMounted(() => {
     </div>
     <div class="mast-rule" />
 
-    <div v-if="otherItems.length" class="other-events">
-      <span class="other-label">全天与其他时段</span>
-      <button v-for="o in otherItems" :key="`${o.event_id}-${o.date}`" @click="emit('open', o)">{{ o.date.slice(5) }} · {{ occurrenceTime(o) }} · {{ o.title }}</button>
-    </div>
+    <AgendaExtras :items="otherItems" @open="emit('open', $event)" />
     <!-- 周视图：细线分栏（列有 min-width 下限，极窄窗口下纸内横向滚动而非挤碎） -->
     <div ref="weekEl" class="week">
       <div class="corner" />
@@ -189,15 +189,15 @@ onMounted(() => {
         <!-- 课程块（点击看详情便签；tooltip 带上 expand 透出的 repeat_note 周次规则） -->
         <div
           v-for="o in itemsOf(d).filter(fitsCalendarAxis)"
-          :key="`${o.event_id}-${o.date}`"
+          :key="occurrenceKey(o)"
           class="course"
-          :style="blockStyle(o.start_time, o.end_time)"
+          :style="[blockStyle(o.start_time, o.end_time), lanes[occurrenceKey(o)]]"
           :data-fit="courseFit(o.start_time, o.end_time)"
           role="button" tabindex="0"
           :title="blockTitle(o)"
           @click="emit('open', o)" @keydown.enter.prevent="emit('open', o)" @keydown.space.prevent="emit('open', o)"
         >
-          <div class="room">{{ o.location }}</div>
+          <div v-if="o.location" class="room">{{ o.location }}</div>
           <h3>{{ o.title }}</h3>
           <div class="meta">{{ o.start_time }}–{{ o.end_time }}</div>
         </div>
@@ -224,7 +224,7 @@ onMounted(() => {
           class="empty-note"
           style="top: 36%"
         >
-          本版无课<small>REST</small>
+          暂无安排<small>REST</small>
         </div>
       </div>
     </div>
@@ -233,10 +233,6 @@ onMounted(() => {
 
 <style scoped>
 
-.other-events { flex:none; display:flex; flex-wrap:wrap; gap:6px; max-height:120px; overflow:auto; padding:6px 2px 10px; font-size:12px; }
-.other-events .other-label { width:100%; color:var(--paper-ink-3); font-size:11px; }
-.other-events button { text-align:left; padding:6px 9px; border:1px solid var(--paper-line); border-radius:5px; color:var(--paper-ink); background:var(--paper-hi); }
-.other-events button:hover,.other-events button:focus-visible { border-color:var(--paper-accent); outline:1px solid var(--paper-accent); }
 
 /* ---- 纸面卡片：深色书桌上摊开的一张纸 ---- */
 .paper {

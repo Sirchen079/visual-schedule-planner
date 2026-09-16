@@ -48,7 +48,7 @@ test('one click downloads, flushes both windows and installs after shutdown', as
     assert.equal(f.calls.filter(x => x === 'download').length, 1)
     assert(f.calls.indexOf('shutdown') > f.calls.indexOf('flush1'))
     assert(f.calls.indexOf('shutdown') > f.calls.indexOf('flush2'))
-    assert.deepEqual(f.calls.at(-1), ['install', true, true])
+    assert.deepEqual(f.calls.at(-1), ['install', false, true])
   } finally { f.service.dispose() }
 })
 

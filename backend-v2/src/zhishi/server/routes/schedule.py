@@ -1,6 +1,6 @@
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from zhishi.domain import settingsvc
 from zhishi.domain.schedule import conflicts as cf
@@ -30,14 +30,22 @@ class EventDetailOut(BaseModel):
 
 # 只读日程视图的响应模型。
 
+class ScheduledSubtaskOut(BaseModel):
+    id: int
+    title: str
+    done: bool
+
+
 class DayItemOut(BaseModel):
-    """统一日视图条目：event（独立日程，含 event_id/date/location/category）
-    与 task（任务排期，含 task_id）按 kind 判别；两者字段取并集。"""
-    kind: str                      # "event" | "task"
+    """日历与今日条目：event、task、task_due、task_start，保留来源 ID 和子任务。"""
+    kind: str
     event_id: int | None = None
     task_id: int | None = None
+    entry_id: int | None = None
+    task_status: str | None = None
+    subtasks: list[ScheduledSubtaskOut] = Field(default_factory=list)
     title: str
-    date: str | None = None        # event 条目携带所属日期（RRULE 展开日）
+    date: str | None = None
     start_time: str | None = None
     end_time: str | None = None
     location: str | None = None
@@ -131,6 +139,14 @@ def list_entries(task_id: int | None = None, date_from: date | None = None,
         db, task_id=task_id, date_from=date_from, date_to=date_to)]
 
 
+@router.get("/tasks/{task_id}/entries", response_model=list[ScheduleEntryOut])
+def task_entries(task_id: int, db: Session = Depends(get_db)):
+    try:
+        return [_entry_dict(e) for e in service.task_entries(db, task_id)]
+    except LookupError:
+        raise HTTPException(404, "任务不存在")
+
+
 @router.post("/entries", status_code=201, response_model=ScheduleEntryOut)
 def create_entry(payload: ScheduleEntryCreate, db: Session = Depends(get_db)):
     try:
@@ -169,8 +185,20 @@ def month_view(year: int, month: int, db: Session = Depends(get_db)):
     return service.month_schedule(db, year, month)
 
 
+@router.get("/agenda", response_model=list[DayItemOut])
+def agenda(start: date, end: date, db: Session = Depends(get_db)):
+    if not 0 <= (end - start).days <= 366:
+        raise HTTPException(422, "日期范围应为 1 至 367 天")
+    return service.unified_range(db, start, end)
+
+
 @router.get("/range", response_model=dict[str, RangeDayLoad])
-def range_view(start: date, days: int = 7, db: Session = Depends(get_db)):
+def range_view(start: date, days: int = Query(default=7, ge=1, le=367),
+               end: date | None = None, db: Session = Depends(get_db)):
+    if end is not None:
+        days = (end - start).days + 1
+        if not 1 <= days <= 367:
+            raise HTTPException(422, "日期范围应为 1 至 367 天")
     return service.range_load(db, start, days)
 
 

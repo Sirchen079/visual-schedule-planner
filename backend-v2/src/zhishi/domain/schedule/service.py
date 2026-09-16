@@ -78,6 +78,15 @@ def _entries_between(db: Session, start: date, end: date) -> list[tuple[TaskSche
     return [(e, e.task) for e in db.scalars(stmt)]
 
 
+def task_entries(db: Session, task_id: int) -> list[TaskScheduleEntry]:
+    """任务详情读取全部已保存排期，不受列表默认的近 30 天窗口限制。"""
+    task = db.get(Task, task_id)
+    if task is None or task.deleted_at is not None:
+        raise LookupError(f"task {task_id} 不存在")
+    return list(db.scalars(select(TaskScheduleEntry).where(TaskScheduleEntry.task_id == task_id)
+                           .order_by(TaskScheduleEntry.date, TaskScheduleEntry.start_time, TaskScheduleEntry.id)))
+
+
 def day_schedule(db: Session, day: date) -> dict:
     pairs = _entries_between(db, day, day)
     items = [{"entry_id": e.id, "task_id": t.id, "title": t.title,
@@ -212,10 +221,45 @@ def expand_events_between(db: Session, start: date, end: date) -> list[dict]:
 
 
 def unified_day(db: Session, day: date) -> dict:
-    """统一日程视图：任务排期 + 独立日程合并（的 list_day_schedule 工具直接复用）。"""
-    items = [{"kind": "event", **e} for e in expand_events_between(db, day, day)]
-    items += [{"kind": "task", "task_id": i["task_id"], "title": i["title"],
-               "start_time": i["start_time"], "end_time": i["end_time"]}
-              for i in day_schedule(db, day)["tasks"]]
-    items.sort(key=lambda x: (x["start_time"] or "99:99"))
-    return {"date": day.isoformat(), "items": items}
+    return {"date": day.isoformat(), "items": unified_range(db, day, day)}
+
+
+def unified_range(db: Session, start: date, end: date) -> list[dict]:
+    """日历和今日共用：独立日程、任务排期、开始日及截止日。
+
+    子任务没有独立日期，随父任务安排显示；读取时投影，不复制为独立日程。
+    """
+    from sqlalchemy import or_
+
+    items = [{"kind": "event", **e} for e in expand_events_between(db, start, end)]
+    pairs = _entries_between(db, start, end)
+    lower = datetime.combine(start, dtime.min)
+    upper = datetime.combine(end + timedelta(days=1), dtime.min)
+    tasks = list(db.scalars(select(Task).where(
+        Task.deleted_at.is_(None),
+        or_(Task.id.in_({t.id for _, t in pairs}),
+            (Task.due_date >= lower) & (Task.due_date < upper),
+            (Task.start_date >= lower) & (Task.start_date < upper)),
+    ).options(selectinload(Task.subtasks))))
+    details = {t.id: {
+        "task_id": t.id, "title": t.title, "task_status": t.status,
+        "subtasks": [{"id": s.id, "title": s.title, "done": s.done}
+                     for s in sorted(t.subtasks, key=lambda s: s.id)],
+    } for t in tasks}
+    scheduled_days = {(t.id, e.date) for e, t in pairs}
+    for entry, task in pairs:
+        items.append({**details[task.id], "kind": "task", "entry_id": entry.id,
+                      "date": entry.date.isoformat(), "start_time": entry.start_time,
+                      "end_time": entry.end_time, "category": "task"})
+    for task in tasks:
+        due = task.due_date.date() if task.due_date else None
+        if due and start <= due <= end:
+            items.append({**details[task.id], "kind": "task_due", "date": due.isoformat(),
+                          "start_time": task.due_time, "end_time": None, "category": "task"})
+        begins = task.start_date.date() if task.start_date else None
+        if (begins and start <= begins <= end and begins != due
+                and (task.id, begins) not in scheduled_days):
+            items.append({**details[task.id], "kind": "task_start", "date": begins.isoformat(),
+                          "start_time": None, "end_time": None, "category": "task"})
+    return sorted(items, key=lambda x: (x["date"], x.get("start_time") or "99:99", x["kind"],
+                                       x.get("event_id", x.get("task_id", 0))))

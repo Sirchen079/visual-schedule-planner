@@ -1,9 +1,9 @@
 /** 日程状态：统一管理当天日程、日周月视图、冲突和空闲时段。
- * 日历通过 /events/expand 获取重复事件实例，再按日期分组。
+ * 日历通过 /agenda 获取日程、任务排期与日期节点，再按日期分组。
  * AI 执行结束后刷新已加载数据，今日数据加载时同时更新冲突与空闲时段。 */
 import { defineStore } from 'pinia'
 import type { ConflictDay, ConflictItem, DayItem, EventOccurrence, FreeSlot } from '../api/schedule'
-import { expandEvents, getConflicts, getDayView, getFreeSlots } from '../api/schedule'
+import { getAgenda, getConflicts, getDayView, getFreeSlots } from '../api/schedule'
 import { repeatRuleText } from '../utils/recurrence'
 import { addDays, addMonths, firstOfMonth, mondayOf, monthGridBounds, toIsoDate, weekDates } from '../utils/date'
 
@@ -101,7 +101,7 @@ export function projectGhosts(
     const g = ghostFromApproval(a)
     if (!g) continue
     if (visibleDates && !visibleDates.includes(g.date)) continue
-    const materialized = (byDate[g.date] ?? []).some((o) => o.start_time === g.start && o.end_time === g.end)
+    const materialized = (byDate[g.date] ?? []).some((o) => o.event_id != null && o.title === g.title && o.start_time === g.start && o.end_time === g.end)
     if (materialized) continue
     // 幽灵块的重复规则文案：审批 args 里的 recur_rrule → repeatRuleText（repeat_note
     // 优先、rrule 回退；args 无 repeat_note，AI create_event 不写该列——rrule 缺省则不显示）
@@ -253,7 +253,7 @@ export const useScheduleStore = defineStore('schedule', {
       this.error = null
       const monday = anchor ?? mondayOf(toIsoDate(new Date()))
       try {
-        const list = await expandEvents(monday, weekDates(monday)[6])
+        const list = await getAgenda(monday, weekDates(monday)[6])
         this.weekAnchor = monday
         this.occurrences = [...list].sort(
           (a, b) => a.date.localeCompare(b.date) || (a.start_time ?? '').localeCompare(b.start_time ?? ''),
@@ -289,7 +289,7 @@ export const useScheduleStore = defineStore('schedule', {
       this.loadingDayView = true
       this.error = null
       try {
-        const list = await expandEvents(d, d)
+        const list = await getAgenda(d, d)
         this.dayOccurrences = [...list].sort((a, b) => (a.start_time ?? '').localeCompare(b.start_time ?? ''))
         this.lastRefreshedAt = Date.now()
       } catch (e) {
@@ -313,7 +313,7 @@ export const useScheduleStore = defineStore('schedule', {
       this.error = null
       try {
         const { start, end } = monthGridBounds(first)
-        const list = await expandEvents(start, end)
+        const list = await getAgenda(start, end)
         this.monthOccurrences = [...list].sort(
           (a, b) => a.date.localeCompare(b.date) || (a.start_time ?? '').localeCompare(b.start_time ?? ''),
         )

@@ -697,6 +697,7 @@ if (gotLock) {
     desktopUpdates = require('./desktop-updates').createDesktopUpdates({
       updater: require('electron-updater').autoUpdater, ipcMain: require('electron').ipcMain, app,
       getWindows: () => [mainWindow, widget?.getWindow()], baseUrl: `http://127.0.0.1:${backendPort}`,
+      installUpdate: () => require('./update-install').installWithLaunchGuard(require('electron-updater').autoUpdater, app),
       diagnosticEvent, request: widgetRequest, shutdown: shutdownAndQuit, openReleases: url => shell.openExternal(url),
       onInstallFailure: message => {
         diagnosticEvent('update_install_failed')

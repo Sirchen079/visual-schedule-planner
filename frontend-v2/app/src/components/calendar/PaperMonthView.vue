@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { occurrenceKey, occurrenceTitle } from '../../utils/eventPlacement'
 /**
  * 月日历：展示每日事件摘要，支持选择日期和打开事件详情。
  */
@@ -43,7 +44,7 @@ const summary = computed(() => {
   return { count, days }
 })
 
-const headEm = computed(() => ` — ${cnNumber(summary.value.count)}项日程 · ${summary.value.days}个有课日`)
+const headEm = computed(() => ` — ${cnNumber(summary.value.count)}项安排 · ${summary.value.days}天有安排`)
 
 /** 审批幽灵块（月网格范围内；多个并存） */
 const ghosts = computed(() => projectGhosts(run.approvalLedger, schedule.monthByDate, null))
@@ -129,7 +130,7 @@ onMounted(() => {
             <span class="dn">{{ Number(d.slice(8)) }}</span>
             <span v-if="d === todayIso" class="tdy">今</span>
             <span v-if="ghostDates.has(d)" class="ghostmark" :title="'有待审批的新日程'">待批</span>
-            <button v-for="o in entriesOf(d)" :key="`${o.event_id}-${o.date}`" class="entry" :title="`修改行程：${o.title}`" @click.stop="emit('open', o)">{{ o.title }}</button>
+            <button v-for="o in entriesOf(d)" :key="occurrenceKey(o)" class="entry" :title="`修改行程：${o.title}`" @click.stop="emit('open', o)">{{ occurrenceTitle(o) }}</button>
             <span v-if="moreCount(d) > 0" class="more">等 {{ moreCount(d) }} 项</span>
           </div>
         </template>

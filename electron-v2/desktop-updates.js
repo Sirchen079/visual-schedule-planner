@@ -13,6 +13,7 @@ function newerVersion(candidate, current) {
 
 function createDesktopUpdates({ updater, ipcMain, app, getWindows, baseUrl, request,
   shutdown, openReleases, diagnosticEvent = () => {}, notify = () => {}, onInstallFailure = () => {}, enabled = app.isPackaged,
+  installUpdate = () => updater.quitAndInstall(false, true),
   prepareTimeout = 10000, startDelay = 20000, interval = 6 * 60 * 60 * 1000 }) {
   const origin = new URL(baseUrl).origin
   let state = { status: enabled ? 'idle' : 'unavailable', currentVersion: app.getVersion(),
@@ -116,8 +117,8 @@ function createDesktopUpdates({ updater, ipcMain, app, getWindows, baseUrl, requ
         await shutdown({ quit: false })
         stoppedForInstall = true
         diagnosticEvent('update_installer_requested')
-        // Install without a wizard and relaunch after the replacement completes.
-        updater.quitAndInstall(true, true)
+        // Wait for launch acceptance before allowing the application to quit.
+        await installUpdate()
       } catch (error) {
         diagnosticEvent('update_install_failed')
         if (stoppedForInstall && !recoveredInstallFailure) {

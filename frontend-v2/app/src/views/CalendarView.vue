@@ -6,7 +6,7 @@
  *   （位于 #head-actions）
  *   头部不放日期区间文本（纸面刊头已完整展示，重复即挤折内容头——修复）；
  *   控件满行时随壳层 .content-head 整体折到第二行，绝不挤压成竖排
- * - 三种视图数据同源：GET /api/schedule/events/expand（RRULE 后端展开）
+ * - 三种视图数据同源：GET /api/schedule/agenda（日程、任务排期与日期节点）
  * - 点击课程/事件块 → EventDetailCard 详情便签（RRULE 人类可读）；月历点击某天 → 日视图
  * - 桌面有一道自上而下的台灯暖光（--desk-glow），纸面浮于其上
  */
@@ -18,6 +18,7 @@ import PaperCalendar from '../components/calendar/PaperCalendar.vue'
 import PaperDayView from '../components/calendar/PaperDayView.vue'
 import PaperMonthView from '../components/calendar/PaperMonthView.vue'
 import EventDetailCard from '../components/calendar/EventDetailCard.vue'
+import TaskDetailCard from '../components/calendar/TaskDetailCard.vue'
 import { SHORTCUTS } from '../keymap'
 import { useViewHotkeys } from '../composables/useHotkeys'
 import { useScheduleStore } from '../stores/schedule'
@@ -112,11 +113,19 @@ function retry(): void {
 
 /** 详情便签：当前查看的事件 id（null = 关闭）与其 expand occurrence 携带的 repeat_note */
 const detailId = ref<number | null>(null)
+const taskDetailId = ref<number | null>(null)
 const detailOccurrenceDate = ref<string | null>(null)
 const route = useRoute(), router = useRouter()
 const detailRepeatNote = ref<string | null>(null)
 
 function openDetail(occ: EventOccurrence): void {
+  if (occ.task_id != null) {
+    detailId.value = null
+    taskDetailId.value = occ.task_id
+    detailOccurrenceDate.value = occ.date
+    return
+  }
+  taskDetailId.value = null
   detailId.value = occ.event_id
   detailOccurrenceDate.value = occ.date
   detailRepeatNote.value = occ.repeat_note ?? null
@@ -138,7 +147,7 @@ watch(() => route.fullPath, value => {
 }, { immediate: true })
 
 onMounted(() => {
-  if (!schedule.weekAnchor) void schedule.loadWeek()
+  void schedule.loadWeek(schedule.weekAnchor || undefined)
 })
 
 /* ---- 日历视图专属键（仅 /calendar 生效）----
@@ -201,6 +210,7 @@ useViewHotkeys(
       <PaperMonthView v-else @pick="pickDay" @open="openDetail" />
     </div>
 
+    <TaskDetailCard :task-id="taskDetailId" :occurrence-date="detailOccurrenceDate" @close="taskDetailId = null" />
     <!-- 事件详情便签卡（重复规则优用 expand 透出的 repeat_note，回退 RRULE 解读） -->
     <EventDetailCard
       :event-id="detailId" :occurrence-date="detailOccurrenceDate"

@@ -161,6 +161,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/schedule/tasks/{task_id}/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Task Entries */
+        get: operations["task_entries_api_schedule_tasks__task_id__entries_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/schedule/entries/{entry_id}": {
         parameters: {
             query?: never;
@@ -205,6 +222,23 @@ export interface paths {
         };
         /** Month View */
         get: operations["month_view_api_schedule_month_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/schedule/agenda": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Agenda */
+        get: operations["agenda_api_schedule_agenda_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3361,8 +3395,7 @@ export interface components {
         };
         /**
          * DayItemOut
-         * @description 统一日视图条目：event（独立日程，含 event_id/date/location/category）
-         *     与 task（任务排期，含 task_id）按 kind 判别；两者字段取并集。
+         * @description 日历与今日条目：event、task、task_due、task_start，保留来源 ID 和子任务。
          */
         DayItemOut: {
             /** Kind */
@@ -3371,6 +3404,12 @@ export interface components {
             event_id?: number | null;
             /** Task Id */
             task_id?: number | null;
+            /** Entry Id */
+            entry_id?: number | null;
+            /** Task Status */
+            task_status?: string | null;
+            /** Subtasks */
+            subtasks?: components["schemas"]["ScheduledSubtaskOut"][];
             /** Title */
             title: string;
             /** Date */
@@ -5412,6 +5451,15 @@ export interface components {
             /** Note */
             note?: string | null;
         };
+        /** ScheduledSubtaskOut */
+        ScheduledSubtaskOut: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            /** Done */
+            done: boolean;
+        };
         /** SearchBody */
         SearchBody: {
             /** Query */
@@ -6687,6 +6735,37 @@ export interface operations {
             };
         };
     };
+    task_entries_api_schedule_tasks__task_id__entries_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleEntryOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     delete_entry_api_schedule_entries__entry_id__delete: {
         parameters: {
             query?: never;
@@ -6814,11 +6893,44 @@ export interface operations {
             };
         };
     };
+    agenda_api_schedule_agenda_get: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DayItemOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     range_view_api_schedule_range_get: {
         parameters: {
             query: {
                 start: string;
                 days?: number;
+                end?: string | null;
             };
             header?: never;
             path?: never;

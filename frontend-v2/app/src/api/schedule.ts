@@ -1,7 +1,7 @@
 /**
  * 日程 REST 接口及生成类型别名。
  * /events/expand 返回按 RRULE 展开的日程，按 event_id 与日期区分实例。
- * /range 仅返回任务排期负载；日历课程使用 /events/expand。
+ * /range 返回任务排期负载；日历使用 /agenda 合并日程、任务排期及日期节点。
  */
 
 import type { components } from './contracts/rest'
@@ -19,9 +19,19 @@ export type ScheduleEntryCreate = schemas['ScheduleEntryCreate']
 export type ScheduleEntryUpdate = schemas['ScheduleEntryUpdate']
 export type MonthDay = schemas['MonthDayOut']
 
+export function getTaskEntries(taskId: number): Promise<ScheduleEntry[]> {
+  return http.get<ScheduleEntry[]>(`/api/schedule/tasks/${taskId}/entries`)
+}
+
 /** 展开日程保留真实的可空时间；全天与时间未定事项不能伪造为课程时段。
  * 地点、类别由领域服务始终返回字符串，空值用空字符串表达。 */
-export interface EventOccurrence extends Omit<schemas['ExpandedEventOut'], 'start_time' | 'end_time' | 'location' | 'category'> {
+export interface EventOccurrence extends Omit<schemas['ExpandedEventOut'], 'event_id' | 'start_time' | 'end_time' | 'location' | 'category'> {
+  event_id: number | null
+  kind?: string
+  task_id?: number | null
+  entry_id?: number | null
+  task_status?: string | null
+  subtasks?: schemas['ScheduledSubtaskOut'][]
   start_time: string | null
   end_time: string | null
   location: string
@@ -37,6 +47,14 @@ export type EventDetail = schemas['EventDetailOut']
 
 export function expandEvents(start: string, end: string): Promise<EventOccurrence[]> {
   return http.get<EventOccurrence[]>('/api/schedule/events/expand', { start, end })
+}
+
+/** 日历与今日共用的数据源，保留来源 ID 供点击时打开对应任务或日程。 */
+export async function getAgenda(start: string, end: string): Promise<EventOccurrence[]> {
+  const items = await http.get<DayItem[]>('/api/schedule/agenda', { start, end })
+  return items.map(item => ({ ...item, date: item.date!, event_id: item.event_id ?? null,
+    start_time: item.start_time ?? null, end_time: item.end_time ?? null,
+    location: item.location ?? '', category: item.category ?? '' }))
 }
 
 /** 任务负载视图：日期映射到排期明细与预估时长，不包含独立日程。 */

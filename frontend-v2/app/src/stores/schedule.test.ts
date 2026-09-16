@@ -147,7 +147,7 @@ describe('schedule store', () => {
       'fetch',
       vi.fn(async (url: string | URL | Request) => {
         const u = String(url)
-        if (u.startsWith('/api/schedule/events/expand')) {
+        if (u.startsWith('/api/schedule/agenda')) {
           // 模拟后端 expand 的区间语义：返回 [start, end] 内的展开条目
           const sp = new URLSearchParams(u.split('?')[1] ?? '')
           const start = sp.get('start') ?? ''
@@ -197,7 +197,7 @@ describe('schedule store', () => {
     const fetchMock = vi.mocked(globalThis.fetch)
     await s.loadWeek('2026-09-14')
     await s.refreshAll()
-    const expandCalls = fetchMock.mock.calls.map((c) => String(c[0])).filter((u) => u.includes('expand'))
+    const expandCalls = fetchMock.mock.calls.map((c) => String(c[0])).filter((u) => u.includes('agenda'))
     expect(expandCalls[expandCalls.length - 1]).toContain('start=2026-09-14')
     expect(s.loading).toBe(false)
   })
@@ -265,9 +265,9 @@ describe('schedule store', () => {
     fetchMock.mockClear()
     await s.refreshAll()
     const urls = fetchMock.mock.calls.map((c) => String(c[0]))
-    expect(urls.some((u) => u.includes('expand?start=2026-09-07&end=2026-09-13'))).toBe(true) // 周
-    expect(urls.some((u) => u.includes('expand?start=2026-09-07&end=2026-09-07'))).toBe(true) // 日
-    expect(urls.some((u) => u.includes('expand?start=2026-08-31&end=2026-10-11'))).toBe(true) // 月
+    expect(urls.some((u) => u.includes('agenda?start=2026-09-07&end=2026-09-13'))).toBe(true) // 周
+    expect(urls.some((u) => u.includes('agenda?start=2026-09-07&end=2026-09-07'))).toBe(true) // 日
+    expect(urls.some((u) => u.includes('agenda?start=2026-08-31&end=2026-10-11'))).toBe(true) // 月
   })
 
   it('接口失败：error 落消息，loading 复位', async () => {
@@ -402,7 +402,7 @@ describe('conflicts / freeSlots（冲突与空闲展示）', () => {
         if (u.startsWith('/api/schedule/day')) {
           return jsonResponse({ date: today, items: [] })
         }
-        if (u.startsWith('/api/schedule/events/expand')) {
+        if (u.startsWith('/api/schedule/agenda')) {
           return jsonResponse([])
         }
         return jsonResponse({ detail: 'unexpected ' + u }, 404)

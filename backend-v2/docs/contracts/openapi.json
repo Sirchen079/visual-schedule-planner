@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "zhishi-backend",
-    "version": "2.21.0"
+    "version": "2.22.0"
   },
   "paths": {
     "/api/tasks": {
@@ -717,6 +717,52 @@
         }
       }
     },
+    "/api/schedule/tasks/{task_id}/entries": {
+      "get": {
+        "tags": [
+          "schedule"
+        ],
+        "summary": "Task Entries",
+        "operationId": "task_entries_api_schedule_tasks__task_id__entries_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ScheduleEntryOut"
+                  },
+                  "title": "Response Task Entries Api Schedule Tasks  Task Id  Entries Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/schedule/entries/{entry_id}": {
       "patch": {
         "tags": [
@@ -900,6 +946,63 @@
         }
       }
     },
+    "/api/schedule/agenda": {
+      "get": {
+        "tags": [
+          "schedule"
+        ],
+        "summary": "Agenda",
+        "operationId": "agenda_api_schedule_agenda_get",
+        "parameters": [
+          {
+            "name": "start",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "Start"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "End"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DayItemOut"
+                  },
+                  "title": "Response Agenda Api Schedule Agenda Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/schedule/range": {
       "get": {
         "tags": [
@@ -924,8 +1027,27 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 367,
+              "minimum": 1,
               "default": 7,
               "title": "Days"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
             }
           }
         ],
@@ -10466,6 +10588,35 @@
             ],
             "title": "Task Id"
           },
+          "entry_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Id"
+          },
+          "task_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Status"
+          },
+          "subtasks": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduledSubtaskOut"
+            },
+            "type": "array",
+            "title": "Subtasks"
+          },
           "title": {
             "type": "string",
             "title": "Title"
@@ -10543,7 +10694,7 @@
           "title"
         ],
         "title": "DayItemOut",
-        "description": "统一日视图条目：event（独立日程，含 event_id/date/location/category）\n与 task（任务排期，含 task_id）按 kind 判别；两者字段取并集。"
+        "description": "日历与今日条目：event、task、task_due、task_start，保留来源 ID 和子任务。"
       },
       "DayViewOut": {
         "properties": {
@@ -15501,6 +15652,29 @@
         },
         "type": "object",
         "title": "ScheduleEntryUpdate"
+      },
+      "ScheduledSubtaskOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "done": {
+            "type": "boolean",
+            "title": "Done"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "done"
+        ],
+        "title": "ScheduledSubtaskOut"
       },
       "SearchBody": {
         "properties": {

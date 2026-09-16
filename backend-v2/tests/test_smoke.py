@@ -1,3 +1,3 @@
 def test_import_package():
     import zhishi
-    assert zhishi.__version__ == "2.21.2"
+    assert zhishi.__version__ == "2.22.0"

@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import AgendaExtras from './AgendaExtras.vue'
+import { occurrenceKey, occurrenceLanes } from '../../utils/eventPlacement'
 /**
  * 单日日历：按时间轴展示日程，全天和时间未定事项单独排列。
  */
-import { fitsCalendarAxis, occurrenceTime } from '../../utils/eventPlacement'
+import { fitsCalendarAxis } from '../../utils/eventPlacement'
 import { computed, onMounted, ref } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useRunStore } from '../../stores/run'
@@ -13,6 +15,7 @@ import { blockPercent, cnNumber, hourLines, nowPercent, parseIsoDate, toIsoDate 
 const emit = defineEmits<{ (e: 'open', occ: EventOccurrence): void }>()
 
 const schedule = useScheduleStore()
+const lanes = computed(() => occurrenceLanes(schedule.dayItems))
 const run = useRunStore()
 
 /** 本地时钟（「现在」指示线 30s 粒度） */
@@ -105,10 +108,7 @@ onMounted(() => {
     </div>
     <div class="mast-rule" />
 
-    <div v-if="otherItems.length" class="other-events">
-      <span class="other-label">全天与其他时段</span>
-      <button v-for="o in otherItems" :key="`${o.event_id}-${o.date}`" @click="emit('open', o)">{{ occurrenceTime(o) }} · {{ o.title }}</button>
-    </div>
+    <AgendaExtras :items="otherItems" :show-date="false" @open="emit('open', $event)" />
     <!-- 单日时间轴 -->
     <div class="dayaxis">
       <div class="gutter">
@@ -118,14 +118,14 @@ onMounted(() => {
         <!-- 课程块 -->
         <div
           v-for="o in timedItems"
-          :key="`${o.event_id}-${o.date}`"
+          :key="occurrenceKey(o)"
           class="course"
-          :style="blockStyle(o.start_time, o.end_time)"
+          :style="[blockStyle(o.start_time, o.end_time), lanes[occurrenceKey(o)]]"
           role="button" tabindex="0"
           :title="`${o.title} · 查看详情`"
           @click="emit('open', o)" @keydown.enter.prevent="emit('open', o)" @keydown.space.prevent="emit('open', o)"
         >
-          <div class="room">{{ o.location }}</div>
+          <div v-if="o.location" class="room">{{ o.location }}</div>
           <h3>{{ o.title }}</h3>
           <div class="meta">{{ o.start_time }}–{{ o.end_time }}</div>
         </div>
@@ -165,10 +165,6 @@ onMounted(() => {
 
 <style scoped>
 
-.other-events { flex:none; display:flex; flex-wrap:wrap; gap:6px; max-height:120px; overflow:auto; padding:6px 2px 10px; font-size:12px; }
-.other-events .other-label { width:100%; color:var(--paper-ink-3); font-size:11px; }
-.other-events button { text-align:left; padding:6px 9px; border:1px solid var(--paper-line); border-radius:5px; color:var(--paper-ink); background:var(--paper-hi); }
-.other-events button:hover,.other-events button:focus-visible { border-color:var(--paper-accent); outline:1px solid var(--paper-accent); }
 
 /* 纸面卡片基座与周历一致（.paper 类名共享最终样式由全局? 否——本组件独立成纸）：
    这里复刻同一纸面质感，全部取 --paper-* token，与 PaperCalendar 保持一致 */

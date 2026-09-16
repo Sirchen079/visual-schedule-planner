@@ -6,6 +6,8 @@
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useScheduleStore } from '../../stores/schedule'
 import ReminderFields from './ReminderFields.vue'
+import DetailDialog from './DetailDialog.vue'
+import { renderMarkdown } from '../../utils/md'
 import { getEvent, updateEvent, type EventDetail } from '../../api/schedule'
 import { registerEscLayer } from '../../composables/hotkeyPorts'
 import { categoryLabel, repeatRuleText } from '../../utils/recurrence'
@@ -157,12 +159,7 @@ const isRecurring = computed(
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="eventId !== null" class="detail-backdrop" @click.self="emit('close')">
-      <div class="note" role="dialog" aria-label="事件详情">
-        <span class="tape" />
-        <button class="close" title="关闭（Esc）" aria-label="关闭详情" @click="emit('close')">×</button>
-
+  <DetailDialog :open="eventId !== null" label="事件详情" @close="emit('close')">
         <!-- 加载状态提示 -->
         <div v-if="loading" class="state loading">
           <span class="state-mark">…</span>
@@ -178,9 +175,16 @@ const isRecurring = computed(
         </div>
 
         <template v-else-if="detail">
-          <div class="kicker">Event Note · 事件详情</div>
           <h3 class="title">{{ detail.title }}</h3>
 
+          <dl class="event-overview">
+            <dt>日期</dt><dd>{{ dateLabel }}</dd>
+            <dt>时间</dt><dd>{{ detail.start_time || (detail.end_time ? '开始未定' : '全天') }}{{ detail.end_time ? `–${detail.end_time}` : detail.start_time ? ' · 结束未定' : '' }}</dd>
+            <template v-if="detail.location"><dt>地点</dt><dd>{{ detail.location }}</dd></template>
+            <template v-if="isRecurring"><dt>重复</dt><dd>{{ recurText }}</dd></template>
+          </dl>
+          <section v-if="detail.notes" class="event-notes"><h4>详细说明</h4><div v-html="renderMarkdown(detail.notes)" /></section>
+          <details class="detail-section"><summary>编辑日程</summary>
           <form class="event-editor" @submit.prevent="saveEvent">
             <fieldset :disabled="saving">
               <label>行程名称<input id="event-edit-title" v-model="form.title" required maxlength="200" /></label>
@@ -205,6 +209,8 @@ const isRecurring = computed(
             </fieldset>
           </form>
 
+          </details>
+          <details class="detail-section"><summary>提醒设置 <span>{{ detail.remind_offsets?.length ? '已开启' : '未开启' }}</span></summary>
           <form class="reminder-editor" @submit.prevent="saveReminders">
             <ReminderFields v-model:offsets="reminderOffsets" v-model:reminder-time="reminderTime" :start-time="detail.start_time" :disabled="saving" />
             <p v-if="isRecurring" class="reminder-status">这里的提醒设置适用于整个重复日程系列。</p>
@@ -212,17 +218,27 @@ const isRecurring = computed(
             <p v-if="reminderNotice" class="reminder-status" role="status">{{ reminderNotice }}</p>
             <button id="event-reminder-save" class="btn-retry" :disabled="saving">{{ saving ? '保存中…' : '保存提醒' }}</button>
           </form>
+          </details>
           <div class="foot">
             <span class="mono">事件 #{{ detail.id }}</span>
 
           </div>
         </template>
-      </div>
-    </div>
-  </Teleport>
+  </DetailDialog>
 </template>
 
 <style scoped>
+.event-overview { display:grid; grid-template-columns:44px 1fr; gap:10px; font-size:13px; line-height:1.7; margin:20px 0; }
+.event-overview dt { color:var(--paper-ink-3); }
+.event-overview dd { margin:0; }
+.event-notes { border-top:1px solid var(--paper-line); padding-top:18px; margin:20px 0; font-size:14px; line-height:1.8; overflow-wrap:anywhere; }
+.event-notes h4 { font-size:13px; margin:0 0 12px; }
+.event-notes :deep(pre) { overflow:auto; }
+.event-notes :deep(ul),.event-notes :deep(ol) { padding-left:24px; }
+.detail-section { border-top:1px solid var(--paper-line); padding-top:16px; margin-top:20px; }
+.detail-section summary { font-size:13px; font-weight:600; cursor:pointer; margin-bottom:14px; }
+.detail-section summary span { color:var(--paper-ink-3); font-size:12px; font-weight:400; margin-left:8px; }
+
 .event-editor fieldset { border:0; padding:0; margin:0; min-width:0; display:grid; gap:11px; }
 .event-editor label { display:grid; gap:5px; font-size:12px; color:var(--paper-ink-2); min-width:0; }
 .event-editor input,.event-editor select,.event-editor textarea { box-sizing:border-box; width:100%; min-width:0; border:1px solid var(--paper-line); border-radius:7px; background:var(--paper-bg); color:var(--paper-ink); padding:8px 10px; font:inherit; font-size:13px; }
@@ -239,64 +255,6 @@ const isRecurring = computed(
   --line-2:var(--paper-line); --bg-app:var(--paper-hi); --amber:var(--paper-accent);
 }
 .reminder-status { font-size:12px; line-height:1.6; color:var(--paper-accent-text); margin:8px 0; }
-.detail-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  background: var(--paper-backdrop);
-  backdrop-filter: blur(2px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* 便签卡：纸面上钉着的一张便签（微倾斜 + 胶带 + 纸面投影） */
-.note {
-  position: relative;
-  width: 420px;
-  max-width: calc(100vw - 48px);
-  max-height: calc(100vh - 96px);
-  overflow-y: auto;
-  background: var(--paper-hi);
-  color: var(--paper-ink);
-  border: 1px solid var(--paper-line);
-  border-radius: 2px;
-  padding: 22px 20px 14px;
-  transform: rotate(-0.8deg);
-  box-shadow:
-    0 1px 0 var(--paper-block-shadow),
-    var(--paper-note-shadow-1),
-    var(--paper-note-shadow-2);
-}
-/* 胶带：牛皮纸色半透明斜贴 */
-.tape {
-  position: absolute;
-  top: -10px;
-  left: 50%;
-  width: 86px;
-  height: 20px;
-  transform: translateX(-50%) rotate(2deg);
-  background: var(--paper-kraft);
-  opacity: 0.85;
-  border-left: 1px solid var(--paper-line);
-  border-right: 1px solid var(--paper-line);
-}
-.close {
-  position: absolute;
-  top: 8px;
-  right: 10px;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  font-size: 16px;
-  line-height: 1;
-  color: var(--paper-ink-3);
-}
-.close:hover {
-  color: var(--paper-accent-text);
-  background: var(--paper-tint);
-}
-
 .state {
   padding: 18px 2px 14px;
   font-size: 13px;

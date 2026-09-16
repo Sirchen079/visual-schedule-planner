@@ -1,13 +1,15 @@
 <script setup lang="ts">
 /** 未来 14 天的任务截止日期与排期负载。
  * /range 提供任务排期，独立日程显示在日历页。子任务支持乐观更新及失败回滚。 */
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
+import TaskDetailCard from '../components/calendar/TaskDetailCard.vue'
 import AppIcon from '../components/AppIcon.vue'
 import DomainState from '../components/domain/DomainState.vue'
 import { useTasksStore } from '../stores/tasks'
 import { toIsoDate } from '../utils/date'
 
 const tasks = useTasksStore()
+const detailTaskId = ref<number | null>(null)
 const todayIso = toIsoDate(new Date())
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六']
 
@@ -73,13 +75,13 @@ onMounted(() => {
           <!-- 排程负载（range：任务排期明细） -->
           <div v-for="item in day.scheduled" :key="`s-${item.task_id ?? item.title}-${item.start_time ?? ''}`" class="slot">
             <span class="s-time">{{ item.start_time ?? '—' }}<template v-if="item.end_time">–{{ item.end_time }}</template></span>
-            <span class="s-title">{{ item.title }}</span>
+            <button class="s-title detail-link" @click="detailTaskId = item.task_id">{{ item.title }}</button>
             <span v-if="item.estimated_minutes" class="s-est">{{ item.estimated_minutes }} 分钟</span>
           </div>
           <!-- 该日截止任务 -->
           <div v-for="t in day.dueTasks" :key="`t-${t.id}`" class="due" :data-done="t.status === 'done'">
             <span class="due-tag">截止</span>
-            <span class="s-title">{{ t.title }}</span>
+            <button class="s-title detail-link" @click="detailTaskId = t.id">{{ t.title }}</button>
             <span class="s-time">{{ dueTime(t) || ' 全天' }}</span>
             <ul v-if="t.subtasks && t.subtasks.length > 0" class="due-subs" aria-label="子任务">
               <li v-for="s in t.subtasks" :key="s.id">
@@ -107,10 +109,13 @@ onMounted(() => {
         </div>
       </section>
     </div>
+    <TaskDetailCard :task-id="detailTaskId" @close="detailTaskId = null" />
   </section>
 </template>
 
 <style scoped>
+.detail-link { text-align:left; cursor:pointer; }
+.detail-link:hover { color:var(--amber-soft); text-decoration:underline; }
 .tl-view {
   flex: 1;
   min-height: 0;

@@ -107,6 +107,11 @@ onUnmounted(() => {
 const runStore = useRunStore()
 const scheduleStore = useScheduleStore()
 const tasksStore = useTasksStore()
+// 手动任务操作和 AI 写入一样，需要刷新已打开的日历、今日及时间轴。
+tasksStore.$onAction(({ name, after }) => {
+  if (!['create', 'remove', 'restore', 'setStatus', 'toggleSubtask'].includes(name)) return
+  after(result => { if (result) refreshDesktopTasks() })
+})
 const goalsStore = useGoalsStore()
 const habitsStore = useHabitsStore()
 const journalStore = useJournalStore()

@@ -7,8 +7,9 @@
  * - 新建任务：POST /api/tasks（标题必填，截止日/优先级可选）；软删除入回收站
  * - 数据：GET /api/tasks；run done 后由壳层自动刷新（App.vue 接线）
  */
-import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import TaskDetailCard from '../components/calendar/TaskDetailCard.vue'
 import AppIcon from '../components/AppIcon.vue'
 import DomainState from '../components/domain/DomainState.vue'
 import {
@@ -27,10 +28,14 @@ import { useHelpStore } from '../stores/help'
 const tasks = useTasksStore()
 const help = useHelpStore()
 const route = useRoute()
+const router = useRouter()
+const detailTaskId = ref<number | null>(null)
+function closeTaskDetail() { detailTaskId.value = null; if (route.query.task) void router.replace({ path: '/board' }) }
 const selectedTask = computed(() => {
   const value = route.query.task
   return typeof value === 'string' && /^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value)) ? Number(value) : null
 })
+watch(selectedTask, id => { detailTaskId.value = id }, { immediate:true })
 const visibleItems = computed(() => selectedTask.value ? (tasks.items ?? []).filter(t => t.id === selectedTask.value) : tasks.items ?? [])
 
 type GroupMode = 'status' | 'date'
@@ -171,7 +176,7 @@ onMounted(() => {
               <AppIcon v-if="t.status === 'done'" name="check" :size="15" />
             </button>
             <div class="card-main">
-              <div class="card-title" :data-done="t.status === 'done'">{{ t.title }}</div>
+              <button class="card-title" :data-done="t.status === 'done'" :aria-label="`查看任务详情：${t.title}`" @click="detailTaskId = t.id">{{ t.title }}</button>
               <div class="card-meta">
                 <span
                   v-if="dueLabel(t.due_date, t.due_time)"
@@ -182,7 +187,7 @@ onMounted(() => {
                 <span v-if="t.estimated_minutes" class="est">{{ t.estimated_minutes }} 分钟</span>
                 <span v-for="tag in t.tags" :key="tag" class="tag">{{ tag }}</span>
               </div>
-              <ul v-if="t.subtasks && t.subtasks.length > 0" class="subs" aria-label="子任务">
+              <details v-if="t.subtasks?.length" class="card-subtasks"><summary>子任务 · {{ t.subtasks.filter(s => s.done).length }}/{{ t.subtasks.length }}</summary><ul class="subs" aria-label="子任务">
                 <li v-for="s in t.subtasks" :key="s.id">
                   <button
                     class="sub-tick"
@@ -196,7 +201,7 @@ onMounted(() => {
                   <span class="sub-title" :data-done="s.done">{{ s.title }}</span>
                   <span v-if="s.estimated_minutes" class="sub-est">{{ s.estimated_minutes }} 分钟</span>
                 </li>
-              </ul>
+              </ul></details>
             </div>
             <button class="del" :aria-label="`删除任务 ${t.title}`" title="删除（入回收站）" @click="tasks.remove(t.id)">
               <AppIcon name="x" :size="13" />
@@ -228,13 +233,13 @@ onMounted(() => {
               <AppIcon v-if="t.status === 'done'" name="check" :size="15" />
             </button>
             <div class="card-main">
-              <div class="card-title" :data-done="t.status === 'done'">{{ t.title }}</div>
+              <button class="card-title" :data-done="t.status === 'done'" :aria-label="`查看任务详情：${t.title}`" @click="detailTaskId = t.id">{{ t.title }}</button>
               <div class="card-meta">
                 <span v-if="dueLabel(t.due_date, t.due_time)" class="due">{{ dueLabel(t.due_date, t.due_time) }} 截止</span>
                 <span class="prio" :data-prio="t.priority">{{ PRIORITY_LABEL[t.priority] }}优先</span>
                 <span v-for="tag in t.tags" :key="tag" class="tag">{{ tag }}</span>
               </div>
-              <ul v-if="t.subtasks && t.subtasks.length > 0" class="subs" aria-label="子任务">
+              <details v-if="t.subtasks?.length" class="card-subtasks"><summary>子任务 · {{ t.subtasks.filter(s => s.done).length }}/{{ t.subtasks.length }}</summary><ul class="subs" aria-label="子任务">
                 <li v-for="s in t.subtasks" :key="s.id">
                   <button
                     class="sub-tick"
@@ -248,7 +253,7 @@ onMounted(() => {
                   <span class="sub-title" :data-done="s.done">{{ s.title }}</span>
                   <span v-if="s.estimated_minutes" class="sub-est">{{ s.estimated_minutes }} 分钟</span>
                 </li>
-              </ul>
+              </ul></details>
             </div>
             <button class="del" :aria-label="`删除任务 ${t.title}`" title="删除（入回收站）" @click="tasks.remove(t.id)">
               <AppIcon name="x" :size="13" />
@@ -257,10 +262,14 @@ onMounted(() => {
         </section>
       </template>
     </div>
+    <TaskDetailCard :task-id="detailTaskId" @close="closeTaskDetail" />
   </section>
 </template>
 
 <style scoped>
+.card-title { text-align:left; width:100%; cursor:pointer; }
+.card-title:hover { color:var(--amber-soft); }
+.card-subtasks summary { cursor:pointer; font-size:12px; color:var(--ink-3); padding:8px 0; }
 .reminder-focus { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 16px; margin-bottom:16px; border:1px solid var(--amber); border-radius:10px; font-size:13px; }
 .reminder-focus a { color:var(--amber); white-space:nowrap; }
 .board-view {
