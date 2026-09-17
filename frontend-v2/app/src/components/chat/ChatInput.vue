@@ -21,6 +21,8 @@ const text = computed({ get: () => conv.draftText, set: value => { conv.draftTex
 const ownsRun = computed(() => run.conversationId === conv.activeId)
 const fileInput = ref<HTMLInputElement | null>(null)
 const ta = ref<HTMLTextAreaElement | null>(null)
+const draggingFiles = ref(false)
+const attachmentsDisabled = computed(() => run.isActive || conv.sending || conv.loading || conv.initializing || !!conv.remoteRunId)
 /** 计划模式：AI 先给 plan_card，批准后才执行（POST /ai/chat/stream body.plan_mode） */
 const planMode = ref(false)
 const brainstormMode = computed({ get: () => conv.activeBrainstormMode, set: value => conv.setBrainstormMode(value) })
@@ -119,9 +121,56 @@ function pickFile(): void {
 
 async function onFileChange(e: Event): Promise<void> {
   const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
+  const files = Array.from(input.files ?? [])
   input.value = ''
-  if (file) await conv.uploadAttachment(file)
+  await addFiles(files)
+}
+
+async function addFiles(files: File[]): Promise<void> {
+  if (!files.length) return
+  if (attachmentsDisabled.value) {
+    conv.error = '请等待当前操作结束后再添加附件。'
+    return
+  }
+  await Promise.all(files.map(file => conv.uploadAttachment(file)))
+}
+
+function onPaste(e: ClipboardEvent): void {
+  const data = e.clipboardData
+  if (!data) return
+  // files 和 items 通常包含同一张截图，只读取其中一个，避免重复上传。
+  const files = data.files.length ? Array.from(data.files) : Array.from(data.items)
+    .filter(item => item.kind === 'file').map(item => item.getAsFile()).filter((file): file is File => !!file)
+  if (!files.length) return
+  e.preventDefault()
+  const pastedText = data.getData('text/plain')
+  if (pastedText && ta.value) {
+    ta.value.setRangeText(pastedText, ta.value.selectionStart, ta.value.selectionEnd, 'end')
+    ta.value.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+  void addFiles(files.map(file => {
+    if (!file.type.startsWith('image/') || (file.name && !/^image\.(png|jpe?g|webp|bmp)$/i.test(file.name))) return file
+    const extension = file.type.split('/')[1]?.replace('jpeg', 'jpg') || 'png'
+    return new File([file], `截图-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`, { type: file.type })
+  }))
+}
+
+function onDragOver(e: DragEvent): void {
+  if (!e.dataTransfer?.types.includes('Files')) return
+  e.preventDefault()
+  e.dataTransfer.dropEffect = attachmentsDisabled.value ? 'none' : 'copy'
+  draggingFiles.value = !attachmentsDisabled.value
+}
+
+function onDragLeave(e: DragEvent): void {
+  if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node | null)) draggingFiles.value = false
+}
+
+function onDrop(e: DragEvent): void {
+  draggingFiles.value = false
+  if (!e.dataTransfer?.types.includes('Files')) return
+  e.preventDefault()
+  void addFiles(Array.from(e.dataTransfer.files))
 }
 
 function autogrow(e: Event): void {
@@ -137,16 +186,17 @@ function autogrow(e: Event): void {
     <button v-if="!ownsRun && run.isActive && run.conversationId" class="session-link" @click="conv.select(run.conversationId)">返回正在执行的会话</button>
     <button v-if="conv.remoteRunId && !run.hasLiveStream()" class="session-link" @click="stopRemote">停止此会话的运行</button>
     <button v-if="conv.sessionState?.can_resume && ownsRun && !run.hasLiveStream()" class="session-link" @click="run.openResumeStream()">继续待恢复的任务</button>
-    <div class="inputbox" :data-disabled="run.isActive">
+    <div class="inputbox" :data-disabled="run.isActive" :data-dragging="draggingFiles"
+      @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop">
       <!-- 附件 chips -->
-      <div v-if="conv.draftAttachments.length" class="chips">
+      <div v-if="conv.draftAttachments.length || conv.uploading" class="chips">
         <span v-for="a in conv.draftAttachments" :key="a.id" class="chip">
           {{ a.name }}
           <button class="chip-x" :title="'移除附件 ' + a.name" @click="conv.removeAttachment(a.id)">
             <AppIcon name="x" :size="11" />
           </button>
         </span>
-        <span v-if="conv.uploading" class="chip uploading">解析中…</span>
+        <span v-if="conv.uploading" class="chip uploading" role="status">正在上传并解析 {{ conv.pendingUploads }} 个附件…</span>
       </div>
       <textarea
         ref="ta"
@@ -157,12 +207,13 @@ function autogrow(e: Event): void {
         :disabled="conv.initializing"
         @keydown="onKeydown"
         @input="autogrow"
+        @paste="onPaste"
       />
       <div class="row">
-        <button class="ibtn" title="附件" :disabled="run.isActive || conv.uploading" @click="pickFile">
+        <button class="ibtn" title="添加附件（也可粘贴截图或拖入文件）" :disabled="attachmentsDisabled" @click="pickFile">
           <AppIcon name="paperclip" :size="16" />
         </button>
-        <input ref="fileInput" type="file" class="file-hidden" @change="onFileChange" />
+        <input ref="fileInput" type="file" multiple class="file-hidden" @change="onFileChange" />
         <button
           class="plan-toggle"
           :data-on="planMode ? '' : null"
@@ -223,6 +274,10 @@ function autogrow(e: Event): void {
 .inputbox[data-disabled='true'] {
   /* 浅色 --inputbox-disabled-opacity=1（整组 opacity 会把占位文字压到 <4.5:1）；暗色 fallback 0.75 不变 */
   opacity: var(--inputbox-disabled-opacity, 0.75);
+}
+.inputbox[data-dragging='true'] {
+  border-color: var(--amber);
+  background: var(--amber-wash);
 }
 .chips {
   display: flex;
