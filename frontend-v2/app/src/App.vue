@@ -10,6 +10,7 @@ import ChatPanel from './components/chat/ChatPanel.vue'
 import NotificationBell from './components/shell/NotificationBell.vue'
 import AppUpdate from './components/shell/AppUpdate.vue'
 import FocusBar from './components/shell/FocusBar.vue'
+import WelcomeRestNotice from './components/shell/WelcomeRestNotice.vue'
 import ShortcutsOverlay from './components/shell/ShortcutsOverlay.vue'
 import HelpCenter from './components/help/HelpCenter.vue'
 import { useHelpStore } from './stores/help'
@@ -314,6 +315,9 @@ watch(
 
     <!-- 番茄钟浮动条：壳层右下 fixed，全页面可见 -->
     <FocusBar />
+
+    <!-- 时段问候与连续专注休息提醒 -->
+    <WelcomeRestNotice />
 
     <!-- 快捷键速查浮层：? / Ctrl+/ 开关，Esc 或点击背板关闭（均由 useHotkeys 分发） -->
     <ShortcutsOverlay :open="shortcutsOpen" @close="shortcutsOpen = false" />
