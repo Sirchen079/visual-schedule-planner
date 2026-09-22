@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
 import { escapeHtml, renderMarkdown } from './md'
 
@@ -37,12 +38,34 @@ describe('assistant Markdown', () => {
   it.each(['javascript:alert(1)', 'data:text/html,evil', 'file:///C:/test', 'vbscript:evil', 'javascript&#58;evil'])('rejects active or local URLs: %s', href => {
     expect(renderMarkdown(`[打开](${href})`)).not.toContain('<a ')
   })
-  it('escapes raw HTML, SVG and handler attributes', () => {
-    const html = renderMarkdown('<img src=x onerror=alert(1)>\n\n<svg onload=alert(1)> **文字**')
-    expect(html).not.toMatch(/<(?:img|svg|script)\b/i)
-    expect(html).toContain('&lt;img')
+  it('renders sanitized raw HTML alongside markdown', () => {
+    const html = renderMarkdown('<b>加粗</b>与<span style="color:red">红色</span> **文字**\n\n<table><tr><th>表头</th></tr></table>')
+    expect(html).toContain('<b>加粗</b>')
+    expect(html).toContain('color:red')
     expect(html).toContain('<strong>文字</strong>')
+    expect(html).toContain('<table>')
     expect(escapeHtml('<script>"&')).toBe('&lt;script&gt;&quot;&amp;')
+  })
+  it('strips scripts, handlers, media and framing tags from raw HTML', () => {
+    const html = renderMarkdown('<script>alert(1)</script><img src=x onerror=alert(1)>\n\n<svg onload=alert(1)></svg>\n\n<span onclick="alert(1)">文本</span><iframe src="https://example.com"></iframe>')
+    expect(html).not.toMatch(/<(?:script|img|svg|iframe)\b/i)
+    expect(html).not.toContain('onerror')
+    expect(html).not.toContain('onclick')
+    expect(html).not.toContain('alert(1)')
+    expect(html).toContain('文本')
+  })
+  it('keeps remote-fetching CSS functions out of style attributes', () => {
+    const html = renderMarkdown('<div style="background:url(https://example.org/track.png)">追踪</div>')
+    expect(html).not.toContain('url(')
+    expect(html).toContain('追踪')
+  })
+  it('namespaces ids and hardens raw external anchors', () => {
+    expect(renderMarkdown('<div id="course">占位</div>')).toContain('id="user-content-course"')
+    const anchor = renderMarkdown('<a href="https://example.com" target="_blank">外链</a>')
+    expect(anchor).toContain('rel="noopener noreferrer"')
+    const unsafe = renderMarkdown('<a href="javascript:alert(1)">点我</a>')
+    expect(unsafe).not.toContain('javascript:')
+    expect(unsafe).toContain('点我')
   })
   it('does not fetch image links on render', () => {
     const html = renderMarkdown('![图片说明](https://example.com/image.png)')
