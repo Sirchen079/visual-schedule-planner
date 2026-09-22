@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { defaultFetchBinding, defaultSearchBinding, getVision, getWebServices, mcpServerIssue, mcpToolIssue, parseVisionArguments, removeTavilyKey, saveTavilyKey, saveVision, saveWebServices } from './networkServices'
+import { defaultFetchBinding, defaultSearchBinding, getVision, getWebServices, mcpServerIssue, mcpToolIssue, removeTavilyKey, saveTavilyKey, saveVision, saveWebServices } from './networkServices'
 import type { MCPServerInfo } from './settings'
 
 const server: MCPServerInfo = { id: 1, name: 'reader', transport: 'http', command: null, args_json: '[]', url: 'https://example.test/mcp', timeout_sec: 30, enabled: true, auto_approve_readonly: true, trusted: false, last_status: 'ok', last_error: null, created_at: '' }
@@ -36,9 +36,9 @@ describe('network service transport and credential isolation', () => {
     expect(request.mock.calls[1][1].method).toBe('DELETE')
     expect(request.mock.calls[1][1].body).toBeUndefined()
   })
-  it('saves vision consent and template as JSON, with no config wrapper', async () => {
+  it('saves vision server-level consent as JSON, with no config wrapper', async () => {
     const request = mockFetch()
-    const config = { enabled: true, server_id: 1, tool_name: 'inspect', arguments: { image: '{{image_data_url}}', prompt: '{{prompt}}' } }
+    const config = { enabled: true, server_id: 1 }
     await saveVision(config)
     expect(request.mock.calls[0][0]).toBe('/ai/vision')
     expect(JSON.parse(request.mock.calls[0][1].body)).toEqual(config)
@@ -54,6 +54,11 @@ describe('MCP readiness and compatible arguments', () => {
     expect(mcpServerIssue({ ...server, transport: 'stdio' })).toContain('受信任')
     expect(mcpServerIssue({ ...server, transport: 'stdio', trusted: true })).toBe('')
   })
+  it('vision lane skips the readonly auto-approval requirement', () => {
+    expect(mcpServerIssue({ ...server, auto_approve_readonly: false }, true)).toBe('')
+    expect(mcpServerIssue({ ...server, enabled: false }, true)).toContain('未启用')
+    expect(mcpServerIssue({ ...server, transport: 'stdio' }, true)).toContain('受信任')
+  })
   it('rejects missing or nonreadonly tools and identifies unmapped required arguments', () => {
     const tool = { name: 'search', description: '', read_only: true, input_schema: { required: ['query', 'locale'] } }
     expect(mcpToolIssue(undefined, {})).toContain('加载工具')
@@ -67,26 +72,3 @@ describe('MCP readiness and compatible arguments', () => {
   })
 })
 
-describe('vision parameter templates', () => {
-  it('preserves nested literal types and supported placeholders', () => {
-    const args = { messages: [{ image: '{{image_data_url}}', text: '{{ prompt }}' }], detail: true, count: 2, name: '{{filename}}', type: '{{mime_type}}' }
-    expect(parseVisionArguments(JSON.stringify(args), server, true)).toEqual(args)
-  })
-  it.each(['[]', 'null', '"text"', '{broken'])('rejects non-object or invalid JSON: %s', value => {
-    expect(() => parseVisionArguments(value, server, true)).toThrow(/JSON/)
-  })
-  it('requires image data when enabled and refuses unsupported or incomplete tokens', () => {
-    expect(() => parseVisionArguments('{"prompt":"{{prompt}}"}', server, true)).toThrow('必须包含')
-    for (const image of ['{{image_url}}', '{{image_data_url}', '{{IMAGE}}']) expect(() => parseVisionArguments(JSON.stringify({ image }), server, true)).toThrow()
-  })
-  it('only allows local paths for trusted stdio, even in disabled templates', () => {
-    const args = '{"image":"{{image_path}}"}'
-    expect(() => parseVisionArguments(args, server, false)).toThrow('本地 stdio')
-    expect(() => parseVisionArguments(args, { ...server, transport: 'stdio' }, true)).toThrow('本地 stdio')
-    expect(parseVisionArguments(args, { ...server, transport: 'stdio', trusted: true }, true)).toEqual({ image: '{{image_path}}' })
-  })
-  it('rejects credentials in nested mappings without echoing the supplied secret', () => {
-    try { parseVisionArguments('{"image":"{{image_data_url}}","options":{"api_key":"test-secret-never-echo"}}', server, true); throw new Error('expected validation rejection') }
-    catch (e) { expect(String(e)).toContain('凭据'); expect(String(e)).not.toContain('test-secret-never-echo') }
-  })
-})

@@ -4254,7 +4254,6 @@ export interface components {
             /** Mood */
             mood?: string | null;
         };
-        JsonValue: unknown;
         /** KeyResultCreate */
         KeyResultCreate: {
             /** Title */
@@ -6073,7 +6072,8 @@ export interface components {
         };
         /**
          * VisionConfig
-         * @description Saving enabled=True explicitly opts into automatic, readonly vision use.
+         * @description Server-level consent: saving enabled=True lets the MODEL pick any tool on
+         *     the bound server at runtime (via read_image). No fixed tool binding.
          */
         VisionConfig: {
             /**
@@ -6083,15 +6083,6 @@ export interface components {
             enabled?: boolean;
             /** Server Id */
             server_id?: number | null;
-            /**
-             * Tool Name
-             * @default
-             */
-            tool_name?: string;
-            /** Arguments */
-            arguments?: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
         };
         /** WatchConfig */
         WatchConfig: {

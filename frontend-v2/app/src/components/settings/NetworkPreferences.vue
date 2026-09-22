@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { listMcpServers, listMcpTools, type MCPServerInfo, type McpToolInfo } from '../../api/settings'
 import {
   defaultFetchBinding, defaultSearchBinding, getVision, getWebServices, mcpServerIssue,
-  mcpToolIssue, parseVisionArguments, removeTavilyKey, saveTavilyKey, saveVision,
+  mcpToolIssue, removeTavilyKey, saveTavilyKey, saveVision,
   saveWebServices, type VisionConfig, type WebProvider, type WebServicesConfig,
 } from '../../api/networkServices'
 
@@ -11,11 +11,11 @@ type Lane = 'search' | 'fetch' | 'vision'
 const lanes: { key: Lane; title: string; description: string; number: string }[] = [
   { key: 'search', title: '联网搜索', description: '查找网页与来源，返回标题、链接和摘要。', number: '01' },
   { key: 'fetch', title: '网页读取', description: '读取指定链接的正文，可与搜索使用不同服务。', number: '02' },
-  { key: 'vision', title: '视觉 MCP 补充', description: '当前模型或传输不支持图片时，先将图片交给指定工具，再把识别文字交给模型。', number: '03' },
+  { key: 'vision', title: '视觉 MCP 补充', description: '当前模型或传输不支持图片时，模型自行选择所选服务器上的工具识别图片。', number: '03' },
 ]
 const web = ref<WebServicesConfig | null>(null), vision = ref<VisionConfig | null>(null)
 const search = ref(defaultSearchBinding()), reader = ref(defaultFetchBinding())
-const visionText = ref(''), keyInput = ref(''), hasKey = ref(false)
+const keyInput = ref(''), hasKey = ref(false)
 const loading = reactive({ web: true, vision: true, servers: false })
 const busy = reactive({ web: false, vision: false, key: false })
 const errors = reactive({ web: '', vision: '', servers: '', key: '' })
@@ -28,6 +28,7 @@ const anyBusy = computed(() => busy.web || busy.vision || busy.key)
 const tavilySelected = computed(() => web.value?.search_provider === 'tavily' || web.value?.fetch_provider === 'tavily')
 const message = (e: unknown, fallback: string) => e instanceof Error ? e.message : fallback
 function binding(lane: Lane) { return lane === 'search' ? search.value : lane === 'fetch' ? reader.value : vision.value! }
+function webBinding(lane: Lane) { return lane === 'search' ? search.value : reader.value }
 function usesMcp(lane: Lane) { return lane === 'vision' ? !!vision.value?.enabled : provider(lane) === 'mcp' }
 function provider(lane: Lane): WebProvider { return lane === 'search' ? web.value!.search_provider : web.value!.fetch_provider }
 function touch(lane: Lane) { saved[lane === 'vision' ? 'vision' : 'web'] = '' }
@@ -36,21 +37,21 @@ function setProvider(lane: Lane, event: Event) {
   if (lane === 'search') web.value!.search_provider = value
   else web.value!.fetch_provider = value
   touch(lane)
-  if (value === 'mcp') void loadTools(binding(lane).server_id)
+  if (value === 'mcp') void loadTools(binding(lane).server_id, false, lane === 'vision')
 }
 function selectedServer(lane: Lane) { return servers.value.find(s => s.id === binding(lane).server_id) }
-function selectedTool(lane: Lane) { return tools[binding(lane).server_id ?? 0]?.find(t => t.name === binding(lane).tool_name) }
+function selectedTool(lane: Lane) { return tools[webBinding(lane).server_id]?.find(t => t.name === webBinding(lane).tool_name) }
 function schemaText(lane: Lane) { return JSON.stringify(selectedTool(lane)?.input_schema ?? {}, null, 2) }
 function changeServer(lane: Lane, event: Event) {
   const value = Number((event.target as HTMLSelectElement).value)
   binding(lane).server_id = value || (lane === 'vision' ? null : 0)
-  binding(lane).tool_name = ''
+  if (lane !== 'vision') webBinding(lane).tool_name = ''
   touch(lane)
-  void loadTools(value)
+  if (lane !== 'vision') void loadTools(value)
 }
-async function loadTools(id: number | null, force = false) {
+async function loadTools(id: number | null, force = false, vision = false) {
   if (!id || toolBusy[id] || (!force && tools[id])) return
-  const issue = mcpServerIssue(servers.value.find(s => s.id === id))
+  const issue = mcpServerIssue(servers.value.find(s => s.id === id), vision)
   if (issue) { toolErrors[id] = issue; return }
   toolBusy[id] = true; toolErrors[id] = ''; delete tools[id]
   try { tools[id] = await listMcpTools(id) }
@@ -63,7 +64,7 @@ async function loadServers() {
   try {
     servers.value = await listMcpServers()
     for (const id of Object.keys(tools)) delete tools[Number(id)]
-    await Promise.all(lanes.filter(l => (l.key === 'vision' ? vision.value : web.value) && usesMcp(l.key)).map(l => loadTools(binding(l.key).server_id)))
+    await Promise.all(lanes.filter(l => l.key !== 'vision' && web.value && usesMcp(l.key)).map(l => loadTools(binding(l.key).server_id)))
   } catch { errors.servers = 'MCP 服务器清单读取失败；内置服务和 Tavily 仍可独立设置。' }
   finally { loading.servers = false }
 }
@@ -79,12 +80,14 @@ async function loadWeb() {
 }
 async function loadVision() {
   loading.vision = true; errors.vision = ''
-  try { vision.value = await getVision(); visionText.value = JSON.stringify(vision.value.arguments, null, 2) }
+  try { vision.value = await getVision() }
   catch (e) { errors.vision = message(e, '视觉设置读取失败') }
   finally { loading.vision = false }
 }
 function assertBinding(lane: Lane, args: Record<string, unknown>) {
-  const issue = mcpServerIssue(selectedServer(lane)) || mcpToolIssue(selectedTool(lane), args)
+  const vision = lane === 'vision'
+  const issue = mcpServerIssue(selectedServer(lane), vision)
+    || (vision ? '' : mcpToolIssue(selectedTool(lane), args))
   if (issue) throw new Error(`${lanes.find(l => l.key === lane)!.title}：${issue}`)
 }
 async function saveWeb() {
@@ -110,12 +113,11 @@ async function saveVisionConfig() {
   try {
     // Disabling must remain possible after the selected server is removed.
     const config: VisionConfig = vision.value.enabled
-      ? { ...vision.value, arguments: parseVisionArguments(visionText.value, selectedServer('vision'), true) }
-      : { enabled: false, server_id: null, tool_name: '', arguments: { image: '{{image_data_url}}', prompt: '{{prompt}}' } }
-    if (config.enabled) assertBinding('vision', config.arguments)
+      ? { enabled: true, server_id: vision.value.server_id }
+      : { enabled: false, server_id: null }
+    if (config.enabled) assertBinding('vision', {})
     vision.value = await saveVision(config)
-    visionText.value = JSON.stringify(vision.value.arguments, null, 2)
-    saved.vision = config.enabled ? '视觉补充已启用；后续符合条件的图片会发送至所选服务' : '视觉补充已关闭'
+    saved.vision = config.enabled ? '视觉补充已启用；需要读图时模型会自行选择该服务器的工具' : '视觉补充已关闭'
   } catch (e) { errors.vision = message(e, '视觉设置保存失败，请重试') }
   finally { busy.vision = false }
 }
@@ -148,7 +150,7 @@ onMounted(async () => { await Promise.all([loadWeb(), loadVision()]); await load
               <option value="builtin">内置 · 无需 API Key</option><option value="tavily">Tavily</option><option value="mcp">MCP 工具</option>
             </select>
           </label>
-          <label v-else class="consent"><input id="network-vision-enabled" v-model="vision!.enabled" type="checkbox" aria-label="启用视觉补充并允许发送图片" @change="vision!.enabled && loadTools(vision!.server_id)"><span><strong>启用视觉补充并允许发送图片</strong><small>开启并保存后，本地上传文件中的图片数据、文件名和提问会发送到所选 MCP 服务；本地路径模板还会让受信任的本地工具读取该文件。请确认你信任此服务。</small></span></label>
+          <label v-else class="consent"><input id="network-vision-enabled" v-model="vision!.enabled" type="checkbox" aria-label="启用视觉补充并允许发送图片"><span><strong>启用视觉补充并允许发送图片</strong><small>开启并保存后，需要读图时，图片数据和文件名会发送到所选 MCP 服务，由模型自行选择该服务器上的工具进行识别；本地路径注入还会让受信任的本地工具读取该文件。请确认你信任此服务。</small></span></label>
           <p v-if="lane.key !== 'vision' && provider(lane.key) === 'builtin'" class="hint">{{ lane.key === 'search' ? '使用内置联网搜索，无需配置密钥。' : '使用内置网页正文提取，无需配置密钥。' }}</p>
           <label v-if="lane.key !== 'vision' && provider(lane.key) === 'tavily'" class="field depth">处理深度
             <select v-if="lane.key === 'search'" v-model="web!.tavily_search_depth" aria-label="Tavily 搜索深度"><option value="basic">标准搜索（basic）</option><option value="advanced">深入搜索（advanced）</option></select>
@@ -161,22 +163,23 @@ onMounted(async () => { await Promise.all([loadWeb(), loadVision()]); await load
                 <select :id="`network-${lane.key}-server`" :aria-label="`${lane.title} MCP 服务器`" :value="binding(lane.key).server_id || 0" :disabled="loading.servers" @change="changeServer(lane.key, $event)">
                   <option :value="0">选择已配置的服务器</option>
                   <option v-if="binding(lane.key).server_id && !selectedServer(lane.key)" :value="binding(lane.key).server_id">原服务器已不可用（{{ binding(lane.key).server_id }}）</option>
-                  <option v-for="server in servers" :key="server.id" :value="server.id" :disabled="!!mcpServerIssue(server)">{{ server.name }}{{ mcpServerIssue(server) ? ` · ${mcpServerIssue(server)}` : '' }}</option>
+                  <option v-for="server in servers" :key="server.id" :value="server.id" :disabled="!!mcpServerIssue(server, lane.key === 'vision')">{{ server.name }}{{ mcpServerIssue(server, lane.key === 'vision') ? ` · ${mcpServerIssue(server, lane.key === 'vision')}` : '' }}</option>
                 </select>
               </label>
-              <label class="field">只读工具
-                <select :id="`network-${lane.key}-tool`" :aria-label="`${lane.title}只读工具`" v-model="binding(lane.key).tool_name" :disabled="!!mcpServerIssue(selectedServer(lane.key)) || !!toolBusy[binding(lane.key).server_id || 0]">
+              <label v-if="lane.key !== 'vision'" class="field">只读工具
+                <select :id="`network-${lane.key}-tool`" :aria-label="`${lane.title}只读工具`" v-model="webBinding(lane.key).tool_name" :disabled="!!mcpServerIssue(selectedServer(lane.key)) || !!toolBusy[binding(lane.key).server_id || 0]">
                   <option value="">选择工具</option>
-                  <option v-if="binding(lane.key).tool_name && !selectedTool(lane.key)" :value="binding(lane.key).tool_name">{{ binding(lane.key).tool_name }} · 尚未验证</option>
+                  <option v-if="webBinding(lane.key).tool_name && !selectedTool(lane.key)" :value="webBinding(lane.key).tool_name">{{ webBinding(lane.key).tool_name }} · 尚未验证</option>
                   <option v-for="tool in tools[binding(lane.key).server_id || 0] || []" :key="tool.name" :value="tool.name" :disabled="!tool.read_only">{{ tool.name }}{{ !tool.read_only ? ' · 非只读，不可选' : '' }}</option>
                 </select>
               </label>
             </div>
-            <div class="tool-actions"><button type="button" :disabled="!!mcpServerIssue(selectedServer(lane.key)) || !!toolBusy[binding(lane.key).server_id || 0]" @click="loadTools(binding(lane.key).server_id, true)">{{ toolBusy[binding(lane.key).server_id || 0] ? '正在加载工具…' : '重新加载工具' }}</button><span v-if="tools[binding(lane.key).server_id || 0]?.length === 0">服务器未返回可用工具</span></div>
-            <p v-if="mcpServerIssue(selectedServer(lane.key))" class="hint">{{ mcpServerIssue(selectedServer(lane.key)) }}。请先在 MCP 管理中启用服务器、允许自动执行只读工具；stdio 还需标记为受信任。</p>
-            <p v-if="toolErrors[binding(lane.key).server_id || 0]" class="error" role="alert">{{ toolErrors[binding(lane.key).server_id || 0] }}</p>
-            <p v-if="selectedTool(lane.key)?.description" class="hint tool-description">{{ selectedTool(lane.key)?.description }}</p>
-            <details class="advanced">
+            <p v-if="lane.key === 'vision'" class="hint">不需要预先选择工具：模型读图时会自行查询该服务器提供的工具并按其参数格式构造请求。</p>
+            <div v-if="lane.key !== 'vision'" class="tool-actions"><button type="button" :disabled="!!mcpServerIssue(selectedServer(lane.key)) || !!toolBusy[binding(lane.key).server_id || 0]" @click="loadTools(binding(lane.key).server_id, true)">{{ toolBusy[binding(lane.key).server_id || 0] ? '正在加载工具…' : '重新加载工具' }}</button><span v-if="tools[binding(lane.key).server_id || 0]?.length === 0">服务器未返回可用工具</span></div>
+            <p v-if="mcpServerIssue(selectedServer(lane.key), lane.key === 'vision')" class="hint">{{ mcpServerIssue(selectedServer(lane.key), lane.key === 'vision') }}。请先在 MCP 管理中启用服务器{{ lane.key === 'vision' ? '' : '、允许自动执行只读工具' }}；stdio 还需标记为受信任。</p>
+            <p v-if="lane.key !== 'vision' && toolErrors[binding(lane.key).server_id || 0]" class="error" role="alert">{{ toolErrors[binding(lane.key).server_id || 0] }}</p>
+            <p v-if="lane.key !== 'vision' && selectedTool(lane.key)?.description" class="hint tool-description">{{ selectedTool(lane.key)?.description }}</p>
+            <details v-if="lane.key !== 'vision'" class="advanced">
               <summary>高级：参数兼容与结果映射</summary>
               <p class="hint">先查看所选工具需要的参数，再调整对应字段；保存网页 MCP 设置会校验工具清单，不会执行搜索、读取网页或发送图片。</p>
               <template v-if="lane.key === 'search'">
@@ -188,14 +191,10 @@ onMounted(async () => { await Promise.all([loadWeb(), loadVision()]); await load
                 <label class="check"><input v-model="reader.url_as_list" type="checkbox">以数组发送地址（如 urls: [地址]）</label>
                 <p class="hint">例如 Tavily MCP Extract：地址参数填 urls，勾选数组，正文路径填 results.0.raw_content。路径以点分隔，最多 8 层。</p>
               </template>
-              <template v-else>
-                <label class="field">视觉参数模板（JSON）<textarea id="network-vision-arguments" v-model="visionText" rows="8" spellcheck="false" aria-label="视觉参数模板 JSON"></textarea></label>
-                <p class="hint" v-pre>将参数名改为工具实际要求的名称。支持 {{image_data_url}}、{{prompt}}、{{filename}}、{{mime_type}}；{{image_path}} 仅可用于受信任的本地 stdio 服务。凭据请配置在 MCP 服务器中。</p>
-              </template>
               <details v-if="selectedTool(lane.key)" class="schema"><summary>查看工具输入格式</summary><pre>{{ schemaText(lane.key) }}</pre></details>
             </details>
           </div>
-          <p v-if="lane.key === 'vision' && !vision!.enabled" class="hint">已关闭。支持图片的模型仍按能力配置直接接收图片；否则会明确提示图片未读取。音频、视频不使用此视觉补充。</p>
+          <p v-if="lane.key === 'vision' && !vision!.enabled" class="hint">已关闭。支持图片的模型仍按能力配置直接接收图片；否则附件会提示模型图片未读取，且不猜测内容。音频、视频不使用此视觉补充。</p>
         </fieldset>
         <p v-if="lane.key === 'fetch' && errors.web" class="error" role="alert">{{ errors.web }}</p>
         <p v-if="lane.key === 'vision' && errors.vision" class="error" role="alert">{{ errors.vision }}</p>

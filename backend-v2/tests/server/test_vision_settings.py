@@ -4,7 +4,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from zhishi.agent.attachments import VISION_SETTING_KEY
+from zhishi.agent.attachments import VISION_SETTING_KEY, server_fingerprint
 from zhishi.domain.models import AppSetting, MCPServer
 from zhishi.server.deps import get_db
 from zhishi.server.routes.vision import router
@@ -28,7 +28,7 @@ def client(db, monkeypatch):
 @pytest.fixture
 def server(db):
     row = MCPServer(name='vision', transport='http', url='http://unused.invalid/mcp',
-                    enabled=True, auto_approve_readonly=True,
+                    enabled=True, auto_approve_readonly=False,
                     headers_json='{"Authorization":"private-token"}')
     db.add(row)
     db.commit()
@@ -36,14 +36,14 @@ def server(db):
 
 
 def body(server, **kwargs):
-    return {'enabled': True, 'server_id': server.id, 'tool_name': 'describe', **kwargs}
+    return {'enabled': True, 'server_id': server.id, **kwargs}
 
 
 def test_save_read_delete_nonsecret_binding(client, db, server):
     assert client.get('/ai/vision').json()['enabled'] is False
     response = client.put('/ai/vision', json=body(server))
     assert response.status_code == 200
-    assert response.json()['arguments']['image'] == '{{image_data_url}}'
+    assert response.json() == {'enabled': True, 'server_id': server.id}
     assert client.get('/ai/vision').json() == response.json()
     stored = db.get(AppSetting, VISION_SETTING_KEY).value
     assert json.loads(stored)['server_fingerprint']
@@ -53,15 +53,23 @@ def test_save_read_delete_nonsecret_binding(client, db, server):
     assert client.get('/ai/vision').json()['enabled'] is False
 
 
-@pytest.mark.parametrize('arguments', [
-    {'image': '{{unknown}}'}, {'image': '{{image_data_url}'}, {'image': '{{prompt}}'},
-    {'image': '{{image_data_url}}', 'api_key': 'private'},
-    {'image': '{{image_data_url}}', 'nested': {'Authorization': 'private'}},
-    {'image': '{{image_data_url}}', 'x': 'x' * 17000},
-])
-def test_invalid_template_rejected_without_write(client, db, server, arguments):
-    assert client.put('/ai/vision', json=body(server, arguments=arguments)).status_code == 422
+def test_legacy_tool_binding_fields_are_rejected(client, db, server):
+    """固定工具绑定已移除（模型运行时自选工具）；旧字段按未知字段拒绝。"""
+    legacy = body(server, tool_name='describe',
+                  arguments={'image': '{{image_data_url}}'})
+    assert client.put('/ai/vision', json=legacy).status_code == 422
     assert db.get(AppSetting, VISION_SETTING_KEY) is None
+
+
+def test_legacy_stored_setting_loads_after_key_strip(client, db, server):
+    """存量设置带旧 tool_name/arguments 键：读取时剥离，不报「配置无效」。"""
+    fingerprint = server_fingerprint(server)
+    db.merge(AppSetting(key=VISION_SETTING_KEY, value=json.dumps({
+        'enabled': True, 'server_id': server.id, 'tool_name': 'describe',
+        'arguments': {'image': '{{image_data_url}}'},
+        'server_fingerprint': fingerprint})))
+    db.commit()
+    assert client.get('/ai/vision').json() == {'enabled': True, 'server_id': server.id}
 
 
 def test_schema_rejects_extra_credentials_and_missing_selection(client, server):
@@ -71,23 +79,25 @@ def test_schema_rejects_extra_credentials_and_missing_selection(client, server):
     assert client.put('/ai/vision', json=body(server, server_id=9999)).status_code == 404
 
 
-def test_path_http_disallowed_and_stdio_requires_trust(client, db, server):
-    payload = body(server, arguments={'path': '{{image_path}}'})
-    assert client.put('/ai/vision', json=payload).status_code == 422
+def test_stdio_requires_trust_to_enable(client, db, server):
     server.transport, server.command = 'stdio', 'unused-command'
     db.commit()
-    assert client.put('/ai/vision', json=payload).status_code == 422
+    assert client.put('/ai/vision', json=body(server)).status_code == 409
     server.trusted = True
     db.commit()
-    assert client.put('/ai/vision', json=payload).status_code == 200
+    assert client.put('/ai/vision', json=body(server)).status_code == 200
 
 
-@pytest.mark.parametrize('attribute', ['enabled', 'auto_approve_readonly'])
-def test_enable_respects_server_flags(client, db, server, attribute):
-    setattr(server, attribute, False)
+def test_enable_respects_server_enabled_flag(client, db, server):
+    server.enabled = False
     db.commit()
     assert client.put('/ai/vision', json=body(server)).status_code == 409
     assert client.put('/ai/vision', json=body(server, enabled=False)).status_code == 200
+
+
+def test_enable_works_without_readonly_auto_approval(client, db, server):
+    assert server.auto_approve_readonly is False
+    assert client.put('/ai/vision', json=body(server)).status_code == 200
 
 
 def test_corrupt_setting_can_be_replaced_or_cleared(client, db, server):

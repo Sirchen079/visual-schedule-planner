@@ -1,7 +1,8 @@
 """Global nonsecret vision binding. Mount ``router`` in server.app.
 
-GET/PUT/DELETE /ai/vision. Server/tool discovery uses existing /ai/mcp/servers
-and /ai/mcp/servers/{sid}/tools endpoints. PUT saves consent but makes no calls.
+GET/PUT/DELETE /ai/vision. Server-level consent only: the user picks the MCP
+server; which tool to call is the model's runtime choice via read_image.
+PUT saves consent but makes no calls.
 """
 import json
 from typing import Annotated
@@ -14,7 +15,6 @@ from zhishi.agent.attachments import (
     VisionConfig,
     load_vision_config,
     server_fingerprint,
-    template_tokens,
 )
 from zhishi.domain import settingsvc
 from zhishi.domain.models import AppSetting, MCPServer
@@ -41,15 +41,9 @@ def save_vision(body: VisionConfig, db: Database):
             raise HTTPException(404, 'MCP 服务器不存在')
         if server.transport not in ('http', 'stdio'):
             raise HTTPException(422, '不支持该 MCP 传输方式')
-        if 'image_path' in template_tokens(body.arguments) and not (
-            server.transport == 'stdio' and server.trusted
-        ):
-            raise HTTPException(422, 'image_path 仅适用于受信任的本地 stdio 服务器')
-        if body.enabled:
-            if not server.enabled or server.transport == 'stdio' and not server.trusted:
-                raise HTTPException(409, '请先启用并信任所选 MCP 服务器')
-            if not server.auto_approve_readonly:
-                raise HTTPException(409, '请先为该 MCP 服务器允许自动执行只读工具')
+        if body.enabled and (not server.enabled or
+                             server.transport == 'stdio' and not server.trusted):
+            raise HTTPException(409, '请先启用并信任所选 MCP 服务器')
         fingerprint = server_fingerprint(server)
     payload = body.model_dump()
     payload['server_fingerprint'] = fingerprint

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "zhishi-backend",
-    "version": "2.23.0"
+    "version": "2.24.0"
   },
   "paths": {
     "/api/tasks": {
@@ -12875,7 +12875,6 @@
         "type": "object",
         "title": "JournalUpsert"
       },
-      "JsonValue": {},
       "KeyResultCreate": {
         "properties": {
           "title": {
@@ -17348,26 +17347,12 @@
               }
             ],
             "title": "Server Id"
-          },
-          "tool_name": {
-            "type": "string",
-            "maxLength": 200,
-            "pattern": "^[\\w.\\-]*$",
-            "title": "Tool Name",
-            "default": ""
-          },
-          "arguments": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/JsonValue"
-            },
-            "type": "object",
-            "title": "Arguments"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "title": "VisionConfig",
-        "description": "Saving enabled=True explicitly opts into automatic, readonly vision use."
+        "description": "Server-level consent: saving enabled=True lets the MODEL pick any tool on\nthe bound server at runtime (via read_image). No fixed tool binding."
       },
       "WatchConfig": {
         "properties": {

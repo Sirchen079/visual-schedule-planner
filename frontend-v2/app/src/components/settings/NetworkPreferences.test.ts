@@ -33,7 +33,7 @@ async function fixture(fail = false) {
   page.setDefaultTimeout(4000)
   const writes: { path: string; body: any }[] = []
   const web = { config: { search_provider: 'builtin', fetch_provider: 'builtin', tavily_search_depth: 'basic', tavily_extract_depth: 'basic', mcp_search: null, mcp_fetch: null }, tavily_has_api_key: true }
-  const vision = { enabled: false, server_id: null, tool_name: '', arguments: { image: '{{image_data_url}}', prompt: '{{prompt}}' } }
+  const vision = { enabled: false, server_id: null }
   await page.route('**/ai/**', async route => {
     const req = route.request(), path = new URL(req.url()).pathname
     if (fail) { await route.fulfill({ status: 503, json: { detail: '测试服务暂不可用' } }); return }
@@ -43,7 +43,7 @@ async function fixture(fail = false) {
     if (path === '/ai/vision') data = req.method() === 'PUT' ? req.postDataJSON() : vision
     if (path.endsWith('/credentials/tavily')) data = { tavily_has_api_key: req.method() !== 'DELETE' }
     if (path === '/ai/mcp/servers') data = [
-      { id: 1, name: '视觉与网页工具', transport: 'http', enabled: true, trusted: false, auto_approve_readonly: true },
+      { id: 1, name: '视觉与网页工具', transport: 'http', enabled: true, trusted: false, auto_approve_readonly: false },
       { id: 2, name: '未信任本地服务', transport: 'stdio', enabled: true, trusted: false, auto_approve_readonly: true },
     ]
     if (path.endsWith('/tools')) data = [{ name: 'inspect', description: '识别图片内容', read_only: true, input_schema: { required: ['image', 'prompt'] } }, { name: 'write', description: '', read_only: false }]
@@ -70,26 +70,21 @@ describe('NetworkPreferences interactions', () => {
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
     } finally { await page.close() }
   })
-  it('requires readonly tools and valid image templates, then saves explicit vision consent', async () => {
+  it('saves server-level vision consent without readonly approval, no tool binding', async () => {
     const { page, writes } = await fixture()
     try {
       await page.locator('#network-vision-enabled').check()
       await page.locator('#network-vision-server').selectOption('1')
-      await page.locator('#network-vision-tool option[value="inspect"]').waitFor({ state: 'attached' })
+      // Server without readonly auto-approval stays selectable in the vision lane;
+      // no tool dropdown exists — the model picks tools at runtime.
+      expect(await page.locator('#network-vision-server option[value="1"]').getAttribute('disabled')).toBeNull()
       expect(await page.locator('#network-vision-server option[value="2"]').getAttribute('disabled')).not.toBeNull()
-      expect(await page.locator('#network-vision-tool option[value="write"]').getAttribute('disabled')).not.toBeNull()
-      await page.locator('#network-vision-tool').selectOption('inspect')
-      await page.locator('section').filter({ has: page.locator('#network-vision-title') }).locator('summary').first().click()
-      await page.locator('#network-vision-arguments').fill('{broken')
+      expect(await page.locator('#network-vision-tool').count()).toBe(0)
       await page.locator('#network-vision-save').click()
-      await hasText(page, '视觉参数须为有效 JSON，请检查引号和逗号')
-      expect(writes).toHaveLength(0)
-      await page.locator('#network-vision-arguments').fill('{"image":"{{image_data_url}}","prompt":"{{prompt}}"}')
-      await page.locator('#network-vision-save').click()
-      await hasText(page, '视觉补充已启用；后续符合条件的图片会发送至所选服务')
-      expect(writes[0]).toMatchObject({ path: '/ai/vision', body: { enabled: true, server_id: 1, tool_name: 'inspect' } })
+      await hasText(page, '视觉补充已启用；需要读图时模型会自行选择该服务器的工具')
+      expect(writes[0]).toMatchObject({ path: '/ai/vision', body: { enabled: true, server_id: 1 } })
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-    } finally { await page.close() }
+    } finally { page.close() }
   })
   it('contains new endpoint failures inside the component with retry controls', async () => {
     const { page } = await fixture(true)

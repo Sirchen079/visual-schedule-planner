@@ -285,3 +285,27 @@ async def test_external_write_failure_is_not_repeated_and_plan_mode_filters_writ
     read_only = _MCPGatedToolset(_make_server(), server_id=row.id, readonly_only=True)
     names = set(await read_only.get_tools(ctx))
     assert names == {f'mcp__{row.id}__add'}
+
+
+def test_vision_tool_visibility_follows_enabled_consent(db):
+    """read_image 只在视觉补充可用时直接可见；否则仅可被检索（调用得到明确错误）。"""
+    from zhishi.agent.attachments import VisionConfig
+    from zhishi.domain.models import MCPServer
+    from zhishi.server.routes.vision import save_vision
+
+    off = ToolDiscovery()
+    assert 'read_image' not in off.core_tools
+    assert 'read_image' in ToolDiscovery(vision=True).core_tools
+
+    from zhishi.agent.runtime import AgentRuntime
+    from pydantic_ai.models.test import TestModel
+    rt = AgentRuntime(model=TestModel(call_tools=[]), db=db)
+    assert rt._vision_ready() is False
+    row = MCPServer(name='v', transport='http', url='http://unused.invalid/mcp', enabled=True)
+    db.add(row)
+    db.commit()
+    save_vision(VisionConfig(enabled=True, server_id=row.id), db)
+    assert rt._vision_ready() is True
+    row.enabled = False
+    db.commit()
+    assert rt._vision_ready() is False

@@ -33,10 +33,10 @@ def file(db, tmp_path):
 @pytest.fixture
 def server(db):
     row = MCPServer(name='vision', transport='http', url='http://unused.invalid/mcp',
-                    enabled=True, auto_approve_readonly=True)
+                    enabled=True, auto_approve_readonly=False)
     db.add(row)
     db.commit()
-    save_vision(media.VisionConfig(enabled=True, server_id=row.id, tool_name='describe'), db)
+    save_vision(media.VisionConfig(enabled=True, server_id=row.id), db)
     return row
 
 
@@ -103,21 +103,24 @@ async def test_default_never_native(db, file, tmp_path, mcp, cfg):
     assert mcp.builds == 0
 
 
-async def test_text_model_uses_designated_tool_and_prompt_once(db, file, tmp_path, server, mcp):
-    prompt = 'literal {{image_path}} "quote"'
-    result = await run(db, file, tmp_path, config('text'), prompt)
-    assert result.route == 'vision_mcp' and result.status == 'read' and result.binary is None
-    assert '星期一数学' in result.text
-    assert len(mcp.calls) == 1
-    call = mcp.calls[0]
-    assert call['name'] == 'describe'
-    assert call['arguments']['prompt'] == prompt  # no recursive template evaluation
-    assert call['arguments']['image'].startswith('data:image/png;base64,')
-    assert str(tmp_path) not in json.dumps(call)
+async def test_text_model_defers_to_model_driven_read(db, file, tmp_path, server, mcp):
+    """发送时不自动调用任何工具：附件提示模型自行 read_image 选工具。"""
+    result = await run(db, file, tmp_path, config('text'))
+    assert result.route == 'vision_mcp' and result.status == 'unread' and result.binary is None
+    assert 'read_image' in result.text and str(file.id) in result.text
+    assert '不得猜测' in result.text
+    assert mcp.builds == 0 and not mcp.calls
+
+
+async def test_vision_disabled_leaves_attachment_unread(db, file, tmp_path, server, mcp):
+    save_vision(media.VisionConfig(enabled=False, server_id=server.id), db)
+    result = await run(db, file, tmp_path, config('text'))
+    assert result.status == 'unavailable' and '未启用视觉 MCP' in result.text
+    assert mcp.builds == 0
 
 
 @pytest.mark.parametrize(('attribute', 'value'), [
-    ('enabled', False), ('auto_approve_readonly', False), ('url', 'http://changed.invalid/mcp'),
+    ('enabled', False), ('url', 'http://changed.invalid/mcp'),
     ('created_at', datetime(2000, 1, 1, tzinfo=UTC)),
     ('headers_json', '{"Authorization":"changed"}')])
 async def test_server_change_invalidates_consent(db, file, tmp_path, server, mcp,
@@ -125,33 +128,87 @@ async def test_server_change_invalidates_consent(db, file, tmp_path, server, mcp
     setattr(server, attribute, value)
     db.commit()
     result = await run(db, file, tmp_path, config('text'))
-    assert result.status != 'read' and mcp.builds == 0
+    assert result.status == 'approval_required' and mcp.builds == 0
+
+
+async def test_model_driven_read_executes_chosen_tool(db, file, tmp_path, server, mcp):
+    """模型自选工具与参数（带占位符），系统注入图片数据后执行。"""
+    out = await media.read_attachment_with_vision(
+        db, tmp_path / 'attachments', file.id, 'describe',
+        {'image': '{{image_data_url}}', 'q': '{{filename}}:{{mime_type}}'})
+    assert out.startswith('【视觉工具返回的附件文本') and '星期一数学' in out
+    assert len(mcp.calls) == 1
+    call = mcp.calls[0]
+    assert call['name'] == 'describe'
+    assert call['arguments']['image'].startswith('data:image/png;base64,')
+    assert call['arguments']['q'] == 'pic.png:image/png'
+    assert str(tmp_path) not in json.dumps(call)
 
 
 @pytest.mark.parametrize('readonly', [False, None])
-async def test_not_readonly_never_executes_even_with_grant(db, file, tmp_path, server, mcp,
-                                                        readonly):
-    from zhishi.domain.models import AIToolGrant
-    db.add(AIToolGrant(tool_name=f'mcp__{server.id}__describe', arg_pattern=''))
-    db.commit()
+async def test_model_driven_read_has_no_readonly_gate(db, file, tmp_path, server, mcp,
+                                                      readonly):
+    """readOnlyHint 是可选元数据：未声明/声明非只读的工具照常执行。"""
     mcp.readonly = readonly
-    result = await run(db, file, tmp_path, config('text'))
-    assert result.status == 'approval_required' and not mcp.calls
+    out = await media.read_attachment_with_vision(
+        db, tmp_path / 'attachments', file.id, 'describe',
+        {'image': '{{image_data_url}}'})
+    assert '星期一数学' in out and len(mcp.calls) == 1
+
+
+async def test_model_driven_read_accepts_namespaced_tool_name(db, file, tmp_path,
+                                                               server, mcp):
+    out = await media.read_attachment_with_vision(
+        db, tmp_path / 'attachments', file.id, f'mcp__{server.id}__describe',
+        {'image': '{{image_data_url}}'})
+    assert '星期一数学' in out and mcp.calls[0]['name'] == 'describe'
+
+
+async def test_model_driven_read_requires_image_placeholder(db, file, tmp_path,
+                                                            server, mcp):
+    out = await media.read_attachment_with_vision(
+        db, tmp_path / 'attachments', file.id, 'describe', {'q': '{{filename}}'})
+    assert '占位符' in out and not mcp.calls
+    out = await media.read_attachment_with_vision(
+        db, tmp_path / 'attachments', file.id, 'describe',
+        {'image': '{{image_data_url}}', 'prompt': '{{prompt}}'})
+    assert 'arguments 无效' in out and not mcp.calls
+
+
+async def test_model_driven_read_rejects_credential_keys(db, file, tmp_path,
+                                                         server, mcp):
+    out = await media.read_attachment_with_vision(
+        db, tmp_path / 'attachments', file.id, 'describe',
+        {'image': '{{image_data_url}}', 'api_key': 'x'})
+    assert '凭据' in out and not mcp.calls
+
+
+async def test_model_driven_read_vision_disabled_fails_closed(db, file, tmp_path,
+                                                              server, mcp):
+    save_vision(media.VisionConfig(enabled=False, server_id=server.id), db)
+    out = await media.read_attachment_with_vision(
+        db, tmp_path / 'attachments', file.id, 'describe',
+        {'image': '{{image_data_url}}'})
+    assert '未启用' in out and not mcp.calls
 
 
 async def test_revoked_while_listing_does_not_call(db, file, tmp_path, server, mcp):
     def revoke():
-        server.auto_approve_readonly = False
+        server.enabled = False
         db.commit()
     mcp.on_list = revoke
-    result = await run(db, file, tmp_path, config('text'))
-    assert result.status != 'read' and not mcp.calls
+    out = await media.read_attachment_with_vision(
+        db, tmp_path / 'attachments', file.id, 'describe',
+        {'image': '{{image_data_url}}'})
+    assert json.loads(out)['ok'] is False and not mcp.calls
 
 
 async def test_tool_missing(db, file, tmp_path, server, mcp):
     mcp.tools = False
-    result = await run(db, file, tmp_path, config('text'))
-    assert '不存在' in result.error and not mcp.calls
+    out = await media.read_attachment_with_vision(
+        db, tmp_path / 'attachments', file.id, 'describe',
+        {'image': '{{image_data_url}}'})
+    assert '不存在' in out and not mcp.calls
 
 
 @pytest.mark.parametrize('result', [
@@ -163,40 +220,50 @@ async def test_tool_missing(db, file, tmp_path, server, mcp):
 ])
 async def test_tool_requires_actual_successful_text(db, file, tmp_path, server, mcp, result):
     mcp.result = result
-    output = await run(db, file, tmp_path, config('text'))
-    assert output.status == 'error' and '内容未读取' in output.text
-    assert 'secret-error' not in output.text
+    output = await media.read_attachment_with_vision(
+        db, tmp_path / 'attachments', file.id, 'describe',
+        {'image': '{{image_data_url}}'})
+    assert output.startswith('{') and '内容未读取' not in output
+    assert 'ok' in json.loads(output) and json.loads(output)['ok'] is False
+    assert 'secret-error' not in output
     assert len(mcp.calls) == 1
 
 
 async def test_upstream_exception_never_leaks_payload(db, file, tmp_path, server, mcp):
     mcp.error = RuntimeError('Authorization sk-real-secret data:image/png;base64,PRIVATE /secret/path')
-    result = await run(db, file, tmp_path, config('text'))
-    assert result.status == 'error'
-    assert all(secret not in result.text for secret in ('sk-real-secret', 'PRIVATE', '/secret/path'))
+    output = await media.read_attachment_with_vision(
+        db, tmp_path / 'attachments', file.id, 'describe',
+        {'image': '{{image_data_url}}'})
+    assert json.loads(output)['ok'] is False
+    assert all(secret not in output for secret in ('sk-real-secret', 'PRIVATE', '/secret/path'))
 
 
 async def test_cancellation_propagates(db, file, tmp_path, server, mcp):
     mcp.error = asyncio.CancelledError()
     with pytest.raises(asyncio.CancelledError):
-        await run(db, file, tmp_path, config('text'))
+        await media.read_attachment_with_vision(
+            db, tmp_path / 'attachments', file.id, 'describe',
+            {'image': '{{image_data_url}}'})
 
 
 async def test_nested_template_and_trusted_local_path(db, file, tmp_path, server, mcp):
     server.transport, server.command, server.trusted = 'stdio', 'unused-command', True
     db.commit()
-    save_vision(media.VisionConfig(enabled=True, server_id=server.id, tool_name='describe',
-                                  arguments={'input': [{'path': '{{image_path}}'}],
-                                             'label': '{{filename}}:{{mime_type}}'}), db)
-    result = await run(db, file, tmp_path, config('text'))
-    assert result.status == 'read'
+    # 连接语义变更（http→stdio）使旧指纹失效：重新保存视觉设置恢复授权。
+    save_vision(media.VisionConfig(enabled=True, server_id=server.id), db)
+    output = await media.read_attachment_with_vision(
+        db, tmp_path / 'attachments', file.id, 'describe',
+        {'input': [{'path': '{{image_path}}'}], 'label': '{{filename}}:{{mime_type}}'})
+    assert '星期一数学' in output
     assert mcp.calls[0]['arguments']['input'][0]['path'] == str(
         (tmp_path / 'attachments' / 'pic.png').resolve())
     assert mcp.calls[0]['arguments']['label'] == 'pic.png:image/png'
     server.trusted = False
     db.commit()
-    result = await run(db, file, tmp_path, config('text'))
-    assert result.status == 'approval_required' and mcp.builds == 1
+    output = await media.read_attachment_with_vision(
+        db, tmp_path / 'attachments', file.id, 'describe',
+        {'input': [{'path': '{{image_path}}'}]})
+    assert json.loads(output)['ok'] is False and '受信任' in output
 
 
 @pytest.mark.parametrize(('name', 'mime', 'kind'), [
@@ -385,13 +452,84 @@ async def test_installed_mcp_stack_returns_raw_text_in_process(db, file, tmp_pat
     endpoint = InProcessServer(name='offline-vision')
     calls = []
 
-    def describe(image: str, prompt: str) -> str:
-        calls.append((image, prompt))
+    def describe(image: str) -> str:
+        calls.append(image)
         return '文字：星期一数学'
 
     endpoint.add_tool(describe, name='describe', description='read supplied image',
-                      annotations=ToolAnnotations(read_only_hint=True))
+                      annotations=ToolAnnotations(read_only_hint=False))
     monkeypatch.setattr(media.mcp_client, 'build_client', lambda row: (endpoint, {}))
-    result = await run(db, file, tmp_path, config('text'))
-    assert result.status == 'read', result.error
-    assert '星期一数学' in result.text and len(calls) == 1
+    output = await media.read_attachment_with_vision(
+        db, tmp_path / 'attachments', file.id, 'describe',
+        {'image': '{{image_data_url}}'})
+    assert '星期一数学' in output and len(calls) == 1
+    assert calls[0].startswith('data:image/png;base64,')
+
+
+async def test_read_image_registered_for_model_and_executes(db, file, tmp_path,
+                                                            server, mcp):
+    """端到端：模型经 read_image 工具自选 describe 工具读图，识别文本回流模型。"""
+    from pydantic_ai.models.function import DeltaToolCall, FunctionModel
+    from zhishi.agent.runtime import AgentRuntime
+
+    seen = []
+
+    async def stream_tools(messages, info):
+        seen.append(messages)
+        if len(seen) == 1:
+            yield {0: DeltaToolCall(name='read_image', tool_call_id='tc-vision',
+                                    json_args=json.dumps({
+                                        'file_id': file.id, 'tool_name': 'describe',
+                                        'arguments': {'image': '{{image_data_url}}'}}))}
+        else:
+            yield '识别完成'
+
+    rt = AgentRuntime(model=FunctionModel(stream_function=stream_tools), db=db,
+                      storage_root=tmp_path / 'attachments')
+    events = [e async for e in rt.run_stream(user_text='读这张图', conversation_id=None)]
+    assert [e['type'] for e in events][-1] == 'done'
+    assert len(mcp.calls) == 1 and mcp.calls[0]['name'] == 'describe'
+    # 第二轮模型请求里应能看到 read_image 的返回文本（工具结果回流）
+    tool_returns = [p for m in seen[-1] for p in getattr(m, 'parts', [])
+                    if isinstance(p, ToolReturnPart) and p.tool_name == 'read_image']
+    assert tool_returns and '星期一数学' in str(tool_returns[0].content)
+
+
+async def test_read_image_absent_in_plan_and_brainstorm_modes(db):
+    """计划/头脑风暴模式不注册 read_image：不得成为只读模式的副作用出口。"""
+    from pydantic_ai.models.test import TestModel
+    from zhishi.agent.runtime import AgentRuntime
+
+    rt = AgentRuntime(model=TestModel(call_tools=[]), db=db)
+
+    def tool_names(plan_mode=False, brainstorm_mode=False):
+        agent = rt._build_agent(plan_mode=plan_mode, brainstorm_mode=brainstorm_mode)
+        return {t.name for t in agent._function_toolset.tools.values()}
+
+    assert 'read_image' in tool_names()
+    assert 'read_image' not in tool_names(plan_mode=True)
+    assert 'read_image' not in tool_names(brainstorm_mode=True)
+
+
+async def test_read_image_visible_on_wire_when_vision_enabled(db, file, tmp_path,
+                                                              server, mcp):
+    """视觉可用时 read_image 出现在线上工具列表；未配置时不出现在线上。"""
+    from pydantic_ai.models.function import FunctionModel
+    from zhishi.agent.runtime import AgentRuntime
+
+    seen = []
+
+    async def stream_model(messages, info):
+        seen.append({t.name for t in info.function_tools})
+        yield '好的'
+
+    rt = AgentRuntime(model=FunctionModel(stream_function=stream_model), db=db)
+    [e async for e in rt.run_stream(user_text='你好', conversation_id=None)]
+    assert 'read_image' in seen[0]
+
+    from zhishi.agent.attachments import VisionConfig
+    from zhishi.server.routes.vision import save_vision
+    save_vision(VisionConfig(enabled=False, server_id=None), db)
+    seen.clear()
+    [e async for e in rt.run_stream(user_text='你好', conversation_id=None)]
+    assert 'read_image' not in seen[0]

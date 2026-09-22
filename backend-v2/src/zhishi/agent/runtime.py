@@ -11,6 +11,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from inspect import Parameter, Signature
+from pathlib import Path
 from typing import Any, AsyncIterator
 
 from pydantic_ai import Agent
@@ -40,6 +41,14 @@ class AgentDeps:
 # 当前执行工具调用的主 RunContext（macro.task 经此取主 usage 做并入）
 _run_ctx_var: contextvars.ContextVar[Any] = contextvars.ContextVar(
     "zhishi_main_run_ctx", default=None)
+
+READ_IMAGE_DESCRIPTION = (
+    '读取尚未读取的图片附件并返回识别文本。file_id 来自附件提示；'
+    'tool_name 填已启用视觉 MCP 服务器上的工具名（可带 mcp__{sid}__ 前缀），'
+    '先用 search_tools 查询该服务器的工具并按返回的 parameters 构造 arguments；'
+    'arguments 中以 {{image_data_url}}（远程服务器）或 {{image_path}}（受信任本地 stdio）'
+    '标记图片注入位置，另可用 {{filename}}、{{mime_type}}。'
+    '执行权限来自用户保存的视觉补充设置；未读取的图片不得猜测或编造内容。')
 
 
 def current_run_usage():
@@ -131,9 +140,10 @@ class AgentRuntime:
         from zhishi.domain.models import AISkill
         from sqlalchemy import select
         unavailable = {}
+        vision_ready = not plan_mode and not brainstorm_mode and self._vision_ready()
         discovery = ToolDiscovery([(row.name, row.content) for row in db.scalars(
             select(AISkill).where(AISkill.enabled.is_(True), AISkill.is_builtin.is_(True))) if row.name not in prompts.THINKING_SKILLS], unavailable=unavailable,
-            plan_mode=plan_mode)
+            plan_mode=plan_mode, vision=vision_ready)
 
         agent = Agent(
             self.model,
@@ -155,6 +165,11 @@ class AgentRuntime:
         agent.tool(discovery.execute, name='execute_tool', description=EXECUTE_DESCRIPTION)
         from zhishi.agent.user_input import ask_user
         agent.tool_plain(ask_user)
+        # 视觉读图入口（模型自主选择 MCP 工具）；计划/头脑风暴模式不注册——
+        # 模型可选任意工具（含写类），不得成为只读模式的副作用出口。
+        if not plan_mode and not brainstorm_mode:
+            agent.tool(self._read_image_tool(), name='read_image',
+                       description=READ_IMAGE_DESCRIPTION)
 
         for spec in specs_for(db):
             if brainstorm_mode and (spec.safety != "readonly" or spec.name == "propose_plan"):
@@ -219,6 +234,36 @@ class AgentRuntime:
                 init_timeout=float(row.timeout_sec or 30),
                 read_timeout=float(row.timeout_sec or 30), **kwargs))
         return out
+
+    def _vision_ready(self) -> bool:
+        """视觉补充是否可用（已启用 + 服务器就绪 + 指纹匹配）；决定 read_image 是否直接可见。"""
+        from zhishi.agent.attachments import _server_ready, load_vision_config
+        from zhishi.domain.models import MCPServer
+        try:
+            binding, fingerprint = load_vision_config(self.db)
+        except (ValueError, TypeError, AttributeError):
+            return False
+        if not binding.enabled or binding.server_id is None:
+            return False
+        server = self.db.get(MCPServer, binding.server_id)
+        return _server_ready(server, binding, fingerprint) is None
+
+    def _read_image_tool(self):
+        """read_image 工具实体：模型在运行时自选视觉 MCP 服务器的工具读图。
+
+        每次调用开独立 Session（与其他工具一致）；异常在
+        read_attachment_with_vision 内收敛为模型可读错误文本，不崩流。"""
+        from zhishi.infra.config import get_settings
+        storage_root = self.storage_root or get_settings().attachments_dir
+        session_factory = self.session_factory
+
+        async def _fn(ctx: RunContext[AgentDeps], file_id: int, tool_name: str,
+                      arguments: dict) -> str:
+            from zhishi.agent.attachments import read_attachment_with_vision
+            with session_factory() as tool_db:
+                return await read_attachment_with_vision(
+                    tool_db, Path(storage_root), file_id, tool_name, arguments)
+        return _fn
 
     def _wrap_tool(self, spec):
         """把 (db: Session, **params) 形态的领域包装函数适配为
@@ -375,7 +420,9 @@ class AgentRuntime:
                 if media.binary is not None:
                     image_parts.append(media.binary)
             elif doc is not None and f.parse_status == "needs_vision":
-                block = f'（附件 {f.original_name} 内容尚未读取，请检查模型输入能力与视觉 MCP 设置。）'
+                block = (f'（附件 {f.original_name} 是尚未读取的图片。'
+                         f'需要内容时调用 read_image(file_id={fid})，经视觉 MCP 识别；'
+                         '未配置视觉补充或读取失败时明确说明，不得猜测图片内容。）')
             elif doc is not None and f.parse_status == "failed":
                 note = ""
                 try:

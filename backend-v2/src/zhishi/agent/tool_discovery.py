@@ -62,11 +62,14 @@ class ToolDiscovery:
     """
 
     def __init__(self, skills: list[tuple[str, str]] = (), unavailable: dict | None = None,
-                 plan_mode: bool = False):
+                 plan_mode: bool = False, vision: bool = False):
         self.catalog: dict = {}
         self.skills = sorted(skills)
         self.unavailable = unavailable if unavailable is not None else {}
-        self.core_tools = CORE_TOOLS | ({'propose_plan'} if plan_mode else set())
+        # 视觉补充已启用：read_image 直接可见（附件提示要求模型调用它），
+        # 未启用时仅在目录中可被 search_tools 检索到，调用会得到明确错误。
+        self.core_tools = (CORE_TOOLS | ({'propose_plan'} if plan_mode else set())
+                           | ({'read_image'} if vision else set()))
 
     def search(self, ctx: RunContext[Any], query: str = '', names: list[str] | None = None) -> str:
         """按中文用途、英文关键词或准确名称加载所需工具。"""
