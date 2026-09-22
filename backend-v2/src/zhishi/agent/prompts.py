@@ -120,6 +120,8 @@ BUILTIN_SKILLS = {
   节次号入 periods，星期几入 weekday）→ 一次性 import_timetable（semester_start=第1周周一）。
   不要为每门课单独 create_event。
 - 排程建议前先 get_range_load 看负载、find_free_slots 找空闲、check_conflicts 查冲突。
+- 结束时间：用户明确给出结束时间或时长时照填；不明确且无法推断时先用 ask_user 问一句（如"预计几点结束？"），
+  用户也说不上来就只传 start_time、不编造 end_time（日历按开始时间标注「结束未定」）；DDL 同理，不臆测。
 - 超过 120 分钟的任务先拆子任务再排程；创建时尽量给 estimated_minutes。"""
     ),
     "内置·跨域联动": (

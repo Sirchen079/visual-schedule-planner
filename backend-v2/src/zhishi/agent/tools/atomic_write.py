@@ -83,7 +83,8 @@ def assign_task_to_day(db: Session, task_id: int, day: str,
                        start_time: str | None = None, end_time: str | None = None,
                        note: str = "") -> str:
     """把任务排到某天（低风险直写，同日重复排 = 更新时间）。day 格式 YYYY-MM-DD；
-    排程前先用 get_range_load 看负载、find_free_slots 找空闲、check_conflicts 查冲突。"""
+    排程前先用 get_range_load 看负载、find_free_slots 找空闲、check_conflicts 查冲突。
+    结束时间未明确且无法推断时先用 ask_user 问一句；用户不确定则只传 start_time，不编造 end_time。"""
     from zhishi.domain.schedule import service as ss
     entry = ss.assign_task_to_day(db, task_id, date.fromisoformat(day),
                                   start_time=start_time, end_time=end_time,
@@ -101,6 +102,9 @@ def create_event(db: Session, title: str, day: str, start_time: str | None = Non
     重复日程用 recur_rrule（如 FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE）。day 格式 YYYY-MM-DD。
     日程提醒直接用 remind_offsets（提前分钟，如 [0,30]，最多8个，0至10080），不要另建提醒任务。
     无 start_time 的全天日程还须指定 reminder_time（HH:MM）；每天/周/月/年的每次日程都会按规则提醒。
+    结束时间规则：用户已明确结束时间或时长（含"开到几点""上完这节为止"等可推断表述）时填 end_time；
+    未明确且无法推断时先用 ask_user 问一句（如"预计几点结束？"）；用户也说不上来时只传 start_time、
+    不要编造 end_time——日历会按开始时间标注为「结束未定」。
     同一轮同参数重试自动去重；仅当用户明确要求另一条相同日程时使用新的 request_key。"""
     from zhishi.domain.schedule import service as ss
     from zhishi.domain.schedule.schemas import EventCreate

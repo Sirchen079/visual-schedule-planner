@@ -25,15 +25,25 @@ describe('general calendar occurrences', () => {
     expect(lanes[occurrenceKey(third)].width).toContain('100%')
     expect(lanes[occurrenceKey(nextDay)].width).toContain('100%')
   })
-  it('keeps all-day and incomplete intervals out of positioned blocks without inventing times', () => {
+  it('keeps all-day items out of positioned blocks without inventing times', () => {
     expect(fitsCalendarAxis(make(null, null))).toBe(false)
     expect(occurrenceTime(make(null, null))).toBe('全天')
-    expect(fitsCalendarAxis(make('15:00', null))).toBe(false)
+  })
+  it('places start-only items as bounded markers on the axis', () => {
+    expect(fitsCalendarAxis(make('15:00', null))).toBe(true)
     expect(occurrenceTime(make('15:00', null))).toContain('结束未定')
+    // 标注块覆盖开始点起 45 分钟：与 15:30 开始的日程重叠，双列并排
+    const open = make('15:00', null)
+    const lanes = occurrenceLanes([make('15:30', '16:30'), open])
+    expect(lanes[occurrenceKey(open)].left).toContain('0%')
+    expect(lanes[occurrenceKey(open)].width).toContain('50%')
   })
   it('keeps early, late and overlapping-axis appointments visible in the additional list', () => {
     for (const pair of [['06:00', '07:00'], ['22:00', '23:00'], ['07:00', '09:00']]) expect(fitsCalendarAxis(make(pair[0], pair[1]))).toBe(false)
     expect(fitsCalendarAxis(make('08:00', '21:00'))).toBe(true)
+    // 仅开始的日程同样受轴范围约束
+    expect(fitsCalendarAxis(make('07:30', null))).toBe(false)
+    expect(fitsCalendarAxis(make('23:00', null))).toBe(false)
   })
   it('sorts mixed all-day and timed events without dropping any', () => {
     const grouped = groupOccurrencesByDate([make('15:00', '16:00'), make(null, null), make('06:00', '07:00')])

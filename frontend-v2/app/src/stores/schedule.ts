@@ -7,12 +7,12 @@ import { getAgenda, getConflicts, getDayView, getFreeSlots } from '../api/schedu
 import { repeatRuleText } from '../utils/recurrence'
 import { addDays, addMonths, firstOfMonth, mondayOf, monthGridBounds, toIsoDate, weekDates } from '../utils/date'
 
-/** 审批幽灵块（与对话审批卡共用状态）。 */
+/** 审批幽灵块（与对话审批卡共用状态）。end 为 null = 只约定了开始时间（仅开始标注）。 */
 export interface GhostBlock {
   date: string
   title: string
   start: string
-  end: string
+  end: string | null
   location: string | null
 }
 
@@ -63,20 +63,19 @@ export function weekSummary(dates: string[], grouped: Record<string, EventOccurr
 
 /** 将待审批 create_event 调用投影为日历预览。
  * 支持带命名空间的工具名；日期参数为 day，时间兼容 start/end 别名。
- * 缺少必要字段或工具不匹配时返回 null。 */
+ * 结束时间可缺（仅开始标注）；缺少日期或开始时间、或工具不匹配时返回 null。 */
 export function ghostFromApproval(a: { tool: string; args: Record<string, unknown> } | null): GhostBlock | null {
   if (!a || !/create_event$/.test(String(a.tool))) return null
   const args = a.args
   const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null)
   const date = str(args['date']) ?? str(args['day'])
   const start = str(args['start_time']) ?? str(args['start'])
-  const end = str(args['end_time']) ?? str(args['end'])
-  if (!date || !start || !end) return null
+  if (!date || !start) return null
   return {
     date,
     title: str(args['title']) ?? '新日程',
     start,
-    end,
+    end: str(args['end_time']) ?? str(args['end']),
     location: str(args['location']),
   }
 }

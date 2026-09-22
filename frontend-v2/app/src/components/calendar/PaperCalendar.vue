@@ -5,7 +5,7 @@ import { occurrenceKey, occurrenceTitle, subtaskSummary, occurrenceLanes } from 
  * 周日历：展示后端展开的日程与待审批排期，支持打开事件详情。
  * 全天及轴外事件单独排列，定时事件按时间轴定位。
  */
-import { fitsCalendarAxis } from '../../utils/eventPlacement'
+import { fitsCalendarAxis, occurrenceRange } from '../../utils/eventPlacement'
 import { computed, onMounted, ref } from 'vue'
 import { useIntervalFn, useResizeObserver } from '@vueuse/core'
 import { useRunStore } from '../../stores/run'
@@ -63,7 +63,7 @@ function ghostsOf(date: string) {
   return ghosts.value.filter((g) => g.date === date)
 }
 
-function ghostStyle(start: string, end: string): Record<string, string> | null {
+function ghostStyle(start: string, end: string | null): Record<string, string> | null {
   const bp = blockPercent(start, end)
   return bp ? { top: `${bp.top}%`, height: `${bp.height}%` } : null
 }
@@ -82,7 +82,7 @@ useResizeObserver(weekEl, (entries) => {
  * - chip：连一行都放不下，只渲染色块本体（幽灵块仍是虚线斜纹），信息全走 tooltip。
  */
 type BlockFit = 'full' | 'compact' | 'chip'
-function fitOf(start: string, end: string, fullMinPx: number, compactMinPx: number): BlockFit {
+function fitOf(start: string, end: string | null, fullMinPx: number, compactMinPx: number): BlockFit {
   const bp = blockPercent(start, end)
   if (!bp || axisH.value <= 0) return 'full'
   const px = (bp.height / 100) * axisH.value
@@ -92,12 +92,12 @@ function fitOf(start: string, end: string, fullMinPx: number, compactMinPx: numb
 }
 
 /** 幽灵块：完整排版需 标题+时刻+图章 ≈70px；一行标题 ≈22px */
-function ghostFit(start: string, end: string): BlockFit {
+function ghostFit(start: string, end: string | null): BlockFit {
   return fitOf(start, end, 70, 22)
 }
 
 /** 课程块：完整排版需 教室+标题+时刻 ≈54px；一行标题 ≈20px */
-function courseFit(start: string, end: string): BlockFit {
+function courseFit(start: string, end: string | null): BlockFit {
   return fitOf(start, end, 54, 20)
 }
 
@@ -119,7 +119,7 @@ function blockTitle(o: EventOccurrence): string {
   return `${occurrenceTitle(o)} · ${subtaskSummary(o)} · 查看详情${note ? ` · ${note}` : ''}`
 }
 
-function blockStyle(start: string, end: string): Record<string, string> | null {
+function blockStyle(start: string, end: string | null): Record<string, string> | null {
   const bp = blockPercent(start, end)
   return bp ? { top: `${bp.top}%`, height: `${bp.height}%` } : null
 }
@@ -193,13 +193,14 @@ onMounted(() => {
           class="course"
           :style="[blockStyle(o.start_time, o.end_time), lanes[occurrenceKey(o)]]"
           :data-fit="courseFit(o.start_time, o.end_time)"
+          :data-open-end="o.end_time ? null : ''"
           role="button" tabindex="0"
           :title="blockTitle(o)"
           @click="emit('open', o)" @keydown.enter.prevent="emit('open', o)" @keydown.space.prevent="emit('open', o)"
         >
           <div v-if="o.location" class="room">{{ o.location }}</div>
           <h3>{{ o.title }}</h3>
-          <div class="meta">{{ o.start_time }}–{{ o.end_time }}</div>
+          <div class="meta">{{ occurrenceRange(o) }}</div>
         </div>
 
         <!-- 审批幽灵块（与对话内审批卡镜像；可多个并存；args 带重复规则时显示 repeat 行） -->
@@ -213,7 +214,7 @@ onMounted(() => {
           :title="ghostTitle(g)"
         >
           <h3>{{ g.title }}</h3>
-          <div class="meta">{{ g.start }}–{{ g.end }} · 新增</div>
+          <div class="meta">{{ occurrenceRange({ start_time: g.start, end_time: g.end }) }} · 新增</div>
           <div v-if="g.repeatText" class="meta repeat">{{ g.repeatText }}</div>
           <span class="stamp" :data-state="g.outcome === 'approved' ? 'approved' : 'pending'">{{ g.stamp }}</span>
         </div>
@@ -464,6 +465,11 @@ onMounted(() => {
 }
 .course:hover {
   border-color: var(--paper-accent);
+}
+/* 仅开始标注（未设结束时间）：虚线边框 + 轻底色，区别于已确认时段的实线块 */
+.course[data-open-end] {
+  border-style: dashed;
+  background: var(--paper-tint);
 }
 .course:focus-visible {
   outline: 1.5px solid var(--paper-accent);

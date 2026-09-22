@@ -114,14 +114,22 @@ export interface BlockPercent {
   clamped: boolean
 }
 
+/** 只有开始时间、无明确结束时间的日程在轴上的标注时长：渲染为「开始」标记块，
+ * 不代表真实结束时间（详情与其他列表仍显示「结束未定」）。 */
+export const OPEN_END_MARKER_MINUTES = 45
+
 /**
  * 事件块定位（百分比，恰好复现基准稿数值）：
  * 08:55–10:45 → top 7.051% / height 14.103%；16:00–17:40 → top 61.538% / height 12.821%。
  * 起止裁剪到轴内；高度不足时给最小可见高度（≈ 半小时刻线的 1/3）。
+ * endHm 为 null（未设结束时间）时按开始点 + OPEN_END_MARKER_MINUTES 标注，
+ * e <= s 的区间仍视为不可定位。
  */
-export function blockPercent(startHm: string, endHm: string): BlockPercent | null {
+export function blockPercent(startHm: string, endHm: string | null): BlockPercent | null {
   const s = hmToMinutes(startHm)
-  const e = hmToMinutes(endHm)
+  const e = endHm === null
+    ? Math.min((s ?? 0) + OPEN_END_MARKER_MINUTES, AXIS_END_MIN)
+    : hmToMinutes(endHm)
   if (s === null || e === null || e <= s) return null
   const clamped = s < AXIS_START_MIN || e > AXIS_END_MIN
   const cs = Math.min(Math.max(s, AXIS_START_MIN), AXIS_END_MIN)

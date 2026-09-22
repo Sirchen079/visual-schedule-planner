@@ -76,6 +76,13 @@ describe('schedule 纯函数', () => {
         args: { day: '2026-09-05', date: '2026-09-06', start: '08:00', end: '09:00' },
       })?.date,
     ).toBe('2026-09-06')
+    // 结束时间可缺：仅开始的日程也投影为幽灵块（end 为 null，日历按开始标注）
+    expect(
+      ghostFromApproval({
+        tool: 'schedule.create_event',
+        args: { title: '临时讨论', day: '2026-09-05', start_time: '15:00' },
+      }),
+    ).toEqual({ date: '2026-09-05', title: '临时讨论', start: '15:00', end: null, location: null })
     expect(ghostFromApproval({ tool: 'tasks.create', args: { title: 'x', date: '2026-09-11', start_time: '1', end_time: '2' } })).toBeNull()
     expect(ghostFromApproval({ tool: 'schedule.create_event', args: { title: '缺时间' } })).toBeNull()
     expect(ghostFromApproval(null)).toBeNull()

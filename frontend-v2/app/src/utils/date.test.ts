@@ -89,6 +89,15 @@ describe('date utils', () => {
     expect(blockPercent('abc', '10:00')).toBeNull()
   })
 
+  it('blockPercent：无结束时间按开始点 + 45 分钟标注', () => {
+    const open = blockPercent('15:00', null)!
+    expect(open.top).toBeCloseTo(blockPercent('15:00', '15:45')!.top, 6)
+    expect(open.height).toBeCloseTo(45 / 780 * 100, 3)
+    expect(open.clamped).toBe(false)
+    // 靠近轴尾时标注块截到 21:00
+    expect(blockPercent('20:30', null)!.height).toBeCloseTo(30 / 780 * 100, 3)
+  })
+
   it('hourLines：08:00 到 21:00 共 14 条刻线，首尾为 0%/100%', () => {
     const lines = hourLines()
     expect(lines).toHaveLength(14)

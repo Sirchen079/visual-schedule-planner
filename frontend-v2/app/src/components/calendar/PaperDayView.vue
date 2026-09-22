@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AgendaExtras from './AgendaExtras.vue'
-import { occurrenceKey, occurrenceLanes } from '../../utils/eventPlacement'
+import { occurrenceKey, occurrenceLanes, occurrenceRange } from '../../utils/eventPlacement'
 /**
  * 单日日历：按时间轴展示日程，全天和时间未定事项单独排列。
  */
@@ -39,12 +39,12 @@ const headTitle = computed(() => {
   return `${Number(m)} 月 ${Number(d)} 日`
 })
 
-/** 当日时间跨度（首节开始 → 末节结束），无课时为空串 */
+/** 当日时间跨度（首节开始 → 末节结束），无课时为空串；仅开始标注按其开始时间计 */
 const span = computed(() => {
   if (!timedItems.value.length) return ''
   const first = timedItems.value[0]
   const last = timedItems.value[timedItems.value.length - 1]
-  return `${first.start_time}–${last.end_time}`
+  return `${first.start_time}–${last.end_time ?? last.start_time}`
 })
 
 /** 审批幽灵块（当日；多个并存，拒绝即消失、批准后转实体块隐去） */
@@ -63,12 +63,12 @@ const clockText = computed(() => {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 })
 
-function blockStyle(start: string, end: string): Record<string, string> | null {
+function blockStyle(start: string, end: string | null): Record<string, string> | null {
   const bp = blockPercent(start, end)
   return bp ? { top: `${bp.top}%`, height: `${bp.height}%` } : null
 }
 
-function ghostStyle(start: string, end: string): Record<string, string> | null {
+function ghostStyle(start: string, end: string | null): Record<string, string> | null {
   return blockStyle(start, end)
 }
 
@@ -121,13 +121,14 @@ onMounted(() => {
           :key="occurrenceKey(o)"
           class="course"
           :style="[blockStyle(o.start_time, o.end_time), lanes[occurrenceKey(o)]]"
+          :data-open-end="o.end_time ? null : ''"
           role="button" tabindex="0"
           :title="`${o.title} · 查看详情`"
           @click="emit('open', o)" @keydown.enter.prevent="emit('open', o)" @keydown.space.prevent="emit('open', o)"
         >
           <div v-if="o.location" class="room">{{ o.location }}</div>
           <h3>{{ o.title }}</h3>
-          <div class="meta">{{ o.start_time }}–{{ o.end_time }}</div>
+          <div class="meta">{{ occurrenceRange(o) }}</div>
         </div>
 
         <!-- 审批幽灵块 -->
@@ -139,7 +140,7 @@ onMounted(() => {
           :data-approved="g.outcome === 'approved' ? '' : null"
         >
           <h3>{{ g.title }}</h3>
-          <div class="meta">{{ g.start }}–{{ g.end }} · 新增</div>
+          <div class="meta">{{ occurrenceRange({ start_time: g.start, end_time: g.end }) }} · 新增</div>
           <span class="stamp" :data-state="g.outcome === 'approved' ? 'approved' : 'pending'">{{ g.stamp }}</span>
         </div>
 
@@ -330,6 +331,11 @@ onMounted(() => {
 }
 .course:hover {
   border-color: var(--paper-accent);
+}
+/* 仅开始标注（未设结束时间）：虚线边框 + 轻底色，区别于已确认时段的实线块 */
+.course[data-open-end] {
+  border-style: dashed;
+  background: var(--paper-tint);
 }
 .course:focus-visible {
   outline: 1.5px solid var(--paper-accent);
