@@ -1,5 +1,12 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 from zhishi.server.app import create_app
+
+
+def expected_version() -> str:
+    return (Path(__file__).resolve().parents[3] / "VERSION").read_text(
+        encoding="utf-8").strip()
 
 
 def make_client(tmp_path):
@@ -11,7 +18,7 @@ def test_health(tmp_path):
     with make_client(tmp_path) as c:
         r = c.get("/health")
         assert r.status_code == 200
-        assert r.json() == {"ok": True, "version": "2.24.0"}
+        assert r.json() == {"ok": True, "version": expected_version()}
 
 
 def test_shutdown(tmp_path):

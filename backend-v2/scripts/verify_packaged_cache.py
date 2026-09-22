@@ -12,6 +12,12 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 
+def expected_version() -> str:
+    """冻结包报告的版本必须等于根 VERSION（不重复维护字面量）。"""
+    return (Path(__file__).resolve().parents[2] / 'VERSION').read_text(
+        encoding='utf-8').strip()
+
+
 class Provider(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -68,7 +74,7 @@ def verify(exe, report_path):
                         if time.monotonic() > deadline:
                             raise RuntimeError('Packaged backend did not start') from None
                         time.sleep(.2)
-                assert health['version'] == '2.21.0', health
+                assert health['version'] == expected_version(), health
                 assert request('/ai/cache/stats')['totals']['cache_hit_rate'] is None
                 assert '<html' in request('/', text=True).lower()
                 config = request('/ai/configs', {'name': 'Isolated cache acceptance',

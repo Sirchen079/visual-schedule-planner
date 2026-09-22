@@ -1,6 +1,7 @@
 """PyInstaller 打包 + 自动冒烟。
 
 流程：
+  0. 版本一致性校验（check_versions.py）：各声明与根 VERSION 不一致直接失败。
   1. 以当前解释器运行 pyinstaller（zhishi-backend.spec，onedir）。
   2. 冒烟：随机端口启动 dist/zhishi-backend/zhishi-backend.exe --port N，
      轮询 /health 至 200，POST /shutdown，等待进程退出码 0。
@@ -24,6 +25,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 EXE = ROOT / "dist" / "zhishi-backend" / "zhishi-backend.exe"
 HEALTH_TIMEOUT_SEC = 90.0
+
+
+def verify_versions() -> None:
+    """发布构建前置：五处声明与 README 版本必须与根 VERSION 一致，避免发出错版安装包。"""
+    from check_versions import check
+    report = check()
+    if not report.ok:
+        print(report.render())
+        raise SystemExit("[build] 版本号不一致：先运行 "
+                         "`python scripts/check_versions.py --set X.Y.Z`，"
+                         "再运行 `python scripts/export_contracts.py` 重新生成契约")
+    print(f"[build] 版本一致：VERSION = {report.target}（{len(report.rows)} 处声明）")
 
 
 def build() -> None:
@@ -127,6 +140,7 @@ def main() -> int:
     parser.add_argument("--keep-smoke-dir", action="store_true",
                         help="保留冒烟临时数据目录（排障用）")
     args = parser.parse_args()
+    verify_versions()
     if not args.skip_build:
         build()
     smoke(keep_dir=args.keep_smoke_dir)

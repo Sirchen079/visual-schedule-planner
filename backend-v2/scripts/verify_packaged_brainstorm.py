@@ -12,10 +12,15 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 
+def expected_version() -> str:
+    """冻结包报告的版本必须等于根 VERSION（不重复维护字面量）。"""
+    return (Path(__file__).resolve().parents[2] / 'VERSION').read_text(
+        encoding='utf-8').strip()
+
+
 class Provider(BaseHTTPRequestHandler):
     captured = []
     mode = 'normal'
-
     def log_message(self, *args):
         pass
 
@@ -80,7 +85,7 @@ def verify(exe: Path, report: Path):
                         if time.monotonic() > deadline or proc.poll() is not None:
                             raise RuntimeError('Frozen backend failed to start') from None
                         time.sleep(.2)
-                assert health['version'] == '2.21.0'
+                assert health['version'] == expected_version(), health
                 cfg = request('/ai/configs', {'name': 'Isolated acceptance', 'provider_kind': 'openai_compat',
                     'model': 'mock-brainstorm', 'base_url': f'http://127.0.0.1:{provider.server_port}/v1',
                     'api_key': 'synthetic-not-a-real-credential'})

@@ -46,9 +46,26 @@ npm --prefix electron-v2 start
 npm --prefix electron-v2 run dist
 ```
 
-安装包输出到 `electron-v2/dist/zhishi-Setup-2.21.0.exe`。构建产物、数据库和密钥不应提交到仓库。
+安装包输出到 `electron-v2/dist/zhishi-Setup-<版本>.exe`。构建产物、数据库和密钥不应提交到仓库。
 
 发布新版本时，须将同一次构建生成的安装包、`.blockmap` 和 `latest.yml` 一起上传到相应 GitHub Release，再发布该版本。自动更新检查的是 Release，不是分支提交。开发预览不自动更新，也不携带 GitHub 凭据。
+
+### 5. 版本号
+
+`VERSION` 是版本号的唯一事实源；其余声明由校验脚本比对。发版时先改版本号再构建：
+
+```powershell
+backend-v2/.venv/Scripts/python.exe backend-v2/scripts/check_versions.py --set 2.25.0
+backend-v2/.venv/Scripts/python.exe backend-v2/scripts/export_contracts.py
+```
+
+`--set` 会写入 `backend-v2/pyproject.toml`、`backend-v2/src/zhishi/__init__.py`、`electron-v2/package.json`、`electron-v2/package-lock.json` 与三个 README 的版本号；`openapi.json` 属生成物，由 `export_contracts.py` 重新生成。完成后用下一条命令确认十处声明一致：
+
+```powershell
+backend-v2/.venv/Scripts/python.exe backend-v2/scripts/check_versions.py
+```
+
+`scripts/build.py` 在打包前会自动执行同一校验，不一致时直接失败——避免构建出与 `VERSION` 不符的安装包。测试与打包验证脚本不重复维护版本字面量：它们直接读 `VERSION` 或 `zhishi.__version__`。
 
 ## 本地开发
 
