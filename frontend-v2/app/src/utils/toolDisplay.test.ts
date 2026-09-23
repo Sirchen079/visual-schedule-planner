@@ -7,6 +7,11 @@ describe('工具友好名', () => {
     expect(toolDisplayName('show_blackboard')).toBe('黑板')
     expect(toolDisplayName('update_work_plan')).toBe('更新执行计划')
     expect(toolDisplayName('list_month_schedule')).toBe('查看月历')
+    // 长期记忆四工具
+    expect(toolDisplayName('save_memory')).toBe('记住偏好')
+    expect(toolDisplayName('update_memory')).toBe('更新记忆')
+    expect(toolDisplayName('forget_memory')).toBe('遗忘记忆')
+    expect(toolDisplayName('search_memory')).toBe('检索记忆')
   })
   it('MCP 工具显示去前缀短名，未知工具回退原名', () => {
     expect(toolDisplayName('mcp__feishu__send__msg')).toBe('send__msg')

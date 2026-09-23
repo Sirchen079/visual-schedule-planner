@@ -208,9 +208,9 @@ def create_app(data_dir: Path | None = None, port: int | None = None) -> FastAPI
 
     from zhishi.server.routes import (tasks, schedule, goals, habits, journal,
                                        focus, library, notifications, stats, settings, ical, ai,
-                                        reports, ledger, bills, inbox, research, followups, materials, web_services, vision, ai_sessions, diagnostics)
+                                        reports, ledger, bills, inbox, research, followups, materials, web_services, vision, ai_sessions, diagnostics, memories)
     for module in (tasks, schedule, goals, habits, journal,
-                   focus, library, notifications, stats, settings, ical, ai, reports, ledger, bills, inbox, research, followups, materials, web_services, vision, ai_sessions, diagnostics):
+                   focus, library, notifications, stats, settings, ical, ai, reports, ledger, bills, inbox, research, followups, materials, web_services, vision, ai_sessions, diagnostics, memories):
         app.include_router(module.router)
 
     @app.get("/health")

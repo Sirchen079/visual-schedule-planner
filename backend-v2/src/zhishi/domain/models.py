@@ -654,6 +654,21 @@ class AIReport(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
 
+class AIMemory(Base):
+    """长期记忆条目：AI 自主读写维护、用户可审可改（LLM wiki 模式）。
+    kind 分类便于人审；keywords 是空格分隔的检索词；source 区分 AI 记下与用户手动添加。
+    source_conversation_id 不设外键：会话删除后记忆仍保留。"""
+    __tablename__ = "ai_memories"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(20), default="fact")  # profile/preference/decision/fact/project
+    content: Mapped[str] = mapped_column(Text)                     # ≤300 字，一条一个独立事实
+    keywords: Mapped[str] = mapped_column(Text, default="")        # 空格分隔检索词
+    source: Mapped[str] = mapped_column(String(10), default="ai")  # ai/user
+    source_conversation_id: Mapped[int | None]
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
 class MCPServer(Base):
     """外部 MCP 工具服务器。工具不进 registry（动态清单）：runtime 对每个
     enabled 服务器构造 toolset，工具名映射 mcp__{id}__{原名}。"""

@@ -48,6 +48,11 @@ PLAN_MODE_INSTRUCTION = (
 # 计划模式受控重试指令：上一轮未提交计划时以用户输入追加再驱动一轮（仅一次）。
 PLAN_RETRY_INSTRUCTION = "你上一轮未提交计划。现在必须调用 propose_plan 提交结构化计划。"
 
+# 长期记忆使用指引：开关开启时追加（单行，预算克制——8192 小窗预算测试贴边，加长必炸）。
+# 细节教学放工具的校验错误消息里（"校验即教学"），这里只给最小行动规则。
+MEMORY_GUIDANCE = ("【长期记忆】用户偏好/明确决定/长期事实值得记：先 search_memory 查重再 save_memory；"
+                   "过时改 update_memory、作废 forget_memory；一次性上下文与临时安排不记。")
+
 _SKILLS_DIR = Path(__file__).with_name('skills')
 THINKING_SKILLS = {'内置·梳理想法', '内置·完整决策访谈'}
 
@@ -160,6 +165,7 @@ def _skill_text(db: Session, *, defer_builtin: bool = False) -> str:
 
 
 def build_instructions(db: Session, *, plan_mode: bool = False, brainstorm_mode: bool = False, defer_builtin: bool = False) -> str:
+    from zhishi.agent.tools.memory_tools import memory_count, memory_enabled
     base = f"{PERSONA}\n{TOOL_RULES}\n{_skill_text(db, defer_builtin=defer_builtin)}".strip()
     if defer_builtin:
         base += ('\n工具按需查询：先 search_tools 获取需要的能力与完整 parameters，'
@@ -169,6 +175,10 @@ def build_instructions(db: Session, *, plan_mode: bool = False, brainstorm_mode:
                  '已有授权和明确要求直接执行，不反复询问。ask_user 收集信息，不能替代写操作审批。'
                  '多步骤任务用 update_work_plan 记录少量实际步骤，完成后更新状态。'
                  '工具返回原文引用时，用 read_tool_result 分页或关键词核对，不能把预览当全文。')
+    # 指引随「有记忆可用」出现：零记忆时不注入（8192 小窗预算测试库天然零记忆，保持全绿）。
+    # 空库时工具的 docstring/校验消息仍会在 search_tools 命中时教会模型怎么记。
+    if memory_enabled(db) and memory_count(db) > 0:
+        base += f"\n{MEMORY_GUIDANCE}"
     if plan_mode:
         base = f"{base}\n{PLAN_MODE_INSTRUCTION}"
     if not plan_mode:
@@ -177,8 +187,31 @@ def build_instructions(db: Session, *, plan_mode: bool = False, brainstorm_mode:
     return base
 
 
+# 记忆注入块：最近 30 条 + 整块字符上限（超限截断并注明可检索，保上下文预算可控）
+MEMORY_PREFIX_LIMIT = 30
+MEMORY_PREFIX_CHARS = 800
+MEMORY_MORE_NOTE = "（以上只是最近的记忆，可用 search_memory 检索更多）"
+
+
+def _memory_block(db: Session) -> str:
+    """「【长期记忆】」块：开关关闭或库里零记忆时返回空串——一个字符都不注入（预算安全）。"""
+    from zhishi.agent.tools.memory_tools import memory_count, memory_enabled, recent_memories
+    if not memory_enabled(db):
+        return ""
+    rows = recent_memories(db, MEMORY_PREFIX_LIMIT)
+    if not rows:
+        return ""
+    items = "\n".join(f"- [{r.kind}] {r.content}" for r in rows)
+    truncated = False
+    if len(items) > MEMORY_PREFIX_CHARS:
+        items = items[:MEMORY_PREFIX_CHARS].rsplit("\n", 1)[0]  # 截到整行，不出半条
+        truncated = True
+    more = truncated or memory_count(db) > len(rows)
+    return "【长期记忆】\n" + items + (MEMORY_MORE_NOTE if more else "")
+
+
 def build_user_message_prefix(db: Session, now: datetime | None = None) -> str:
-    """拼在每条用户消息头部：时间上下文 + 业务状态摘要 + 幕僚观察。"""
+    """拼在每条用户消息头部：时间上下文 + 业务状态摘要 + 幕僚观察 + 长期记忆。"""
     from zhishi.domain import stats, insights
     from zhishi.infra import local_clock
     clock = local_clock.snapshot(now)
@@ -193,4 +226,7 @@ def build_user_message_prefix(db: Session, now: datetime | None = None) -> str:
     ]
     if obs:
         lines.append("【幕僚观察】" + "；".join(o["text"] for o in obs))
+    memory = _memory_block(db)
+    if memory:
+        lines.append(memory)
     return "\n".join(lines) + "\n\n【用户消息】"

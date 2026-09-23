@@ -63,6 +63,11 @@ const NAMES: Record<string, string> = {
   empty_trash: '清空回收站',
   web_search: '联网搜索',
   web_fetch: '抓取网页',
+  // 长期记忆
+  save_memory: '记住偏好',
+  update_memory: '更新记忆',
+  forget_memory: '遗忘记忆',
+  search_memory: '检索记忆',
 }
 
 /** 拼不出「正在 + 短语」的特例单独给阶段提示。 */

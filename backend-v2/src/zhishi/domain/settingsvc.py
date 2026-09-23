@@ -19,6 +19,7 @@ DEFAULTS: dict[str, str] = {
     "agent_autonomy": "standard",  # careful/standard/autonomous（消费）
     "feature_autopilot_enabled": "false",  # 秘书自动档：默认关闭
     "feature_followup_enabled": "true",  # 规则跟进；实际调整仍检查自动档与授权。
+    "feature_memory_enabled": "true",  # 长期记忆：默认开（AI 记偏好/决定/事实，用户可审可改）
     "compaction_threshold": "12",  # 会话摘要压缩触发阈值（轮数）
 }
 
