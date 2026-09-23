@@ -3826,6 +3826,62 @@
         }
       }
     },
+    "/ai/conversations/{cid}/steer": {
+      "post": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Steer",
+        "description": "运行中插话（Codex 式 steering）：消息进活跃 run 的注入队列，钩子在\n下一次工具调用结束后的模型请求前把它作为新的用户输入交给模型，当轮即消化。\n无活跃 run 时 409——队列随 run 生命周期在 _release_run_slot 一并清理，\n残留未注入消息（run 已收尾）由前端凭 SteerAccepted 对账后回退常规发送。",
+        "operationId": "steer_ai_conversations__cid__steer_post",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SteerBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SteerOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "该会话没有进行中的 run（前端回退为常规发送)"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/ai/conversations": {
       "get": {
         "tags": [
@@ -16541,6 +16597,47 @@
         ],
         "title": "StatsTagItem",
         "description": "按标签聚合（by-tag 序列项，按 total 降序）。"
+      },
+      "SteerBody": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "token": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text",
+          "token"
+        ],
+        "title": "SteerBody",
+        "description": "运行中插话请求体。token 由前端生成、凭 SteerAccepted 事件对账，\n确认不了（run 已结束等）就走常规发送回退，不产生重复。"
+      },
+      "SteerOut": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "accepted": {
+            "type": "boolean",
+            "title": "Accepted",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id"
+        ],
+        "title": "SteerOut"
       },
       "StepDraft": {
         "properties": {

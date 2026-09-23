@@ -119,6 +119,16 @@ export interface BlackboardUpdated {
   html: string;
 }
 
+export interface SteerAccepted {
+  /** 运行中插话已注入当前模型请求；前端凭 token 对账，未确认的走回退发送。 */
+  /** 协议版本 */
+  v: number;
+  type: "steer_accepted";
+  text: string;
+  message_id: number;
+  token?: string;
+}
+
 export interface SubagentStarted {
   /** 协议版本 */
   v: number;
@@ -197,6 +207,7 @@ export type SSEEvent =
   | PlanCard
   | WorkPlanUpdated
   | BlackboardUpdated
+  | SteerAccepted
   | SubagentStarted
   | SubagentDelta
   | SubagentCompleted

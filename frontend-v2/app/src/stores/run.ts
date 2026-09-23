@@ -4,7 +4,7 @@
  * 同一会话只允许一个执行，恢复流保留现有文本与审批记录。
  */
 import { defineStore } from 'pinia'
-import type { SSEEvent } from '../api/contracts/events'
+import type { SSEEvent, SteerAccepted } from '../api/contracts/events'
 import type { components } from '../api/contracts/rest'
 import { http } from '../api/http'
 import type { BlackboardPage, ConversationState } from '../api/sessions'
@@ -218,6 +218,16 @@ function nextSeq(state: RunState): number {
   return state.nextSeq++
 }
 
+/**
+ * steer_accepted 事件外发（单槽）：conversation store 注册监听，凭 token 对账乐观插话条目。
+ * 挂在 applyEvent（生产 openStream 与测试 consume 的唯一事件汇合点）而不是调用层，
+ * 保证两条路径都能收到；无注册方时事件无副作用（run 归约本身不需要它）。
+ */
+let steerAcceptedListener: ((ev: SteerAccepted) => void) | null = null
+export function setSteerAcceptedListener(listener: ((ev: SteerAccepted) => void) | null): void {
+  steerAcceptedListener = listener
+}
+
 function appendSegment(state: RunState, kind: 'text' | 'reasoning', delta: string): void {
   const last = state.segments[state.segments.length - 1]
   if (last && last.kind === kind) last.content += delta
@@ -365,6 +375,11 @@ export function applyEvent(state: RunState, ev: SSEEvent): void {
       break
     case 'blackboard_updated':
       state.blackboard = { title: ev.title, html: ev.html }
+      break
+    case 'steer_accepted':
+      // 插话已注入当轮模型请求并作为独立 user 行落库：交给注册方（conversation store）
+      // 凭 token 对账乐观条目。run 状态本身不需要它——注入由后端完成且已持久化。
+      steerAcceptedListener?.(ev)
       break
     case 'subagent_started':
       state.subagents.push({

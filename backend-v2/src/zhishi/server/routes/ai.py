@@ -154,6 +154,18 @@ class ChatBody(BaseModel):
         return self
 
 
+class SteerBody(BaseModel):
+    """运行中插话请求体。token 由前端生成、凭 SteerAccepted 事件对账，
+    确认不了（run 已结束等）就走常规发送回退，不产生重复。"""
+    text: str = Field(min_length=1, max_length=20000)
+    token: str = Field(min_length=1, max_length=64)
+
+
+class SteerOut(BaseModel):
+    run_id: str
+    accepted: bool = True
+
+
 @router.post("/attachments", status_code=201, response_model=AttachmentOut)
 def upload_attachment(request: Request, file: UploadFile = File(...)):
     """上传对话附件：落盘 + 立即解析缓存（extracted_text）。
@@ -361,11 +373,22 @@ def _compact_history(db: Session, cid: int, config, messages):
     return new_history
 
 
+def _steer_queues(app) -> dict:
+    """会话级插话队列（Codex 式 steering）。lifespan 未跑（测试假 app）时惰性补建，
+    避免 AttributeError 把 run 初始化/流清理路径整个打断。"""
+    queues = getattr(app.state, 'steer_queues', None)
+    if queues is None:
+        queues = app.state.steer_queues = {}
+    return queues
+
+
 def _release_run_slot(app, run_id: str, conversation_id: int | None) -> None:
-    """释放并发锁与取消令牌（初始化失败路径与流结束路径共用）。"""
+    """释放并发锁、取消令牌与插话队列（初始化失败路径与流结束路径共用）。"""
     app.state.cancel_tokens.pop(run_id, None)
-    if conversation_id is not None and app.state.active_runs.get(conversation_id) == run_id:
-        app.state.active_runs.pop(conversation_id, None)
+    if conversation_id is not None:
+        if app.state.active_runs.get(conversation_id) == run_id:
+            app.state.active_runs.pop(conversation_id, None)
+        getattr(app.state, 'steer_queues', {}).pop(conversation_id, None)
 
 
 # ---- run 终态副作用：系统通知 + 会话自动命名 ----
@@ -519,6 +542,9 @@ async def _start_run(app, *, message: str, conversation_id: int | None,
         raise HTTPException(409, "该会话已有进行中的请求")
     if conversation_id is not None:
         active[conversation_id] = run_id
+        # 运行中插话（Codex 式 steering）：run 活跃期间 steer 端点向此队列投递，
+        # 钩子在下一个工具调用后的模型请求前注入；流结束由 _release_run_slot 清理
+        _steer_queues(app)[conversation_id] = asyncio.Queue()
 
     # session 生命周期覆盖整个流（StreamingResponse 生命周期长于请求依赖）
     db = app.state.session_factory()
@@ -545,6 +571,7 @@ async def _start_run(app, *, message: str, conversation_id: int | None,
             db.add(conv); db.commit(); db.refresh(conv)
             conversation_id = conv.id
             active[conversation_id] = run_id
+            _steer_queues(app)[conversation_id] = asyncio.Queue()
         runtime = AgentRuntime(model=model, db=db,
                                model_config=cfg,
                                session_factory=app.state.session_factory,
@@ -577,6 +604,7 @@ async def _start_run(app, *, message: str, conversation_id: int | None,
                                            brainstorm_mode=brainstorm_mode,
                                            research_project_id=research_project_id,
                                            run_id=run_id, cancel_token=token,
+                                           steer_queue=_steer_queues(app).get(conversation_id),
                                            usage_meta={"config_id": cfg.id,
                                                        "provider": cfg.provider_kind,
                                                        "model": cfg.model}), db)
@@ -590,6 +618,22 @@ async def chat_stream(body: ChatBody, request: Request):
                             attachment_ids=body.attachment_ids,
                             plan_mode=body.plan_mode, research_project_id=body.research_project_id,
                             brainstorm_mode=body.brainstorm_mode)
+
+
+@router.post("/conversations/{cid}/steer", response_model=SteerOut,
+             responses={409: {"description": "该会话没有进行中的 run（前端回退为常规发送)"}})
+async def steer(cid: int, body: SteerBody, request: Request):
+    """运行中插话（Codex 式 steering）：消息进活跃 run 的注入队列，钩子在
+    下一次工具调用结束后的模型请求前把它作为新的用户输入交给模型，当轮即消化。
+    无活跃 run 时 409——队列随 run 生命周期在 _release_run_slot 一并清理，
+    残留未注入消息（run 已收尾）由前端凭 SteerAccepted 对账后回退常规发送。"""
+    app = request.app
+    run_id = app.state.active_runs.get(cid)
+    queue = _steer_queues(app).get(cid)
+    if run_id is None or queue is None:
+        raise HTTPException(409, '当前没有进行中的任务')
+    queue.put_nowait((body.text, body.token))
+    return SteerOut(run_id=run_id, accepted=True)
 
 
 @router.get("/conversations", response_model=list[ConversationOut])
@@ -617,6 +661,15 @@ def conversation_detail(cid: int, db: Session = Depends(get_db)):
             display['questions'] = questions[display['run_id']]
         result.append({'id': message.id, 'role': message.role, 'display': display,
                        'created_at': message.created_at.isoformat()})
+    # 运行中插话行落库时间晚于该轮助手行，按 run_id 归位到其前——
+    # 与模型实际消化顺序（插话 → 助手续答）一致；无锚点（理论不可达）保持原位。
+    steered = [item for item in result
+               if item['role'] == 'user' and item['display'].get('steered')]
+    for item in steered:
+        result.remove(item)
+        anchor = next((r for r in result if r['role'] == 'assistant'
+                       and r['display'].get('run_id') == item['display'].get('run_id')), None)
+        result.insert(result.index(anchor) if anchor is not None else len(result), item)
     return result
 
 

@@ -45,6 +45,9 @@
       "$ref": "#/definitions/BlackboardUpdated"
     },
     {
+      "$ref": "#/definitions/SteerAccepted"
+    },
+    {
       "$ref": "#/definitions/SubagentStarted"
     },
     {
@@ -528,6 +531,42 @@
         "html"
       ],
       "title": "BlackboardUpdated",
+      "type": "object"
+    },
+    "SteerAccepted": {
+      "description": "运行中插话已注入当前模型请求；前端凭 token 对账，未确认的走回退发送。",
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "steer_accepted",
+          "default": "steer_accepted",
+          "title": "Type",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "message_id": {
+          "title": "Message Id",
+          "type": "integer"
+        },
+        "token": {
+          "default": "",
+          "title": "Token",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "message_id"
+      ],
+      "title": "SteerAccepted",
       "type": "object"
     },
     "SubagentStarted": {

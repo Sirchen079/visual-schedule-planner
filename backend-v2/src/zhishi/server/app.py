@@ -185,6 +185,7 @@ def create_app(data_dir: Path | None = None, port: int | None = None) -> FastAPI
         app.state.scheduler = scheduler
         app.state.active_runs: dict[int, str] = {}
         app.state.cancel_tokens: dict[str, object] = {}
+        app.state.steer_queues: dict[int, asyncio.Queue] = {}   # 运行中插话（Codex 式 steering）
         app.state.run_tasks = set()
         sched_task = await scheduler.start()
         yield

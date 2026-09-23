@@ -19,6 +19,8 @@ export interface ConversationMessageDisplay {
   text: string
   brainstorm_mode?: boolean
   run_id?: string
+  /** 运行中插话行（steering）：已注入当轮并落库的独立 user 消息 */
+  steered?: boolean
   status?: string
   error?: string | null
   reasoning?: string

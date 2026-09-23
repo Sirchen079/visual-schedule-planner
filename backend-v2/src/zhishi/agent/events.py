@@ -100,6 +100,14 @@ class BlackboardUpdated(_Frame):
     html: str
 
 
+class SteerAccepted(_Frame):
+    """运行中插话已注入当前模型请求；前端凭 token 对账，未确认的走回退发送。"""
+    type: Literal["steer_accepted"] = "steer_accepted"
+    text: str
+    message_id: int
+    token: str = ""
+
+
 class SubagentStarted(_Frame):
     type: Literal["subagent_started"] = "subagent_started"
     subagent_id: str
@@ -153,8 +161,8 @@ ALL_EVENTS: list[type[_Frame]] = [
     RunStarted, StageChanged, Heartbeat, TextDelta, ReasoningDelta,
     ToolCallStarted, ToolCallArgsDelta, ToolCallResult,
     ToolApprovalRequested, ToolApprovalResolved, UserInputRequested, PlanCard, WorkPlanUpdated,
-    BlackboardUpdated, SubagentStarted, SubagentDelta, SubagentCompleted, UsageUpdated,
-    RunCompleted, RunError, Done,
+    BlackboardUpdated, SteerAccepted, SubagentStarted, SubagentDelta, SubagentCompleted,
+    UsageUpdated, RunCompleted, RunError, Done,
 ]
 
 

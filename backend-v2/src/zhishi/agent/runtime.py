@@ -126,7 +126,8 @@ class AgentRuntime:
             from sqlalchemy.orm import sessionmaker
             self.session_factory = sessionmaker(bind=db.get_bind(), expire_on_commit=False)
 
-    def _build_agent(self, plan_mode: bool = False, conversation_id: int | None = None, emit=None, brainstorm_mode: bool = False) -> Agent:
+    def _build_agent(self, plan_mode: bool = False, conversation_id: int | None = None, emit=None,
+                     brainstorm_mode: bool = False, steer_capability=None) -> Agent:
         db = self.db
         from zhishi.agent.tools import atomic_read  # noqa: F401 触发注册
         from zhishi.agent.tools import web_tools  # noqa: F401 触发注册
@@ -154,6 +155,7 @@ class AgentRuntime:
             toolsets=self._mcp_toolsets(unavailable=unavailable, readonly_only=plan_mode or brainstorm_mode),
             capabilities=[discovery.hook(), media_capability_hooks(self.model_config),
                           tool_result_hooks(self.model_config, db, conversation_id, discovery),
+                          *([steer_capability] if steer_capability is not None else []),
                           self._compaction_capability(conversation_id, emit),
                           discovery.context_hook(),
                           live_clock_hooks(self.model_config, conversation_id),
@@ -473,7 +475,9 @@ class AgentRuntime:
                          run_id: str | None = None, cancel_token=None,
                          usage_meta: dict | None = None,
                          attachment_ids: list[int] | None = None,
-                         plan_mode: bool = False, research_project_id: int | None = None, brainstorm_mode: bool = False) -> AsyncIterator[dict]:
+                         plan_mode: bool = False, research_project_id: int | None = None,
+                         brainstorm_mode: bool = False,
+                         steer_queue=None) -> AsyncIterator[dict]:
         """user_text=None + history + deferred_results = 审批复活轮：
         不新增用户消息，直接从 CallToolsNode 继续（logical run 跨 execution）。"""
         db = self.db
@@ -564,7 +568,17 @@ class AgentRuntime:
                 brainstorm_mode = session_store.metadata(source_user.display_json).get('brainstorm_mode', False) is True
 
         queue: asyncio.Queue = asyncio.Queue()
-        agent = self._build_agent(plan_mode=plan_mode, conversation_id=conversation_id, emit=queue, brainstorm_mode=brainstorm_mode)
+        # 运行中插话（Codex 式 steering）：steer 端点投递队列 → 钩子在下一个工具调用
+        # 结束后的模型请求前注入；steer_queue=None = 本 run 不支持插话（调用方未接）。
+        # 钩子返回的视图由 pydantic-ai 写回 state 历史，注入即持久化，无需落库缝合。
+        steer_capability = None
+        if steer_queue is not None:
+            from zhishi.agent.steering import SteerInjector
+            steer_capability = SteerInjector(conversation_id=conversation_id, run_id=run_id,
+                                             queue=steer_queue, emit=queue,
+                                             session_factory=self.session_factory).capability()
+        agent = self._build_agent(plan_mode=plan_mode, conversation_id=conversation_id, emit=queue,
+                                  brainstorm_mode=brainstorm_mode, steer_capability=steer_capability)
         # per-run 注入：事件外发通道/子代理模型工厂/会话 id 全部进 deps（并发 run 不串线）
         capture_key = run_id
         if user_text is None:
@@ -625,7 +639,8 @@ class AgentRuntime:
                                     yield out
                                     collected.append(out)
                                 if time.monotonic() - last_checkpoint >= 1:
-                                    session_store.checkpoint(db, run_row, assistant_row, snapshot(), collected)
+                                    session_store.checkpoint(db, run_row, assistant_row,
+                                        snapshot(), collected)
                                     last_checkpoint = time.monotonic()
                         elif Agent.is_call_tools_node(node):
                             yield stage("executing_tools")
@@ -638,7 +653,8 @@ class AgentRuntime:
                                     yield out
                                     collected.append(out)
                             node_text = ''
-                        session_store.checkpoint(db, run_row, assistant_row, run.all_messages(), collected)
+                        session_store.checkpoint(db, run_row, assistant_row,
+                            run.all_messages(), collected)
                     if run.result is not None:  # 正常收敛：提取输出与 usage（跨轮累加）
                         final_messages = run.result.all_messages()
                         run_output = run.result.output
@@ -714,7 +730,9 @@ class AgentRuntime:
             run_row.status = "interrupted" if done_reason == "cancelled" else (
                 done_reason if done_reason != "model_done" else "completed")
 
-        # 3) 消息落库（history 双存储）；恢复轮不新增用户消息
+        # 3) 消息落库（history 双存储）；恢复轮不新增用户消息。
+        # 运行中插话已由钩子写回 state 历史（注入即持久化），随快照自然落库；
+        # plan-retry 复用的 history 同样含插话，新一轮采样不会重复。
         if done_reason in ('failed', 'cancelled', 'budget_exceeded'):
             from pydantic_ai.messages import ModelMessagesTypeAdapter
             final_messages = final_messages or ModelMessagesTypeAdapter.validate_json(assistant_row.history_json)
