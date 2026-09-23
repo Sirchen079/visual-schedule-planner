@@ -1,6 +1,8 @@
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from zhishi.agent.tools.registry import get_spec
 
 
@@ -43,12 +45,27 @@ def test_show_blackboard_is_safe_meta_tool(db):
 
 
 def test_show_blackboard_rejects_empty_and_oversized(db):
+    from pydantic_ai.exceptions import ModelRetry
+
     from zhishi.agent.tools.blackboard import MAX_BLACKBOARD_CHARS, show_blackboard
-    import pytest
-    with pytest.raises(ValueError):
+    # 校验失败 raise ModelRetry：错误原文回给模型，同轮修正重调
+    with pytest.raises(ModelRetry, match="不能为空"):
         show_blackboard(db, html="   ")
-    with pytest.raises(ValueError):
+    with pytest.raises(ModelRetry, match="过长"):
         show_blackboard(db, html="x" * (MAX_BLACKBOARD_CHARS + 1))
+
+
+def test_show_blackboard_teaches_sandbox_constraints(db):
+    """静态校验明显会在沙箱里挂掉的模式，报错信息要给出可执行的改法。"""
+    from pydantic_ai.exceptions import ModelRetry
+
+    from zhishi.agent.tools.blackboard import show_blackboard
+    with pytest.raises(ModelRetry, match="表单"):
+        show_blackboard(db, html='<form action="/x"><button>go</button></form>')
+    with pytest.raises(ModelRetry, match="localStorage"):
+        show_blackboard(db, html="<script>localStorage.setItem('k','v')</script>")
+    with pytest.raises(ModelRetry, match="position:fixed"):
+        show_blackboard(db, html='<div style="position:fixed;top:0">悬浮</div>')
 
 
 def test_write_inventory_complete():
