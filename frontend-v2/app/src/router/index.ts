@@ -39,6 +39,9 @@ export const routes: RouteRecordRaw[] = [
   { path: '/reports', name: 'reports', component: ReportsView, meta: { title: '日报周报', group: 'aux' } },
   { path: '/trash', name: 'trash', component: TrashView, meta: { title: '回收站', group: 'aux' } },
   { path: '/settings', name: 'settings', component: SettingsView, meta: { title: '设置', group: 'aux' } },
+  // AI 会话深链（系统通知 target_path）：对话列常驻壳层而非独立页面，
+  // /chat 落到今日页并保留 conversation 查询，由 ChatPanel 消费后清除。
+  { path: '/chat', redirect: (to) => ({ path: '/', query: to.query }) },
 ]
 
 const router = createRouter({

@@ -3,6 +3,7 @@
  * 对话侧栏：组合会话列表、消息时间线、执行状态和输入框。
  */
 import { computed, nextTick, ref, watch, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useConversationStore } from '../../stores/conversation'
 import { useRunStore } from '../../stores/run'
 import AppIcon from '../AppIcon.vue'
@@ -10,11 +11,27 @@ import BlackboardPanel from './BlackboardPanel.vue'
 import ChatInput from './ChatInput.vue'
 import ChatThread from './ChatThread.vue'
 import ConversationList from './ConversationList.vue'
+import QueueBar from './QueueBar.vue'
 import RunStatusBar from './RunStatusBar.vue'
 import WorkPlanSummary from './WorkPlanSummary.vue'
 
 const run = useRunStore()
 const conv = useConversationStore()
+const route = useRoute()
+const router = useRouter()
+
+// 深链 /chat?conversation=N（系统通知点击 → 壳层写 location.hash，经路由
+// 重定向落到今日页）：等会话初始化完成后打开指定会话，随后清掉查询参数，
+// 之后的会话切换回归工作区持久化（active_id）。
+const routedConversation = computed(() => {
+  const value = route.query.conversation
+  return typeof value === 'string' && /^[1-9]\d*$/.test(value) ? Number(value) : null
+})
+watch([routedConversation, () => conv.initialized], ([id, ready]) => {
+  if (id === null || !ready) return
+  if (id !== conv.activeId) void conv.select(id)
+  void router.replace({ path: route.path, query: {} })
+}, { immediate: true })
 
 const ownsRun = computed(() => run.conversationId === conv.activeId)
 let syncTimer: ReturnType<typeof setInterval> | undefined
@@ -99,6 +116,7 @@ watch(
 
     <BlackboardPanel v-if="ownsRun" />
     <RunStatusBar v-if="ownsRun" />
+    <QueueBar />
     <ChatInput />
 
     <ConversationList v-if="listOpen" @close="listOpen = false" />

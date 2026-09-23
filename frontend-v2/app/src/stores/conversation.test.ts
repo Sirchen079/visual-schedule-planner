@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useConversationStore } from './conversation'
 import { useRunStore } from './run'
@@ -165,5 +165,185 @@ describe('conversation store', () => {
     } finally {
       vi.unstubAllGlobals()
     }
+  })
+})
+
+describe('消息排队与自动续发', () => {
+  /** 内存版 localStorage（node 测试环境没有全局 localStorage）。 */
+  function memoryStorage(): Storage {
+    const map = new Map<string, string>()
+    return {
+      length: 0,
+      key: (i: number) => [...map.keys()][i] ?? null,
+      clear: () => map.clear(),
+      getItem: (k: string) => map.get(k) ?? null,
+      setItem: (k: string, v: string) => void map.set(k, String(v)),
+      removeItem: (k: string) => void map.delete(k),
+    } as Storage
+  }
+
+  /** 等待 watcher 触发的续发链收敛（全链路微任务驱动，若干轮宏任务足够）。 */
+  async function settle(rounds = 20): Promise<void> {
+    for (let i = 0; i < rounds; i++) await new Promise((r) => setTimeout(r, 0))
+  }
+
+  /** POST /ai/chat/stream 的 SSE 响应替身：run_started + done 正常收敛。 */
+  function sseStream(runId: string, conversationId: number): Response {
+    const body =
+      `event: run_started\ndata: ${JSON.stringify({ v: 1, type: 'run_started', run_id: runId, conversation_id: conversationId })}\n\n` +
+      `event: done\ndata: ${JSON.stringify({ v: 1, type: 'done', run_id: runId })}\n\n`
+    return {
+      ok: true,
+      status: 200,
+      body: new ReadableStream<Uint8Array>({
+        start(ctrl) { ctrl.enqueue(new TextEncoder().encode(body)); ctrl.close() },
+      }),
+    } as unknown as Response
+  }
+
+  /** 让会话 1 进入 run 进行中（模拟本地活跃 run）。 */
+  function startRun(conv: ReturnType<typeof useConversationStore>, run: ReturnType<typeof useRunStore>): void {
+    conv.activeId = 1
+    run.consume({ v: 1, type: 'run_started', run_id: 'r1', conversation_id: 1 })
+  }
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.stubGlobal('localStorage', memoryStorage())
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('run 活跃时 sendMessage 入队而不发请求；sending 时维持原样静默忽略', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse([]))
+    vi.stubGlobal('fetch', fetchMock)
+    const conv = useConversationStore()
+    const run = useRunStore()
+    startRun(conv, run)
+
+    await conv.sendMessage('帮我加一条日程')
+    expect(conv.queuedMessages).toEqual(['帮我加一条日程'])
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    await conv.sendMessage('   ') // 空白消息不入队
+    expect(conv.queuedMessages).toEqual(['帮我加一条日程'])
+
+    await conv.sendMessage('第二条')
+    expect(conv.queuedMessages).toEqual(['帮我加一条日程', '第二条'])
+
+    conv.sending = true // 原 sending 拦截保持静默忽略（不转排队）
+    await conv.sendMessage('第三条')
+    expect(conv.queuedMessages).toEqual(['帮我加一条日程', '第二条'])
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('run 正常收敛后自动依次续发队列，直到清空', async () => {
+    const streamMessages: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        if (String(url) === '/ai/chat/stream') {
+          const body = JSON.parse(String(init?.body ?? '{}')) as { message: string }
+          streamMessages.push(body.message)
+          return sseStream(`rq${streamMessages.length}`, 1)
+        }
+        return jsonResponse([])
+      }),
+    )
+    const conv = useConversationStore()
+    const run = useRunStore()
+    startRun(conv, run)
+    await conv.sendMessage('第一条')
+    await conv.sendMessage('第二条')
+    expect(streamMessages).toEqual([]) // 仍在排队，未发请求
+
+    run.consume({ v: 1, type: 'done', run_id: 'r1' }) // 原任务正常完成
+    await settle()
+    expect(run.phase).toBe('completed')
+    expect(conv.queuedMessages).toEqual([])
+    expect(streamMessages).toEqual(['第一条', '第二条']) // 依次各开一条流
+    expect(run.sentMessage).toBe('第二条')
+  })
+
+  it('run 以 error 收敛时不自动续发，队列原样保留', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse([]))
+    vi.stubGlobal('fetch', fetchMock)
+    const conv = useConversationStore()
+    const run = useRunStore()
+    startRun(conv, run)
+    await conv.sendMessage('排队一')
+    await conv.sendMessage('排队二')
+
+    run.consume({ v: 1, type: 'run_error', run_id: 'r1', message: '上游过载', retryable: true })
+    run.consume({ v: 1, type: 'done', run_id: 'r1' })
+    await settle()
+    expect(run.phase).toBe('error')
+    expect(conv.queuedMessages).toEqual(['排队一', '排队二'])
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('run 被取消时不自动续发，队列原样保留', async () => {
+    const calls: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL | Request) => {
+        calls.push(String(url))
+        return jsonResponse({ ok: true })
+      }),
+    )
+    const conv = useConversationStore()
+    const run = useRunStore()
+    startRun(conv, run)
+    await conv.sendMessage('排队一')
+    await conv.sendMessage('排队二')
+
+    await run.cancel()
+    await settle()
+    expect(run.phase).toBe('cancelled')
+    expect(conv.queuedMessages).toEqual(['排队一', '排队二'])
+    expect(calls).toEqual(['/ai/runs/r1/cancel']) // 只有取消请求，没有续发流
+  })
+
+  it('队列按会话持久化到 localStorage，切换/刷新后恢复对应队列', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse([])))
+    const conv = useConversationStore()
+    const run = useRunStore()
+    startRun(conv, run)
+
+    await conv.sendMessage('会话一的消息')
+    expect(localStorage.getItem('zhishi:queued-messages:1')).toBe(JSON.stringify(['会话一的消息']))
+
+    await conv.select(2) // 切到会话 2：队列随会话隔离
+    expect(conv.queuedMessages).toEqual([])
+    await conv.sendMessage('会话二的消息') // 会话 1 的 run 仍活跃 → 入会话 2 的队
+    expect(localStorage.getItem('zhishi:queued-messages:2')).toBe(JSON.stringify(['会话二的消息']))
+    expect(localStorage.getItem('zhishi:queued-messages:1')).toBe(JSON.stringify(['会话一的消息']))
+
+    await conv.select(1)
+    expect(conv.queuedMessages).toEqual(['会话一的消息'])
+
+    // 模拟刷新：全新 pinia 与 store，从 localStorage 恢复
+    setActivePinia(createPinia())
+    const revived = useConversationStore()
+    await revived.select(1)
+    expect(revived.queuedMessages).toEqual(['会话一的消息'])
+  })
+
+  it('删除队列条目并同步落盘；越界索引不动作', () => {
+    const conv = useConversationStore()
+    conv.activeId = 1
+    conv.enqueueMessage('甲')
+    conv.enqueueMessage('乙')
+    conv.removeQueuedMessage(0)
+    expect(conv.queuedMessages).toEqual(['乙'])
+    expect(localStorage.getItem('zhishi:queued-messages:1')).toBe(JSON.stringify(['乙']))
+
+    conv.removeQueuedMessage(5)
+    expect(conv.queuedMessages).toEqual(['乙'])
+
+    conv.removeQueuedMessage(0)
+    expect(conv.queuedMessages).toEqual([])
+    expect(localStorage.getItem('zhishi:queued-messages:1')).toBeNull() // 空队列清键
   })
 })

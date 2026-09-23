@@ -61,8 +61,9 @@ function focusTa(): void {
   el.setSelectionRange(end, end)
 }
 
+// run 活跃/远端 run 时仍可发送：sendMessage 会把消息转入队列（QueueBar 可见），任务结束后自动续发
 const canSend = computed(
-  () => text.value.trim().length > 0 && !run.isActive && !conv.sending && !conv.loading && !run.conflict && !conv.uploading && !conv.remoteRunId && !conv.initializing,
+  () => text.value.trim().length > 0 && !conv.sending && !conv.loading && !run.conflict && !conv.uploading && !conv.initializing,
 )
 
 const microtext = computed<string | null>(() => {
@@ -78,7 +79,7 @@ const microtext = computed<string | null>(() => {
   if (run.phase === 'awaiting_approval' && run.notice) return run.notice
   if (run.phase === 'awaiting_approval')
     return '审批待决 — 发送已暂停，批准或拒绝后知时将继续执行'
-  if (run.phase === 'streaming') return '知时正在执行这段任务…可随时停止'
+  if (run.phase === 'streaming') return '知时正在执行这段任务…可随时停止；现在输入的消息会在任务结束后自动发送'
   if (run.phase === 'error' && run.error) return run.error.message
   // consumed 幂等等信息级提示在 done 后依然可见（低优先级，不遮错误）
   if (run.notice) return run.notice
@@ -93,6 +94,11 @@ const microTone = computed(() =>
 function send(): void {
   if (!canSend.value) return
   const message = text.value.trim()
+  if (run.isActive || conv.remoteRunId) {
+    // 排队路径：不消费附件盘与一次性模式（计划/头脑风暴留待直发生效），草稿由入队方清理
+    void conv.sendMessage(message)
+    return
+  }
   const attachmentIds = conv.attachmentIds
   conv.stageSentEcho(conv.draftAttachments) // 时间线 sent 回显附件 chip
   // 草稿和附件仅在服务端 run_started 确认接收后清理。
