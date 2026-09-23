@@ -11,6 +11,8 @@ export function notificationTarget(value?: string | null, taskId?: number | null
   if (project && project[0] === value && Number.isSafeInteger(Number(project[1]))) return value!
   const research = followupTarget(value)
   if (research) return research
+  const chat = value?.match(/^\/chat\?conversation=([1-9]\d*)$/)
+  if (chat && chat[0] === value && Number.isSafeInteger(Number(chat[1]))) return value!
   if (!value && Number.isSafeInteger(taskId) && taskId! > 0) return `/board?task=${taskId}`
   return undefined
 }

@@ -486,7 +486,9 @@ class AgentRuntime:
         # 1) 会话先解析（run_started 首帧需要真实 conversation_id）
         from zhishi.domain.models import AIConversation, AIMessage
         if conversation_id is None:
-            conv = AIConversation(title=(user_text or "审批恢复")[:30])
+            # 兜底建会话（正常入口在 ai._start_run）：同样打自动命名标记
+            conv = AIConversation(title=(user_text or "审批恢复")[:30],
+                                  meta_json=json.dumps({'title_auto': True}))
             db.add(conv); db.commit(); db.refresh(conv)
             conversation_id = conv.id
         else:

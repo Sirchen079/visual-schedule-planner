@@ -41,6 +41,10 @@ def start(client):
 def test_brainstorm_interview_keeps_readonly_mode_after_restart_and_answer(tmp_path, monkeypatch):
     modes = []
     async def stream(messages, info):
+        # resume 完成后的会话自动命名是独立的后台一次性调用，不属于模式断言
+        if any('请输出会话标题' in str(getattr(p, 'content', '')) for m in messages for p in m.parts):
+            yield '会话标题'
+            return
         modes.append({t.name for t in info.function_tools})
         results = [p for m in messages for p in m.parts if isinstance(p, ToolReturnPart)]
         if not any(p.tool_name == 'ask_user' for p in results):

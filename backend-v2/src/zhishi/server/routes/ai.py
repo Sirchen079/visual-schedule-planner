@@ -199,8 +199,9 @@ async def _with_close(aiter, db):
 
 
 async def _stream_response(event_aiter, app, run_id: str,
-                           conversation_id: int | None) -> StreamingResponse:
-    """chat 与 resume 共用的 SSE 生成器：心跳/并发锁/清理一致。"""
+                           conversation_id: int | None, model=None) -> StreamingResponse:
+    """chat 与 resume 共用的 SSE 生成器：心跳/并发锁/清理一致。
+    model 用于 run 收尾后的会话自动命名（与主 run 同一模型实例）。"""
     queue: asyncio.Queue = asyncio.Queue()
     detached = False
 
@@ -221,9 +222,16 @@ async def _stream_response(event_aiter, app, run_id: str,
                     from zhishi.agent import session_store
                     from zhishi.domain.models import AIRun
                     row = cleanup_db.get(AIRun,run_id)
-                    if row is not None and row.status == 'running':
-                        session_store.interrupt_run(cleanup_db,row,'stream_interrupted')
-                        cleanup_db.commit()
+                    if row is not None:
+                        if row.status == 'running':
+                            session_store.interrupt_run(cleanup_db,row,'stream_interrupted')
+                            cleanup_db.commit()
+                        # run 终态副作用：系统通知行（completed/awaiting_*）与
+                        # 首轮会话自动命名；二者失败都不影响主流程。
+                        _record_run_notification(cleanup_db, row, conversation_id)
+                        if row.status == 'completed' and model is not None:
+                            _schedule_auto_title(app.state.session_factory,
+                                                 conversation_id, model)
             except Exception:
                 import logging
                 logging.getLogger(__name__).exception('Failed to finalize run %s',run_id)
@@ -360,6 +368,144 @@ def _release_run_slot(app, run_id: str, conversation_id: int | None) -> None:
         app.state.active_runs.pop(conversation_id, None)
 
 
+# ---- run 终态副作用：系统通知 + 会话自动命名 ----
+
+_RUN_NOTIFY_STATES = ('completed', 'awaiting_approval', 'awaiting_input')
+_AUTO_TITLE_SOURCE_CHARS = 500   # 命名输入：用户首条消息 / 助手首条回复各截取长度
+_AUTO_TITLE_MAX_CHARS = 15       # 标题长度上限（提示词要求与清洗截断共用）
+
+_TITLE_INSTRUCTIONS = (
+    '你是会话命名助手：根据一轮对话概括主题，输出一个不超过15字的中文标题。'
+    '只输出标题文本本身——不要引号、句号、前后缀或任何解释。')
+
+
+def _record_run_notification(db: Session, row, conversation_id: int | None) -> None:
+    """run 落定通知终态时写一行 NotificationLog（Electron 壳每 30s 轮询未读弹
+    系统通知，点击按 target_path 深链聚焦）。dedupe_key 带 run_id+status：
+    同一 run 同一状态只提醒一次；awaiting 与 completed 先后发生时各写各的。
+    已存在即跳过，并发撞 UniqueConstraint 时回滚吞掉；任何失败只记日志。"""
+    if conversation_id is None or row.status not in _RUN_NOTIFY_STATES:
+        return
+    from sqlalchemy.exc import IntegrityError
+    from zhishi.domain.models import NotificationLog
+    key = f"ai-run-{row.run_id}-{row.status}"
+    try:
+        if db.scalar(select(NotificationLog).where(NotificationLog.dedupe_key == key)) is not None:
+            return
+        conv = db.get(AIConversation, conversation_id)
+        subject = ((conv.title if conv is not None else '') or '新会话')[:40]
+        if row.status == 'completed':
+            title, detail = '知时已完成回复', '回复已生成，点击查看'
+        else:
+            title = '知时需要你的处理'
+            detail = '有问题等你回答' if row.status == 'awaiting_input' else '有操作待你审批'
+        db.add(NotificationLog(kind='ai_run', dedupe_key=key, title=title,
+                               body=f'{subject} · {detail}'[:60],
+                               target_path=f'/chat?conversation={conversation_id}',
+                               remind_at=datetime.now()))
+        db.commit()
+    except IntegrityError:
+        db.rollback()   # 同 key 并发重复：另一方已写入，本侧放弃即可
+    except Exception:
+        db.rollback()
+        import logging
+        logging.getLogger(__name__).warning(
+            'AI 运行通知写入失败 run=%s', row.run_id, exc_info=True)
+
+
+def _clean_title(raw) -> str:
+    """清洗模型输出：取首行、去包裹引号与首尾空白、超长截断；空结果返回空串。"""
+    text = str(raw or '').strip()
+    if not text:
+        return ''
+    first_line = text.splitlines()[0].strip()
+    return first_line.strip('「」『』"\'“”‘’')[:_AUTO_TITLE_MAX_CHARS]
+
+
+async def _generate_conversation_title(model, user_text: str, reply_text: str) -> str:
+    """一次性模型调用生成会话标题：无工具子代理（同 macro.task 的轻量形态，
+    流式驱动节点以兼容仅实现 stream 的模型），UsageLimits 限制请求与输出
+    预算，30s 超时，失败由调用方兜底。"""
+    from pydantic_ai import Agent
+    from pydantic_ai.usage import UsageLimits
+    agent = Agent(model, output_type=str, instructions=_TITLE_INSTRUCTIONS, retries=1)
+
+    async def _run() -> str:
+        async with agent.iter(
+                f'用户消息：{user_text}\n\n助手回复：{reply_text}\n\n请输出会话标题：',
+                usage_limits=UsageLimits(request_limit=2, output_tokens_limit=1000)) as run:
+            async for node in run:
+                if Agent.is_model_request_node(node):
+                    async with node.stream(run.ctx) as stream:
+                        async for _evt in stream:
+                            pass   # 只驱动流取最终输出，命名不需要增量进度
+        if run.result is None:
+            raise RuntimeError('命名运行未产生结果')
+        return str(run.result.output)
+
+    async with asyncio.timeout(30):
+        return _clean_title(await _run())
+
+
+async def _auto_name_conversation(session_factory, conversation_id: int, model) -> None:
+    """首轮回复完成后自动命名：仅当 title_auto 仍为 true 时取首条问答生成
+    ≤15 字标题写回；用户已手动改名（标记被清）绝不覆盖。独立 Session，
+    全量异常静默（记 warning）——命名失败只保留截断原标题，不影响主流程。"""
+    import logging
+    log = logging.getLogger(__name__)
+    try:
+        with session_factory() as db:
+            conv = db.get(AIConversation, conversation_id)
+            if conv is None or not _conversation_meta(conv).get('title_auto'):
+                return
+            from zhishi.domain.models import AIMessage
+
+            def first_text(role: str) -> str:
+                row = db.scalar(select(AIMessage).where(
+                    AIMessage.conversation_id == conversation_id,
+                    AIMessage.role == role).order_by(AIMessage.id).limit(1))
+                if row is None:
+                    return ''
+                try:
+                    return str(json.loads(row.display_json or '{}').get('text', ''))
+                except (ValueError, TypeError):
+                    return ''
+
+            user_text = first_text('user')[:_AUTO_TITLE_SOURCE_CHARS]
+            reply_text = first_text('assistant')[:_AUTO_TITLE_SOURCE_CHARS]
+            if not user_text.strip():
+                return
+            title = await _generate_conversation_title(model, user_text, reply_text)
+            if not title:
+                return
+            # 生成期间用户可能已改名或写入计划等 meta：重读并只合并标题相关键
+            conv = db.get(AIConversation, conversation_id, populate_existing=True)
+            if conv is None or not _conversation_meta(conv).get('title_auto'):
+                return
+            conv.title = title
+            meta = _conversation_meta(conv)
+            meta['title_auto'] = False
+            conv.meta_json = json.dumps(meta, ensure_ascii=False)
+            db.commit()
+    except Exception:
+        log.warning('会话自动命名失败 conversation=%s', conversation_id, exc_info=True)
+
+
+_auto_title_tasks: set = set()   # 持任务引用防 GC，完成即移除
+
+
+def _schedule_auto_title(session_factory, conversation_id: int, model) -> None:
+    """fire-and-forget 派发自动命名：挂在事件循环上的后台任务，失败静默；
+    无运行中事件循环（同步上下文）时直接跳过。"""
+    try:
+        task = asyncio.create_task(
+            _auto_name_conversation(session_factory, conversation_id, model))
+    except RuntimeError:
+        return
+    _auto_title_tasks.add(task)
+    task.add_done_callback(_auto_title_tasks.discard)
+
+
 async def _start_run(app, *, message: str, conversation_id: int | None,
                      attachment_ids: list[int] | None = None,
                      plan_mode: bool = False, research_project_id: int | None = None,
@@ -392,7 +538,10 @@ async def _start_run(app, *, message: str, conversation_id: int | None,
         cfg = _enabled_config(db)
         model = build_model(cfg)
         if conversation_id is None:
-            conv = AIConversation(title=message[:30] or '新会话')
+            # 自动创建的会话打 title_auto 标记：首轮回复完成后由后台模型生成正式
+            # 标题；用户手动改名（PATCH title）清除标记后不再覆盖。
+            conv = AIConversation(title=message[:30] or '新会话',
+                                  meta_json=json.dumps({'title_auto': True}))
             db.add(conv); db.commit(); db.refresh(conv)
             conversation_id = conv.id
             active[conversation_id] = run_id
@@ -431,7 +580,7 @@ async def _start_run(app, *, message: str, conversation_id: int | None,
                                            usage_meta={"config_id": cfg.id,
                                                        "provider": cfg.provider_kind,
                                                        "model": cfg.model}), db)
-    return await _stream_response(aiter, app, run_id, conversation_id)
+    return await _stream_response(aiter, app, run_id, conversation_id, model=model)
 
 
 @router.post("/chat/stream", response_class=EventStreamResponse)
@@ -909,7 +1058,7 @@ async def resume_stream(cid: int, request: Request):
                                                        "model": cfg.model}), db)
     # 恢复轮放行边界：只有本轮回填 ToolApproved 的调用经 ctx.tool_call_approved
     # 跳过权限门；模型随后对同名工具的全新调用照常落审批门（A3 验证）。
-    return await _stream_response(aiter, app, run_id, cid)
+    return await _stream_response(aiter, app, run_id, cid, model=model)
 
 
 # ---- 计划模式 ----

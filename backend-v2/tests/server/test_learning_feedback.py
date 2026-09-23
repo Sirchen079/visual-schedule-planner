@@ -59,6 +59,10 @@ def test_agent_reports_feedback_repairs_extension_and_resumes_without_duplicates
         return {0:DeltaToolCall(name=name, json_args=json.dumps(args), tool_call_id=f'learning-{rounds}')}
     async def stream(messages, info):
         nonlocal rounds, fid, plan_id
+        # resume 完成后的会话自动命名是独立的后台一次性调用，不计入调用脚本
+        if any('请输出会话标题' in str(getattr(p, 'content', '')) for m in messages for p in m.parts):
+            yield '会话标题'
+            return
         rounds += 1
         parts = [p for m in messages for p in m.parts if isinstance(p, ToolReturnPart)]
         result = json.loads(parts[-1].content) if parts else None

@@ -334,6 +334,17 @@ function updateTrayMenu() {
 // 每 30s GET /api/notifications/unread；count>0 且（窗口隐藏或失焦）时弹系统通知，
 // 标题取最新一条未读；点击通知聚焦主窗。已读判定交给前端，本壳只负责提醒：
 // 弹过的 id 记入 notifiedIds，避免同一条未读每 30s 重复打扰。
+
+// 深链白名单：通知 target_path 必须逐字匹配这些内部路由形态才允许注入
+// location.hash（防任意字符串进页面地址）。后端新增 target_path 形态时在此登记。
+function internalDeepLink(target) {
+  return /^\/ledger\?bill=[1-9]\d*$/.test(target)
+    || /^\/calendar\?date=\d{4}-\d{2}-\d{2}&event=[1-9]\d*$/.test(target)
+    || /^\/board\?task=[1-9]\d*$/.test(target)
+    || /^\/research\?project=[1-9]\d*(?:&followup=[1-9]\d*)?$/.test(target)
+    || /^\/chat\?conversation=[1-9]\d*$/.test(target)
+}
+
 async function pollNotifications() {
   try {
     if (desktopSettings && !desktopSettings.snapshot().notifications) return
@@ -368,8 +379,7 @@ async function pollNotifications() {
     })
     toast.on('click', () => {
       const target = latest.target_path || (Number.isSafeInteger(latest.task_id) && latest.task_id > 0 ? `/board?task=${latest.task_id}` : '')
-      const internal = /^\/ledger\?bill=[1-9]\d*$/.test(target) || /^\/calendar\?date=\d{4}-\d{2}-\d{2}&event=[1-9]\d*$/.test(target) || /^\/board\?task=[1-9]\d*$/.test(target) || /^\/research\?project=[1-9]\d*(?:&followup=[1-9]\d*)?$/.test(target)
-      showMainWindow(internal ? target : undefined)
+      showMainWindow(internalDeepLink(target) ? target : undefined)
     })
     toast.on('show', () => console.log('[shell] Notification show 事件已触发（系统已展示 toast）'))
     toast.on('failed', (_e, error) => console.error(`[shell] Notification 展示失败：${error}`))

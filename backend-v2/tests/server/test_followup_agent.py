@@ -16,6 +16,10 @@ def test_guided_followup_approval_resume_and_terminal_retry(tmp_path, monkeypatc
     project_id = None
     async def stream(messages, info):
         nonlocal calls, followup_id
+        # resume 完成后的会话自动命名是独立的后台一次性调用，不计入调用脚本
+        if any('请输出会话标题' in str(getattr(p, 'content', '')) for m in messages for p in m.parts):
+            yield '会话标题'
+            return
         calls += 1
         parts = [p for m in messages for p in m.parts if isinstance(p, ToolReturnPart)]
         latest = json.loads(parts[-1].content) if parts else None

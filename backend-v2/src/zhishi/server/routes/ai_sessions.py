@@ -175,6 +175,36 @@ class UserInputResolutionOut(BaseModel):
     ready_to_resume: bool
 
 
+class ConversationTitleIn(BaseModel):
+    """会话改名请求：标题 1..200 字（与列宽一致）。"""
+    title: str = Field(min_length=1, max_length=200)
+
+
+class ConversationTitleOut(BaseModel):
+    """会话改名回包：id + 清洗后的新标题。"""
+    id: int
+    title: str
+
+
+@router.patch('/conversations/{cid}/title', response_model=ConversationTitleOut)
+def rename_conversation(cid: int, body: ConversationTitleIn, db: Database):
+    """用户手动改名：写新标题并清除 title_auto 标记——首轮自动命名不再覆盖。
+    meta 读改写只动 title_auto 键，计划/摘要等其余键原样保留。"""
+    conv = db.get(AIConversation, cid, populate_existing=True)
+    if conv is None:
+        raise HTTPException(404, '会话不存在')
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(422, '标题不能为空白')
+    conv.title = title
+    meta = metadata(conv.meta_json)
+    if 'title_auto' in meta:
+        meta.pop('title_auto')
+        conv.meta_json = json.dumps(meta, ensure_ascii=False)
+    db.commit()
+    return ConversationTitleOut(id=conv.id, title=conv.title)
+
+
 @router.post('/runtime/update-prepare')
 def prepare_desktop_update(request: Request) -> dict[str, bool]:
     if request.app.state.active_runs:

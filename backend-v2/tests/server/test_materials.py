@@ -42,6 +42,10 @@ def test_attachment_guidance_and_fallible_agent_find_late_material_without_reupl
     archived_text = ''
     async def stream(messages, info):
         nonlocal rounds, archived_text
+        # 首轮完成后的会话自动命名是独立的后台一次性调用，不计入调用脚本
+        if any('请输出会话标题' in str(getattr(p, 'content', '')) for m in messages for p in m.parts):
+            yield '会话标题'
+            return
         returns = [p for m in messages for p in m.parts if isinstance(p,ToolReturnPart)]
         latest = json.loads(returns[-1].content) if returns else None
         if latest and 'preview' in latest and latest.get('next_call', {}).get('tool') == 'read_tool_result':

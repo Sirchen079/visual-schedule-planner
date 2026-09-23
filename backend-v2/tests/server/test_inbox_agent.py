@@ -26,6 +26,10 @@ def test_missing_field_then_repeat_then_approval_resume_keeps_text_identity(tmp_
     calls = 0
     async def stream(messages, info):
         nonlocal calls
+        # 首轮完成后的会话自动命名是独立的后台一次性调用，不计入调用脚本
+        if any('请输出会话标题' in str(getattr(p, 'content', '')) for m in messages for p in m.parts):
+            yield '会话标题'
+            return
         calls += 1
         if calls == 1:
             yield call("propose_inbox_items", {"items": [{k: v for k, v in ITEM.items() if k != "source_excerpt"}]}, calls)
@@ -76,6 +80,10 @@ def test_attachment_has_explicit_id_and_reupload_processed_records(tmp_path, mon
     calls = 0
     async def stream(messages, info):
         nonlocal calls
+        # resume 完成后的会话自动命名是独立的后台一次性调用，不计入调用脚本
+        if any('请输出会话标题' in str(getattr(p, 'content', '')) for m in messages for p in m.parts):
+            yield '会话标题'
+            return
         calls += 1
         if calls in (1, 3):
             text = str(messages)

@@ -28,3 +28,10 @@ it('opens a bill notification and rejects malformed destinations', () => {
     expect(notificationTarget(value)).toBeUndefined()
   }
 })
+
+it('opens an AI conversation notification and rejects malformed destinations', () => {
+  expect(notificationTarget('/chat?conversation=12')).toBe('/chat?conversation=12')
+  for (const value of ['/chat?conversation=0', '/chat?conversation=2&next=x', '/chat?conversation=abc', '/chat?conversation=999999999999999999']) {
+    expect(notificationTarget(value)).toBeUndefined()
+  }
+})

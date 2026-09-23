@@ -127,6 +127,12 @@ def test_chat_stream_second_turn_carries_history(tmp_path, monkeypatch):
     calls: list[list] = []
 
     async def scripted(messages, info):
+        # 首轮完成后的会话自动命名是独立的后台一次性调用（ai._auto_name_conversation），
+        # 不属于本测试的多轮历史断言，按命名专属提示语过滤。
+        if any("请输出会话标题" in str(getattr(p, "content", ""))
+               for m in messages for p in m.parts):
+            yield "会话标题"
+            return
         calls.append(list(messages))
         yield f"回复{len(calls)}"
 

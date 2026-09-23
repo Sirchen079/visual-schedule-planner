@@ -15,6 +15,10 @@ from zhishi.server.routes import ai
 def test_selected_project_context_is_latest_and_invalid_id_releases_slot(tmp_path, monkeypatch):
     observed = []
     async def stream(messages, info):
+        # 首轮完成后的会话自动命名是独立的后台一次性调用，不属于注入断言
+        if any('请输出会话标题' in str(getattr(p, 'content', '')) for m in messages for p in m.parts):
+            yield '会话标题'
+            return
         observed.extend(p.content for m in messages for p in m.parts if is_user_input(p))
         yield '已读取当前项目。'
     monkeypatch.setattr(ai, 'build_model', lambda *a, **k: FunctionModel(stream_function=stream))
@@ -45,6 +49,10 @@ def test_guided_research_chain_repairs_source_id_and_resumes_once(tmp_path,monke
         return {0:DeltaToolCall(name=name,json_args=json.dumps(args),tool_call_id=f'research-{calls}')}
     async def stream(messages,info):
         nonlocal calls,pid,plan_id
+        # resume 完成后的会话自动命名是独立的后台一次性调用，不计入调用脚本
+        if any('请输出会话标题' in str(getattr(p, 'content', '')) for m in messages for p in m.parts):
+            yield '会话标题'
+            return
         calls += 1
         parts = [p for m in messages for p in m.parts if isinstance(p,ToolReturnPart)]
         latest = json.loads(parts[-1].content) if parts else None

@@ -81,6 +81,10 @@ def test_image_attachment_injected_as_binary_content(tmp_path, monkeypatch):
         seen = {}
 
         async def stream(messages, info):
+            # 首轮完成后的会话自动命名是独立的后台一次性调用，不属于本断言
+            if any('请输出会话标题' in str(getattr(p, 'content', '')) for m in messages for p in m.parts):
+                yield '会话标题'
+                return
             seen["content"] = next(p.content for p in reversed(messages[-1].parts) if is_user_input(p))
             yield "收到图片"
 
@@ -129,6 +133,10 @@ def test_text_model_receives_unread_notice_without_image_attempt(tmp_path, monke
         _seed_enabled_config(c, ['text'])
         seen = []
         async def stream(messages, info):
+            # 会话自动命名的后台调用不属于本断言
+            if any('请输出会话标题' in str(getattr(p, 'content', '')) for m in messages for p in m.parts):
+                yield '会话标题'
+                return
             seen.append(next(p.content for p in reversed(messages[-1].parts) if is_user_input(p)))
             yield '请配置视觉服务后重试。'
         import zhishi.server.routes.ai as ai_route

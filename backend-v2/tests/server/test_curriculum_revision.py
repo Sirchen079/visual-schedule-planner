@@ -63,6 +63,10 @@ def test_agent_revision_conflict_approval_and_history_with_fresh_clock(tmp_path,
         return {0:DeltaToolCall(name=name, json_args=json.dumps(args), tool_call_id=f'revision-{rounds}')}
     async def stream(messages, info):
         nonlocal rounds, plan_id
+        # resume 完成后的会话自动命名是独立的后台一次性调用，不属于轮次脚本
+        if any('请输出会话标题' in str(getattr(p, 'content', '')) for m in messages for p in m.parts):
+            yield '会话标题'
+            return
         rounds += 1
         parts = [p for m in messages for p in m.parts if isinstance(p,ToolReturnPart)]
         result = json.loads(parts[-1].content) if parts else None
