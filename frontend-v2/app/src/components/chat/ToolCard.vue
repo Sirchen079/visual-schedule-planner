@@ -5,6 +5,7 @@
  */
 import { computed } from 'vue'
 import type { ToolCallItem } from '../../stores/run'
+import { toolDisplayName } from '../../utils/toolDisplay'
 import AppIcon from '../AppIcon.vue'
 
 const props = defineProps<{ call: ToolCallItem }>()
@@ -49,7 +50,7 @@ const stateText = computed(() => {
       <AppIcon v-else-if="call.status === 'error'" name="alert" class="i-err" :size="15" />
       <span v-else-if="call.status === 'running'" class="i-run" /><AppIcon v-else name="shield" :size="15" />
       <span v-if="parsedName.server" class="badge">{{ parsedName.server }}</span>
-      <span class="tname">{{ parsedName.short }}</span>
+      <span class="tname" :title="call.tool">{{ toolDisplayName(parsedName.short) }}</span>
       <span class="tstate" :data-running="call.status === 'running'">{{ stateText }}</span>
     </summary>
     <div class="tinner">

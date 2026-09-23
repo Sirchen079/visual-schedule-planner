@@ -5,6 +5,7 @@
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRunStore } from '../../stores/run'
+import { toolActionLabel } from '../../utils/toolDisplay'
 
 const run = useRunStore()
 
@@ -37,11 +38,21 @@ const elapsedText = computed<string | null>(() => {
   return null
 })
 
+/** 「执行工具」阶段按最近一个运行中的工具出具体动作标签（如「正在创建任务」）。 */
+const runningToolLabel = computed<string | null>(() => {
+  const calls = run.toolCalls
+  for (let i = calls.length - 1; i >= 0; i--) {
+    if (calls[i].status === 'running') return toolActionLabel(calls[i].tool)
+  }
+  return null
+})
+
 const phaseText = computed(() => {
   switch (run.phase) {
     case 'idle':
       return '待命'
     case 'streaming':
+      if (run.stage === 'executing_tools' && runningToolLabel.value) return runningToolLabel.value
       return run.stageLabel ?? '进行中'
     case 'awaiting_approval':
       return '等待审批'
