@@ -83,6 +83,7 @@ class ConversationStateOut(BaseModel):
     context_window: int | None
     questions: list[dict] = []
     work_plan: list[dict] = []
+    blackboard: dict | None = None
 
 
 class CancelPendingBody(BaseModel):
@@ -163,7 +164,7 @@ def conversation_state(cid: int, request: Request, db: Database):
         archive_count=db.scalar(select(func.count()).select_from(AIContextCheckpoint).where(AIContextCheckpoint.conversation_id==cid)),
         working_rounds=len(_round_starts(_raw_conversation_history(db,cid) or [])),
         summary=meta.get('summary',''), model=cfg.model if cfg else '', context_window=cfg.context_window if cfg else None,
-        questions=questions, work_plan=meta.get('work_plan', []))
+        questions=questions, work_plan=meta.get('work_plan', []), blackboard=meta.get('blackboard'))
 
 
 from zhishi.agent.user_input import UserInputOut, UserInputReply, answer_request, to_read  # noqa: E402

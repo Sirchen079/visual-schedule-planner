@@ -8,8 +8,9 @@ EXPECTED = {
     "run_started", "stage_changed", "heartbeat", "text_delta", "reasoning_delta",
     "tool_call_started", "tool_call_args_delta", "tool_call_result",
     "tool_approval_requested", "tool_approval_resolved", "plan_card",
-    "work_plan_updated", "subagent_started", "subagent_delta", "subagent_completed",
-    "usage_updated", "run_completed", "run_error", "done", "user_input_requested",
+    "work_plan_updated", "blackboard_updated", "subagent_started", "subagent_delta",
+    "subagent_completed", "usage_updated", "run_completed", "run_error", "done",
+    "user_input_requested",
 }
 
 def test_all_events_defined():

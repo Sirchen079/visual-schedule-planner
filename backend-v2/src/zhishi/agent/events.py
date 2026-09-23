@@ -1,4 +1,4 @@
-"""SSE 事件契约 v1（19 个事件）。前端契约的单一数据源：
+"""SSE 事件契约 v1（21 个事件）。前端契约的单一数据源：
 scripts/export_contracts.py 由此生成 docs/contracts/events.schema.json。
 任何变更必须重导出并更新快照测试。"""
 from __future__ import annotations
@@ -93,6 +93,13 @@ class WorkPlanUpdated(_Frame):
     steps: list[dict[str, Any]]
 
 
+class BlackboardUpdated(_Frame):
+    """黑板面板更新：AI 用 show_blackboard 工具推送的自包含 HTML 示意页。"""
+    type: Literal["blackboard_updated"] = "blackboard_updated"
+    title: str
+    html: str
+
+
 class SubagentStarted(_Frame):
     type: Literal["subagent_started"] = "subagent_started"
     subagent_id: str
@@ -146,7 +153,7 @@ ALL_EVENTS: list[type[_Frame]] = [
     RunStarted, StageChanged, Heartbeat, TextDelta, ReasoningDelta,
     ToolCallStarted, ToolCallArgsDelta, ToolCallResult,
     ToolApprovalRequested, ToolApprovalResolved, UserInputRequested, PlanCard, WorkPlanUpdated,
-    SubagentStarted, SubagentDelta, SubagentCompleted, UsageUpdated,
+    BlackboardUpdated, SubagentStarted, SubagentDelta, SubagentCompleted, UsageUpdated,
     RunCompleted, RunError, Done,
 ]
 

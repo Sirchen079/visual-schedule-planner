@@ -42,6 +42,9 @@
       "$ref": "#/definitions/WorkPlanUpdated"
     },
     {
+      "$ref": "#/definitions/BlackboardUpdated"
+    },
+    {
       "$ref": "#/definitions/SubagentStarted"
     },
     {
@@ -494,6 +497,37 @@
         "steps"
       ],
       "title": "WorkPlanUpdated",
+      "type": "object"
+    },
+    "BlackboardUpdated": {
+      "description": "黑板面板更新：AI 用 show_blackboard 工具推送的自包含 HTML 示意页。",
+      "properties": {
+        "v": {
+          "default": 1,
+          "description": "协议版本",
+          "title": "V",
+          "type": "integer"
+        },
+        "type": {
+          "const": "blackboard_updated",
+          "default": "blackboard_updated",
+          "title": "Type",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "html": {
+          "title": "Html",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "html"
+      ],
+      "title": "BlackboardUpdated",
       "type": "object"
     },
     "SubagentStarted": {

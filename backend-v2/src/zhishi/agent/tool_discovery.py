@@ -11,7 +11,8 @@ from pydantic_ai import RunContext
 from pydantic_ai.messages import ToolCallPart, ToolReturnPart
 from zhishi.agent.context_parts import append_context, latest_context
 
-CORE_TOOLS = {'search_tools', 'execute_tool', 'ask_user', 'update_work_plan', 'read_tool_result'}
+CORE_TOOLS = {'search_tools', 'execute_tool', 'ask_user', 'update_work_plan', 'read_tool_result',
+              'show_blackboard'}
 EXECUTE_DESCRIPTION = ('执行 search_tools 返回的工具。name 填准确工具名，arguments 按返回的 parameters 填写。'
                        '工作流和 next_call 中的工具也通过此入口调用；未获得参数定义时先查询。权限仍由系统检查。')
 SEARCH_DESCRIPTION = (

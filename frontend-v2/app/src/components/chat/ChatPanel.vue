@@ -6,6 +6,7 @@ import { computed, nextTick, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useConversationStore } from '../../stores/conversation'
 import { useRunStore } from '../../stores/run'
 import AppIcon from '../AppIcon.vue'
+import BlackboardPanel from './BlackboardPanel.vue'
 import ChatInput from './ChatInput.vue'
 import ChatThread from './ChatThread.vue'
 import ConversationList from './ConversationList.vue'
@@ -96,6 +97,7 @@ watch(
       <WorkPlanSummary v-if="ownsRun" :steps="run.workPlanSteps" />
     </div>
 
+    <BlackboardPanel v-if="ownsRun" />
     <RunStatusBar v-if="ownsRun" />
     <ChatInput />
 

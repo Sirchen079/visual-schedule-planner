@@ -180,7 +180,7 @@ async def test_mcp_prefix_survives_fresh_agents_sqlite_and_compaction(
         assert all(body['instructions'] == captured[0]['instructions'] for body in captured)
     else:
         assert all(body['messages'][0] == captured[0]['messages'][0] for body in captured)
-    assert len(captured[0]['tools']) == 5
+    assert len(captured[0]['tools']) == 6  # CORE_TOOLS：search/execute/ask_user/work_plan/read_result/blackboard
     for index, body in enumerate(captured):
         markers = cache_blocks(body)
         if protocol == 'anthropic' or mode == 'anthropic_compat':

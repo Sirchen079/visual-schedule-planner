@@ -7,7 +7,7 @@ import { defineStore } from 'pinia'
 import type { SSEEvent } from '../api/contracts/events'
 import type { components } from '../api/contracts/rest'
 import { http } from '../api/http'
-import type { ConversationState } from '../api/sessions'
+import type { BlackboardPage, ConversationState } from '../api/sessions'
 import type { UserAnswer, UserInputRequest } from '../api/userInput'
 import { SSERequestError, streamSSE } from '../api/sse'
 
@@ -113,6 +113,8 @@ export interface RunState {
   questionRequests: UserInputRequest[]
   planCard: PlanCardItem | null
   workPlanSteps: Array<Record<string, unknown>>
+  /** 「黑板」面板当前页：AI 用 show_blackboard 推送的自包含 HTML（沙箱 iframe 渲染） */
+  blackboard: BlackboardPage | null
   subagents: SubagentItem[]
   usage: UsageSnapshot | null
   /** 本地回显：刚发送的用户消息（新会话首条消息时列表里还没有它） */
@@ -150,6 +152,7 @@ export function initialRunState(): RunState {
     questionRequests: [],
     planCard: null,
     workPlanSteps: [],
+    blackboard: null,
     subagents: [],
     usage: null,
     sentMessage: null,
@@ -360,6 +363,9 @@ export function applyEvent(state: RunState, ev: SSEEvent): void {
     case 'work_plan_updated':
       state.workPlanSteps = ev.steps
       break
+    case 'blackboard_updated':
+      state.blackboard = { title: ev.title, html: ev.html }
+      break
     case 'subagent_started':
       state.subagents.push({
         subagentId: ev.subagent_id,
@@ -460,6 +466,7 @@ export const useRunStore = defineStore('run', {
           JSON.stringify(this.approvalLedger) === JSON.stringify(approvals) && JSON.stringify(this.planCard) === JSON.stringify(plan) &&
           JSON.stringify(this.questionRequests) === JSON.stringify(questions) &&
           JSON.stringify(this.workPlanSteps) === JSON.stringify(state.work_plan ?? []) &&
+          JSON.stringify(this.blackboard) === JSON.stringify(state.blackboard ?? null) &&
           this.phase === phase && !this.sentMessage && !this.segments.length && !this.toolCalls.length) return
       this.reset(state.conversation_id)
       this.runId = state.latest_run_id
@@ -468,6 +475,7 @@ export const useRunStore = defineStore('run', {
       this.planCard = plan
       this.questionRequests = questions
       this.workPlanSteps = state.work_plan ?? []
+      this.blackboard = state.blackboard ?? null
       this.phase = phase
     },
 

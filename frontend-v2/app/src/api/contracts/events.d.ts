@@ -110,6 +110,15 @@ export interface WorkPlanUpdated {
   steps: Array<Record<string, unknown>>;
 }
 
+export interface BlackboardUpdated {
+  /** 黑板面板更新：AI 用 show_blackboard 工具推送的自包含 HTML 示意页。 */
+  /** 协议版本 */
+  v: number;
+  type: "blackboard_updated";
+  title: string;
+  html: string;
+}
+
 export interface SubagentStarted {
   /** 协议版本 */
   v: number;
@@ -187,6 +196,7 @@ export type SSEEvent =
   | UserInputRequested
   | PlanCard
   | WorkPlanUpdated
+  | BlackboardUpdated
   | SubagentStarted
   | SubagentDelta
   | SubagentCompleted

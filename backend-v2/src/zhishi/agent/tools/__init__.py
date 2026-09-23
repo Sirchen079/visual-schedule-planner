@@ -7,3 +7,4 @@ from zhishi.agent.tools import research_tools  # noqa: F401
 from zhishi.agent.tools import followup_tools  # noqa: F401
 from zhishi.agent.tools import material_tools  # noqa: F401
 from zhishi.agent.tools import session_tools  # noqa: F401
+from zhishi.agent.tools import blackboard  # noqa: F401

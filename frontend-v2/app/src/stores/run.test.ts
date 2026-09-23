@@ -39,6 +39,34 @@ function feed(store: ReturnType<typeof useRunStore>, events: SSEEvent[]): void {
   for (const ev of events) store.consume(ev)
 }
 
+describe('blackboard（show_blackboard → 黑板面板状态）', () => {
+  let store: ReturnType<typeof useRunStore>
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    store = useRunStore()
+  })
+
+  it('blackboard_updated 事件更新面板页并跨会话恢复', () => {
+    expect(store.blackboard).toBeNull()
+    store.consume({ v: 1, type: 'blackboard_updated', title: '光合作用示意', html: '<h1>光合作用</h1>' })
+    expect(store.blackboard).toEqual({ title: '光合作用示意', html: '<h1>光合作用</h1>' })
+    // 整页替换语义：再次推送覆盖
+    store.consume({ v: 1, type: 'blackboard_updated', title: '流程图', html: '<p>v2</p>' })
+    expect(store.blackboard).toEqual({ title: '流程图', html: '<p>v2</p>' })
+    store.reset(7)
+    expect(store.blackboard).toBeNull()
+    // 重开会话：从 conversation state 恢复
+    store.restoreState({
+      conversation_id: 7, active_run_id: null, latest_run_id: null, status: 'idle',
+      approvals: [], plan: null, can_resume: false, message_count: 0, archive_count: 0,
+      working_rounds: 0, summary: '', model: '', context_window: null,
+      blackboard: { title: '恢复页', html: '<b>恢复</b>' },
+    })
+    expect(store.blackboard).toEqual({ title: '恢复页', html: '<b>恢复</b>' })
+  })
+})
+
 describe('run store 状态机（录制序列）', () => {
   let store: ReturnType<typeof useRunStore>
 

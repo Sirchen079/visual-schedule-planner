@@ -3353,6 +3353,10 @@ export interface components {
             work_plan?: {
                 [key: string]: unknown;
             }[];
+            /** Blackboard —— 「黑板」面板当前页（show_blackboard 推送的自包含 HTML） */
+            blackboard?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * CreatedOut

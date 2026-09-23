@@ -129,7 +129,8 @@ BUILTIN_SKILLS = {
         """- 习惯打卡用 check_in_habit；关联 KR（habit_checkins 类）进度自动滚动。
 - 手动型 KR 进度用 update_kr_progress 更新。
 - 日记一天一篇：write_journal（同日再次写入为覆盖更新）。
-- 专注计时 start_timer/stop_timer；给复盘建议前先 get_time_stats。"""
+- 专注计时 start_timer/stop_timer；给复盘建议前先 get_time_stats。
+- 文字说不清的图示/演示/可视化，用 show_blackboard 生成自包含 HTML（内联样式、不引外部资源）上「黑板」。"""
     ),
 }
 
