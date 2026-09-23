@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "zhishi-backend",
-    "version": "2.24.0"
+    "version": "2.25.0"
   },
   "paths": {
     "/api/tasks": {
@@ -3140,7 +3140,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OkOut"
+                  "$ref": "#/components/schemas/zhishi__server__routes__library__OkOut"
                 }
               }
             }
@@ -3191,7 +3191,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OkOut"
+                  "$ref": "#/components/schemas/zhishi__server__routes__library__OkOut"
                 }
               }
             }
@@ -8517,6 +8517,59 @@
         }
       }
     },
+    "/ai/conversations/{cid}/title": {
+      "patch": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Rename Conversation",
+        "description": "用户手动改名：写新标题并清除 title_auto 标记——首轮自动命名不再覆盖。\nmeta 读改写只动 title_auto 键，计划/摘要等其余键原样保留。",
+        "operationId": "rename_conversation_ai_conversations__cid__title_patch",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationTitleIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationTitleOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/ai/runtime/update-prepare": {
       "post": {
         "tags": [
@@ -8677,6 +8730,225 @@
                 "schema": {
                   "type": "string",
                   "format": "binary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/memories": {
+      "get": {
+        "tags": [
+          "memories"
+        ],
+        "summary": "List Memories",
+        "description": "扁平列表 + kind 字段（前端按 kind 分组展示），最近更新的在前。",
+        "operationId": "list_memories_api_memories_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MemoryOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Memories Api Memories Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "memories"
+        ],
+        "summary": "Create Memory",
+        "description": "用户手动添加：source='user'。内容与 kind 的教学性校验同工具口径。",
+        "operationId": "create_memory_api_memories_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/memories/{memory_id}": {
+      "patch": {
+        "tags": [
+          "memories"
+        ],
+        "summary": "Update Memory",
+        "operationId": "update_memory_api_memories__memory_id__patch",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Memory Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "memories"
+        ],
+        "summary": "Delete Memory",
+        "operationId": "delete_memory_api_memories__memory_id__delete",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Memory Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zhishi__server__routes__memories__OkOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/memories/enabled": {
+      "get": {
+        "tags": [
+          "memories"
+        ],
+        "summary": "Get Enabled",
+        "operationId": "get_enabled_api_memories_enabled_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryEnabled"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "memories"
+        ],
+        "summary": "Put Enabled",
+        "description": "写 'true'/'false'；关闭后工具从 search_tools 消失、注入块不再出现。",
+        "operationId": "put_enabled_api_memories_enabled_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryEnabled"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryEnabled"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -10445,6 +10717,18 @@
             "type": "array",
             "title": "Work Plan",
             "default": []
+          },
+          "blackboard": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blackboard"
           }
         },
         "type": "object",
@@ -10464,6 +10748,41 @@
           "context_window"
         ],
         "title": "ConversationStateOut"
+      },
+      "ConversationTitleIn": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "title": "ConversationTitleIn",
+        "description": "会话改名请求：标题 1..200 字（与列宽一致）。"
+      },
+      "ConversationTitleOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "ConversationTitleOut",
+        "description": "会话改名回包：id + 清洗后的新标题。"
       },
       "CreatedOut": {
         "properties": {
@@ -13980,6 +14299,140 @@
         ],
         "title": "MaterialSummary"
       },
+      "MemoryCreate": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind",
+            "default": "fact"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "keywords": {
+            "type": "string",
+            "title": "Keywords",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "MemoryCreate"
+      },
+      "MemoryEnabled": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "title": "MemoryEnabled",
+        "description": "开关回包：GET/PUT 共用。"
+      },
+      "MemoryOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "keywords": {
+            "type": "string",
+            "title": "Keywords"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "source_conversation_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Conversation Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "content",
+          "keywords",
+          "source",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "MemoryOut",
+        "description": "记忆响应模型。source_conversation_id 可空（会话删除后记忆保留）；\n时间序列化为 ISO 串（与既有回包一致）。"
+      },
+      "MemoryUpdate": {
+        "properties": {
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "keywords": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keywords"
+          }
+        },
+        "type": "object",
+        "title": "MemoryUpdate",
+        "description": "PATCH 语义：缺省字段不动。"
+      },
       "MessageOut": {
         "properties": {
           "id": {
@@ -14236,19 +14689,6 @@
         ],
         "title": "NotificationOut",
         "description": "通知响应模型。task_id/read_at 可空，\nread_at 为 null 即未读；remind_at/read_at 序列化为 ISO 串（与既有回包一致）。"
-      },
-      "OkOut": {
-        "properties": {
-          "ok": {
-            "type": "boolean",
-            "title": "Ok"
-          }
-        },
-        "type": "object",
-        "required": [
-          "ok"
-        ],
-        "title": "OkOut"
       },
       "OnboardingFinish": {
         "properties": {
@@ -17782,6 +18222,33 @@
         },
         "type": "object",
         "title": "WorkspaceState"
+      },
+      "zhishi__server__routes__library__OkOut": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "title": "OkOut"
+      },
+      "zhishi__server__routes__memories__OkOut": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "title": "OkOut",
+        "description": "删除/写操作统一回包（同 notifications 的 EnableOut 惯例，schema 不留空）。"
       }
     }
   }
