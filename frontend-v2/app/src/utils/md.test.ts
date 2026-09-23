@@ -67,6 +67,39 @@ describe('assistant Markdown', () => {
     expect(unsafe).not.toContain('javascript:')
     expect(unsafe).toContain('点我')
   })
+  it('renders footnotes, highlights and sub/sup', () => {
+    const note = renderMarkdown('结论如下[^1]。\n\n[^1]: 来源注释')
+    expect(note).toMatch(/<sup[^>]*>.*?1.*?<\/sup>/s)
+    expect(note).toContain('<section class="footnotes"')
+    expect(note).toContain('来源注释')
+    expect(renderMarkdown('这是==高亮==的内容')).toContain('<mark>高亮</mark>')
+    expect(renderMarkdown('H~2~O 与 x^2^')).toContain('<sub>2</sub>')
+    expect(renderMarkdown('H~2~O 与 x^2^')).toContain('<sup>2</sup>')
+    // 双波浪线仍是删除线，不被下标吞掉
+    expect(renderMarkdown('~~删除~~ 和 H~2~O')).toContain('<s>删除</s>')
+  })
+  it('renders GitHub-style alert blocks', () => {
+    const html = renderMarkdown('> [!WARNING]\n> 请先备份再操作')
+    expect(html).toContain('markdown-alert markdown-alert-warning')
+    expect(html).toContain('markdown-alert-title')
+    expect(html).toContain('请先备份再操作')
+  })
+  it('closes bold around CJK punctuation without spaces', () => {
+    expect(renderMarkdown('**注意：**请先检查')).toContain('<strong>注意：</strong>请先检查')
+    expect(renderMarkdown('**重点，**后续文字')).toContain('<strong>重点，</strong>后续文字')
+  })
+  it('renders markdown inside block-level HTML without blank lines', () => {
+    const html = renderMarkdown('<div class="note">\n**加粗** 与 $x^2$ 公式\n- 列表项\n</div>')
+    expect(html).toContain('<div class="note">')
+    expect(html).toContain('<strong>加粗</strong>')
+    expect(html).toContain('class="katex"')
+    expect(html).toContain('<li>列表项</li>')
+    expect(html).not.toContain('**加粗**')
+  })
+  it('leaves fenced code untouched by the html splitting', () => {
+    // 围栏内不补空行：代码原文不被改动（标签仍按代码转义显示）
+    expect(renderMarkdown('```html\n<div>\ntext\n</div>\n```')).toContain('&lt;div&gt;\ntext\n&lt;/div&gt;')
+  })
   it('does not fetch image links on render', () => {
     const html = renderMarkdown('![图片说明](https://example.com/image.png)')
     expect(html).not.toContain('<img')

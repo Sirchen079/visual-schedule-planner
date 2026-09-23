@@ -1,0 +1,41 @@
+/* 助手消息扩展语法样式：GitHub 风格提示块、脚注、高亮（与纸质主题同调） */
+
+.markdown-alert {
+  border: 1px solid rgba(120, 108, 86, 0.25);
+  border-left: 3px solid #6b7f5e;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 10px 0;
+  background: rgba(107, 127, 94, 0.06);
+}
+.markdown-alert > :last-child { margin-bottom: 0; }
+.markdown-alert-title {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin: 0 0 4px;
+  color: #4c5c42;
+}
+.markdown-alert-note { border-left-color: #4a7ba6; background: rgba(74, 123, 166, 0.07); }
+.markdown-alert-note .markdown-alert-title { color: #3a6187; }
+.markdown-alert-tip { border-left-color: #3e8a5f; background: rgba(62, 138, 95, 0.07); }
+.markdown-alert-tip .markdown-alert-title { color: #32704c; }
+.markdown-alert-important { border-left-color: #8a6bb8; background: rgba(138, 107, 184, 0.07); }
+.markdown-alert-important .markdown-alert-title { color: #6f5499; }
+.markdown-alert-warning { border-left-color: #b8863e; background: rgba(184, 134, 62, 0.08); }
+.markdown-alert-warning .markdown-alert-title { color: #96692c; }
+.markdown-alert-caution { border-left-color: #b8543e; background: rgba(184, 84, 62, 0.08); }
+.markdown-alert-caution .markdown-alert-title { color: #96422f; }
+
+.markdown-body mark, mark {
+  background: rgba(226, 198, 96, 0.4);
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+section.footnotes {
+  margin-top: 14px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(120, 108, 86, 0.35);
+  font-size: 0.92em;
+}
