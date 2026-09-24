@@ -3,7 +3,7 @@ import ProjectLink from '../components/ProjectLink.vue'
 import { useHelpStore } from '../stores/help'
 /**
  * 设置视图（/settings，次导航，+ ）：
- * AI 助手（自治档位/工作时段）+ 永久授权 + MCP 服务器（可管理）+ AI 配置 + 技能管理 + 长期记忆。
+ * AI 助手（自治档位/工作时段）+ 永久授权 + MCP 服务器（可管理）+ AI 配置 + 技能管理 + 长期记忆 + 扫描件 OCR。
  * - 自治档位：standard/careful 二选一，点选即存（PUT 部分更新，回包落定）；
  *   新档位对下一条消息起的 run 生效，进行中的 run 不受影响。
  * - 永久授权：审批卡「始终允许」的沉淀；收回两段确认（防误触），收回后该工具回到逐次审批。
@@ -21,6 +21,7 @@ import DesktopPreferences from '../components/settings/DesktopPreferences.vue'
 import MemorySettings from '../components/settings/MemorySettings.vue'
 import ModelCapabilities from '../components/settings/ModelCapabilities.vue'
 import NetworkPreferences from '../components/settings/NetworkPreferences.vue'
+import OcrSettings from '../components/settings/OcrSettings.vue'
 import { useModelCatalog } from '../composables/useModelCatalog'
 import type { AiConfigInfo, InputModality, ReasoningEffort } from '../api/settings'
 import DomainState from '../components/domain/DomainState.vue'
@@ -42,7 +43,7 @@ const run = useRunStore()
 const route = useRoute()
 const sections = [
   ['desktop', '悬浮窗与通知'], ['diagnostics', '诊断日志'], ['assistant', '外观与 AI 助手'], ['memory', '长期记忆'], ['automation', '自动跟进'],
-  ['configs', 'AI 模型'], ['network', '联网与视觉'], ['skills', '技能'], ['mcp', '外部工具'], ['grants', '授权'],
+  ['configs', 'AI 模型'], ['network', '联网与视觉'], ['ocr', '扫描件 OCR'], ['skills', '技能'], ['mcp', '外部工具'], ['grants', '授权'],
 ] as const
 function jump(section: string) {
   if (sections.some(([id]) => id === section)) document.getElementById(`settings-${section}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' })
@@ -796,6 +797,9 @@ const AUTONOMY_TIERS: Autonomy[] = ['standard', 'careful']
       <section id="settings-network" class="panel wide">
         <NetworkPreferences />
       </section>
+
+      <!-- 扫描件 OCR（资料库扫描页 PDF 的识别模型） -->
+      <OcrSettings />
 
       <!-- AI 配置 -->
       <section id="settings-configs" class="panel wide">

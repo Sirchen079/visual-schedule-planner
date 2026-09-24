@@ -3107,6 +3107,49 @@
         }
       }
     },
+    "/api/files/{file_id}/reparse": {
+      "post": {
+        "tags": [
+          "library"
+        ],
+        "summary": "Reparse",
+        "description": "清除解析缓存重建（Markdown 管道升级或扫描页 OCR 失败后的重试入口）。\noffice/文本同步重建；含扫描页的 PDF 重建后交后台 OCR（md_status=pending）。",
+        "operationId": "reparse_api_files__file_id__reparse_post",
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "File Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/files/{file_id}/attach/{task_id}": {
       "post": {
         "tags": [
@@ -3618,6 +3661,66 @@
                   },
                   "type": "object",
                   "title": "Response Put Settings Api Settings Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/ocr": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Get Ocr",
+        "operationId": "get_ocr_api_settings_ocr_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OcrConfigOut"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Put Ocr",
+        "operationId": "put_ocr_api_settings_ocr_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OcrConfigIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OcrConfigOut"
                 }
               }
             }
@@ -12294,6 +12397,11 @@
             "type": "string",
             "title": "Parse Status"
           },
+          "md_status": {
+            "type": "string",
+            "title": "Md Status",
+            "default": "none"
+          },
           "uploaded_at": {
             "type": "string",
             "format": "date-time",
@@ -14745,6 +14853,59 @@
         ],
         "title": "NotificationOut",
         "description": "通知响应模型。task_id/read_at 可空，\nread_at 为 null 即未读；remind_at/read_at 序列化为 ISO 串（与既有回包一致）。"
+      },
+      "OcrConfigIn": {
+        "properties": {
+          "base_url": {
+            "type": "string",
+            "title": "Base Url",
+            "default": ""
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "default": ""
+          },
+          "pdf_mode": {
+            "type": "string",
+            "title": "Pdf Mode",
+            "default": "auto"
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          }
+        },
+        "type": "object",
+        "title": "OcrConfigIn"
+      },
+      "OcrConfigOut": {
+        "properties": {
+          "base_url": {
+            "type": "string",
+            "title": "Base Url",
+            "default": ""
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "default": ""
+          },
+          "has_api_key": {
+            "type": "boolean",
+            "title": "Has Api Key",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "OcrConfigOut"
       },
       "OnboardingFinish": {
         "properties": {

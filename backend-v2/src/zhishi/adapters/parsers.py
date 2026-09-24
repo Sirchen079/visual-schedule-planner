@@ -1,18 +1,32 @@
-"""Structured previews plus bounded full-document blocks with original locations."""
+"""解析入口：Office/文本 → Markdown 结构化转换，PDF 按页提取并检测扫描页。
+
+质量基线（PARSER_VERSION 3）：docx/pptx/xlsx/csv 先转 Markdown（标题层级、
+表格、列表保留结构，见 markdown_convert），blocks 从 Markdown 按标题分节——
+read_material 的引用位置与检索命中因此带章节路径。PDF 逐页提取文本，
+无文本但有图像内容的页判为扫描页，页号记入 ocr_pages 交 OCR 管道补齐
+（agent/ocr.py）；扫描页在 Markdown 里留占位节，OCR 完成后整篇重建 blocks。
+
+ParsedDoc.markdown 仅用于落盘 sidecar（ensure_parsed 写 {原路径}.md），
+不进 extracted_text——库列只存 blocks 预览，2M 上限的正文在磁盘。"""
 from __future__ import annotations
 
-import csv
 import json
 from dataclasses import asdict, dataclass, field
 from itertools import islice
 from pathlib import Path
 
-PARSER_VERSION = 2
+from zhishi.adapters.markdown_convert import (
+    csv_markdown, docx_markdown, extract_pipe_tables, feed_markdown_blocks,
+    pptx_markdown, xlsx_markdown)
+
+PARSER_VERSION = 3
 MAX_CHARS = 30_000
 MAX_TABLES, MAX_ROWS = 20, 60
 MAX_DOCUMENT_CHARS, MAX_PAGES, MAX_DOCUMENT_ROWS = 2_000_000, 500, 50_000
 BLOCK_CHARS = 2000
+SCAN_PAGE_MIN_CHARS = 40   # 少于此字符且页面有图像内容 → 扫描页
 IMAGE_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'}
+MARKDOWN_EXTS = {'.docx', '.pptx', '.xlsx', '.csv'}
 
 
 @dataclass
@@ -24,6 +38,8 @@ class ParsedDoc:
     parser_version: int = PARSER_VERSION
     partial: bool = False
     warnings: list[str] = field(default_factory=list)
+    markdown: str = ''                    # 只落盘不进库（to_json 剔除）
+    ocr_pages: list[int] = field(default_factory=list)   # 待 OCR 的扫描页页号
 
     def to_json(self) -> str:
         # Preview fields remain small; blocks hold the document body.
@@ -33,8 +49,20 @@ class ParsedDoc:
             for i, table in enumerate(self.tables):
                 builder.add(f'表格 {i+1}', '\n'.join(' | '.join(row) for row in table))
         data = asdict(self)
+        data.pop('markdown', None)
         data['text'], data['tables'] = self.text[:MAX_CHARS], self.tables[:MAX_TABLES]
         return json.dumps(data, ensure_ascii=False)
+
+
+def doc_from_markdown(kind: str, markdown: str, warnings: list[str] | None = None) -> ParsedDoc:
+    """从现成 Markdown（含 OCR 拼回的整篇）重建 ParsedDoc——OCR 任务补齐扫描页后
+    用它重建 blocks 并回填缓存，不再碰原文件。"""
+    doc = ParsedDoc(kind=kind, markdown=markdown[:MAX_DOCUMENT_CHARS],
+                    warnings=list(warnings or []))
+    doc.text = markdown[:MAX_CHARS]
+    doc.tables = extract_pipe_tables(markdown, MAX_TABLES, MAX_ROWS)
+    feed_markdown_blocks(markdown, Blocks(doc))
+    return doc
 
 
 class Blocks:
@@ -71,108 +99,47 @@ def _trim(rows: list[list]) -> list[list[str]]:
     return [[('' if c is None else str(c)).strip() for c in row][:20] for row in rows[:MAX_ROWS]]
 
 
-def _rows(builder: Blocks, rows, location: str) -> list[list[str]]:
-    preview, batch = [], []
-    first = 1
-    for number, row in enumerate(rows, 1):
-        if number > MAX_DOCUMENT_ROWS or builder.full:
-            builder.warn(f'{location} 超出行数或正文容量上限，后续行尚未处理。')
-            break
-        values = [('' if value is None else str(value)).strip() for value in row]
-        if len(preview) < MAX_ROWS:
-            preview.append(values[:20])
-        batch.append(' | '.join(values))
-        if len(batch) == 20:
-            builder.add(f'{location} · 行 {first}–{number}', '\n'.join(batch))
-            batch, first = [], number+1
-    if batch:
-        builder.add(f'{location} · 行 {first}–{first+len(batch)-1}', '\n'.join(batch))
-    return preview
-
-
 def parse_file(path: Path) -> ParsedDoc:
     ext = path.suffix.lower()
     if ext in IMAGE_EXTS:
         return ParsedDoc(kind='image')
-    if ext in ('.txt', '.md', '.log', '.json'):
+    if ext in ('.txt', '.log', '.json'):
         with path.open(encoding='utf-8-sig', errors='replace') as source:
             text = source.read(MAX_DOCUMENT_CHARS+1)
-        doc = ParsedDoc(kind='text', text=text[:MAX_CHARS])
-        Blocks(doc).add('正文', text)
-        return doc
-    if ext == '.csv':
-        doc = ParsedDoc(kind='csv')
-        with path.open(encoding='utf-8-sig', errors='replace', newline='') as source:
-            doc.tables = [_rows(Blocks(doc), csv.reader(source), 'CSV')]
-        return doc
+        return doc_from_markdown('text', text)
+    if ext in ('.md', '.markdown'):
+        with path.open(encoding='utf-8-sig', errors='replace') as source:
+            text = source.read(MAX_DOCUMENT_CHARS+1)
+        return doc_from_markdown('text', text)   # kind 沿用 text：前端与既有缓存映射不破
     if ext == '.docx':
-        return _parse_docx(path)
+        markdown, warnings = docx_markdown(path)
+        return _from_markdown('docx', markdown, warnings)
+    if ext == '.pptx':
+        markdown, warnings = pptx_markdown(path)
+        return _from_markdown('pptx', markdown, warnings)
     if ext == '.xlsx':
-        return _parse_xlsx(path)
+        markdown, warnings = xlsx_markdown(path)
+        return _from_markdown('xlsx', markdown, warnings)
+    if ext == '.csv':
+        markdown, _ = csv_markdown(path)
+        return _from_markdown('csv', markdown, [])
     if ext == '.pdf':
         return _parse_pdf(path)
     return ParsedDoc(kind='unsupported')
 
 
-def _parse_docx(path: Path) -> ParsedDoc:
-    from docx import Document
-    from docx.table import Table
-    from docx.text.paragraph import Paragraph
-    source, doc = Document(str(path)), ParsedDoc(kind='docx')
-    builder, paragraphs, paragraph_number, table_number = Blocks(doc), [], 0, 0
-    batch, first, preview_chars = [], 1, 0
-    def flush():
-        nonlocal batch, first
-        if batch:
-            builder.add(f'段落 {first}–{paragraph_number}', '\n'.join(batch))
-            batch = []
-        first = paragraph_number+1
-    for element in source.element.body:
-        if builder.full:
-            builder.warn('正文容量已满，后续段落尚未处理。')
-            break
-        if element.tag.endswith('}p'):
-            paragraph_number += 1
-            text = Paragraph(element, source).text
-            batch.append(text)
-            if preview_chars < MAX_CHARS:
-                paragraphs.append(text)
-                preview_chars += len(text)
-            if len(batch) >= 20:
-                flush()
-        elif element.tag.endswith('}tbl'):
-            flush()
-            table_number += 1
-            table = Table(element, source)
-            rows = _rows(builder, ([c.text for c in row.cells] for row in table.rows), f'表格 {table_number}')
-            if len(doc.tables) < MAX_TABLES:
-                doc.tables.append(rows)
-    flush()
-    doc.text = '\n'.join(paragraphs)[:MAX_CHARS]
-    return doc
-
-
-def _parse_xlsx(path: Path) -> ParsedDoc:
-    from openpyxl import load_workbook
-    source, doc = load_workbook(str(path), read_only=True, data_only=True), ParsedDoc(kind='xlsx')
-    builder = Blocks(doc)
-    try:
-        for sheet in source.worksheets:
-            if builder.full:
-                builder.warn('正文容量已满，后续工作表尚未处理。')
-                break
-            preview = _rows(builder, sheet.iter_rows(values_only=True), f'工作表「{sheet.title}」')
-            if len(doc.tables) < MAX_TABLES:
-                doc.tables.append(preview)
-    finally:
-        source.close()
+def _from_markdown(kind: str, markdown: str, warnings: list[str]) -> ParsedDoc:
+    doc = doc_from_markdown(kind, markdown, warnings)
+    if not markdown.strip():
+        doc.warnings.append('未转换出正文内容，文件可能是空文档或仅含不支持的结构。')
     return doc
 
 
 def _parse_pdf(path: Path) -> ParsedDoc:
     import pdfplumber
-    doc, texts, preview_chars = ParsedDoc(kind='pdf'), [], 0
-    builder = Blocks(doc)
+
+    doc, previews, preview_chars = ParsedDoc(kind='pdf'), [], 0
+    builder, md_parts = Blocks(doc), []
     with pdfplumber.open(str(path)) as source:
         if len(source.pages) > MAX_PAGES:
             builder.warn(f'PDF 超过 {MAX_PAGES} 页，后续页面尚未处理。')
@@ -180,16 +147,29 @@ def _parse_pdf(path: Path) -> ParsedDoc:
             if builder.full:
                 builder.warn('正文容量已满，后续页面尚未处理。')
                 break
-            text = page.extract_text() or ''
-            builder.add(f'第 {number} 页', text)
-            if not text.strip():
-                builder.warn(f'第 {number} 页无可提取文本，可能需要视觉识别。')
-            if preview_chars < MAX_CHARS:
-                texts.append(text)
-                preview_chars += len(text)
-            if number <= 5:
+            text = (page.extract_text() or '').strip()
+            if text:
+                md_parts.append(f'## 第 {number} 页\n\n{text}')
+                if preview_chars < MAX_CHARS:
+                    previews.append(text)
+                    preview_chars += len(text)
+            elif page.images or page.curves or page.rects:
+                # 无文本层但有图像内容：扫描页，OCR 管道补齐（未配置 OCR 时保留占位）
+                doc.ocr_pages.append(number)
+                md_parts.append(f'## 第 {number} 页（扫描页）\n\n（此页为扫描图像，等待 OCR 识别）')
+            else:
+                md_parts.append(f'## 第 {number} 页\n\n（本页无可提取文本）')
+                builder.warn(f'第 {number} 页无可提取文本。')
+            if number <= 5 and len(doc.tables) < MAX_TABLES:
                 for table in (page.extract_tables() or [])[:MAX_TABLES-len(doc.tables)]:
                     doc.tables.append(_trim(table))
             page.close()
-    doc.text = '\n'.join(texts)[:MAX_CHARS]
+    if doc.ocr_pages:
+        builder.warn(f'第 {", ".join(map(str, doc.ocr_pages[:10]))}'
+                     f'{"…" if len(doc.ocr_pages) > 10 else ""} 页为扫描页，'
+                     '已转交 OCR 识别；未配置 OCR 模型时这些页没有正文。')
+    markdown = '\n\n'.join(md_parts)
+    doc.markdown = markdown[:MAX_DOCUMENT_CHARS]
+    doc.text = markdown[:MAX_CHARS]
+    feed_markdown_blocks(markdown, builder)
     return doc

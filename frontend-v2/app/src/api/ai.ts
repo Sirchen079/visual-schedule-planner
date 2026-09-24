@@ -39,8 +39,26 @@ export interface ConversationMessage {
 export interface UploadAttachmentResult {
   file_id: number
   name: string
+  /** 解析类型：text/csv/docx/xlsx/pptx/pdf/image/audio/video，失败为 failed（后端 detect_media/parse）。 */
   kind: string
   parse_status: string
+}
+
+/** 附件解析类型 → 展示文案（前端此前无 kind 映射，这里集中维护；新增类型如 pptx 补进表即可）。 */
+export function attachmentKindLabel(kind: string): string {
+  const map: Record<string, string> = {
+    text: '文本',
+    csv: 'CSV',
+    docx: 'Word',
+    xlsx: 'Excel',
+    pptx: 'PPT',
+    pdf: 'PDF',
+    image: '图片',
+    audio: '音频',
+    video: '视频',
+    failed: '解析失败',
+  }
+  return map[kind] ?? kind
 }
 
 export function listConversations(): Promise<ConversationSummary[]> {

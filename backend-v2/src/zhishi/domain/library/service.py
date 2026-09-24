@@ -117,6 +117,7 @@ def purge(db: Session, file_id: int, *, storage_root: Path | None = None) -> Non
     if storage_root is not None and row.resource_type == "file":
         target = storage_root.parent / row.storage_path
         target.unlink(missing_ok=True)
+        markdown_path(storage_root, row.storage_path).unlink(missing_ok=True)  # Markdown 副本一并清理
     # 先解除任务关联（FK 开启下直接删文件会被 task_file 阻断）；
     # 走集合 remove 保持 ORM 关联行删除与内存一致
     for t in db.scalars(select(Task).where(Task.files.any(LibraryFile.id == file_id))):
@@ -158,14 +159,41 @@ def list_task_files(db: Session, task_id: int) -> list[LibraryFile]:
     return list(task.files) if task else []
 
 
+def markdown_path(storage_root: Path, storage_path: str) -> Path:
+    """Markdown 副本与原文件同目录同名加 .md 后缀（abc.docx → abc.docx.md）。"""
+    return (storage_root.parent / (storage_path + '.md')).resolve()
+
+
+def write_markdown(storage_root: Path, storage_path: str, text: str) -> None:
+    """原子写 Markdown 副本：先写临时文件再替换，读者不会看到半篇。"""
+    target = markdown_path(storage_root, storage_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix('.md.tmp')
+    tmp.write_text(text, encoding='utf-8')
+    tmp.replace(target)
+
+
+def update_markdown(storage_root: Path, storage_path: str, text: str) -> None:
+    write_markdown(storage_root, storage_path, text)
+
+
+# OCR 调度钩子：agent/ocr.py 导入时注入（domain 层不反向依赖 agent）；
+# 未注入（纯单测）时静默跳过，扫描页保持占位、md_status 不进 pending。
+# 约定签名 kicker(db, file_id, storage_root)：实现方不得把请求级 Session/ORM 实例带进后台任务。
+ocr_kicker = None
+
+
 def ensure_parsed(db: Session, file: LibraryFile, *, storage_root: Path) -> "ParsedDoc":
     """解析一次持久化（extracted_text=ParsedDoc JSON），后续零成本读取。
-    image→needs_vision；unsupported→failed（附可读原因）；解析异常→failed。"""
+    image→needs_vision；unsupported→failed（附可读原因）；解析异常→failed。
+    Markdown 副本同步落盘（{原路径}.md）；PDF 含扫描页时按需进入 OCR 管道。"""
     from zhishi.adapters.parsers import PARSER_VERSION, ParsedDoc, parse_file
     if file.parse_status in ('parsed', 'needs_vision') and file.extracted_text and (file.content_sha256 or file.resource_type != 'file'):
         cached = json.loads(file.extracted_text)
         if cached.get('parser_version') == PARSER_VERSION or file.parse_status == 'needs_vision':
-            return ParsedDoc(**cached)
+            doc = ParsedDoc(**cached)
+            _resume_ocr(db, file, doc, storage_root)
+            return doc
     path = (storage_root.parent / file.storage_path).resolve() if file.resource_type == 'file' else None
     if path is not None and not path.is_relative_to(storage_root.resolve()):
         raise ValueError('附件路径不在资料目录内')
@@ -181,7 +209,9 @@ def ensure_parsed(db: Session, file: LibraryFile, *, storage_root: Path) -> "Par
     if file.parse_status in ("parsed", "needs_vision") and file.extracted_text:
         data = json.loads(file.extracted_text)
         if data.get('parser_version') == PARSER_VERSION or file.parse_status == 'needs_vision':
-            return ParsedDoc(**data)
+            doc = ParsedDoc(**data)
+            _resume_ocr(db, file, doc, storage_root)
+            return doc
         if path is None or not path.is_file():
             data.update(partial=True, warnings=['旧缓存可能只包含开头摘要，不能当作完整原文。'])
             return ParsedDoc(**data)
@@ -192,18 +222,35 @@ def ensure_parsed(db: Session, file: LibraryFile, *, storage_root: Path) -> "Par
         doc = parse_file(path)
     except Exception as exc:  # 解析异常：落 failed 状态并附可读原因
         file.parse_status = "failed"
+        file.md_status = "none"
         file.extracted_text = json.dumps(
             {"kind": "failed", "text": f"解析失败：{exc}", "tables": []}, ensure_ascii=False)
         db.commit()
         raise ValueError(f'无法解析材料：{str(exc)[:500]}') from exc
     if doc.kind == "image":
         file.parse_status, file.extracted_text = "needs_vision", doc.to_json()
+        file.md_status = "none"
     elif doc.kind == "unsupported":
         file.parse_status = "failed"
+        file.md_status = "none"
         file.extracted_text = json.dumps(
             {"kind": "unsupported", "text": "旧版 .doc 等二进制格式暂不支持；请另存为 docx/pdf 后重试",
              "tables": []}, ensure_ascii=False)
     else:
+        if doc.markdown:
+            write_markdown(storage_root, file.storage_path, doc.markdown)
+        if doc.ocr_pages and ocr_kicker is not None:
+            file.md_status = "pending"   # 扫描页 OCR 后台补齐；文本页正文已可读
+        else:
+            file.md_status = "done" if doc.markdown else "none"
         file.parse_status, file.extracted_text = "parsed", doc.to_json()
+        if doc.ocr_pages and ocr_kicker is not None:
+            ocr_kicker(db, file.id, storage_root)
     db.commit()
     return doc
+
+
+def _resume_ocr(db: Session, file: LibraryFile, doc: "ParsedDoc", storage_root: Path) -> None:
+    """缓存命中但扫描页 OCR 未完成（可能上次没跑完）：幂等续跑。"""
+    if doc.ocr_pages and file.md_status == 'pending' and ocr_kicker is not None:
+        ocr_kicker(db, file.id, storage_root)

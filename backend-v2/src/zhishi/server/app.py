@@ -34,6 +34,8 @@ _SCHEMA_PATCHES: list[tuple[str, str, str]] = [
      "ALTER TABLE notification_logs ADD COLUMN target_path VARCHAR(300) NOT NULL DEFAULT ''"),
     ("library_files", "content_sha256",
      "ALTER TABLE library_files ADD COLUMN content_sha256 VARCHAR(64)"),
+    ("library_files", "md_status",
+     "ALTER TABLE library_files ADD COLUMN md_status VARCHAR(12) NOT NULL DEFAULT 'none'"),
     ("mcp_servers", "trusted",
      "ALTER TABLE mcp_servers ADD COLUMN trusted BOOLEAN NOT NULL DEFAULT 0"),
     ("events", "repeat_note",
@@ -187,6 +189,11 @@ def create_app(data_dir: Path | None = None, port: int | None = None) -> FastAPI
         app.state.cancel_tokens: dict[str, object] = {}
         app.state.steer_queues: dict[int, asyncio.Queue] = {}   # 运行中插话（Codex 式 steering）
         app.state.run_tasks = set()
+        from zhishi.agent import ocr as ocr_module
+        ocr_module.register()   # 挂接扫描页 OCR 调度钩子（须在事件循环内捕获 loop）
+        resumed = ocr_module.resume_pending(app.state.session_factory, app.state.storage_root)
+        if resumed:
+            log.info('扫描页 OCR 续跑 %s 个文件', resumed)
         sched_task = await scheduler.start()
         yield
         await scheduler.stop(sched_task)

@@ -117,7 +117,7 @@ def test_file_payload_fields_survive_response_model(tmp_path):
                    files={"file": ("a.txt", b"hello", "text/plain")}).json()
         assert set(f) == {"id", "original_name", "storage_path", "size", "mime_type",
                           "notes", "source_url", "resource_type", "parse_status",
-                          "uploaded_at"}
+                          "md_status", "uploaded_at"}
         assert f["original_name"] == "a.txt" and f["resource_type"] == "file"
         link = c.post("/api/files/links",
                       json={"title": "文档", "url": "https://example.com/x"}).json()

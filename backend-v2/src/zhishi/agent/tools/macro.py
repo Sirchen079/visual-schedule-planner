@@ -33,10 +33,11 @@ def subagent_specs(db: Session) -> list:
 
 
 def import_document(db: Session, file_id: int, ctx=None) -> str:
-    """读取资料库文档的结构化内容（正文 + 表格行列）。上传课表/名单/任何文档后，
-    必须先用本工具查看内容，再决定如何转化（如整理成 import_timetable 条目）。
-    返回 kind：text/csv/docx/xlsx/pdf 可直接读取；image 需用户以图片附件随消息发送（走视觉）；
-    failed 时向用户说明需转换格式。"""
+    """读取资料库文档的结构化内容（Markdown 化正文 + 表格，保留标题层级）。
+    上传课表/名单/任何文档后，必须先用本工具查看内容，再决定如何转化（如整理成
+    import_timetable 条目）。kind：text/csv/docx/xlsx/pptx/pdf 可直接读取；pdf 含
+    扫描页时后台 OCR 补齐（正文先到先读，警告列未完成页）；image 需用户以图片附件
+    随消息发送（走视觉）；failed 时向用户说明需转换格式。"""
     from zhishi.domain.library import service as ls
     from zhishi.infra.config import get_settings
     file = ls.get_file(db, file_id)

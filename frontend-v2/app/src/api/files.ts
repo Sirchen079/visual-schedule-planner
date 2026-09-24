@@ -7,8 +7,15 @@ type schemas = components['schemas']
 /** 文件解析状态标签；未知状态保留原值。 */
 export type ParseStatus = 'parsed' | 'pending' | 'unsupported' | 'failed' | (string & {})
 
-/** 资料库文件类型。resource_type 的 file/link 值由视图判断。 */
-export type LibraryFile = schemas['FileOut']
+/**
+ * Markdown 副本状态（后端新增字段；rest.d.ts 红线不重生成，类型自持，仿 memories.ts 手写）。
+ * none=无副本（链接资源/图片/解析失败）；done=副本已生成；
+ * pending=扫描页 OCR 进行中（后台逐页转换，终态 done/failed）；failed=OCR 有失败页，可 reparse 重试。
+ */
+export type MdStatus = 'none' | 'done' | 'pending' | 'failed' | (string & {})
+
+/** 资料库文件类型 = 生成 FileOut + 手写扩展 md_status（所有返回 FileOut 的端点均带）。 */
+export type LibraryFile = schemas['FileOut'] & { md_status: MdStatus }
 
 export interface FilePatchInput {
   notes?: string
@@ -16,6 +23,17 @@ export interface FilePatchInput {
 
 export function listFiles(q?: string): Promise<LibraryFile[]> {
   return http.get<LibraryFile[]>('/api/files', q ? { q } : undefined)
+}
+
+/** 单个文件详情（md_status 轮询与 reparse 后的同步来源）。 */
+export function getFile(fileId: number): Promise<LibraryFile> {
+  return http.get<LibraryFile>(`/api/files/${fileId}`)
+}
+
+/** 重新解析：清除解析缓存重建（Markdown 管道升级 / OCR 失败重试）。
+ * 400=链接资源不可重建；404=文件不存在；422=解析失败（detail 有原因）。 */
+export function reparseFile(fileId: number): Promise<LibraryFile> {
+  return http.post<LibraryFile>(`/api/files/${fileId}/reparse`)
 }
 
 export function listTrashFiles(): Promise<LibraryFile[]> {

@@ -3,17 +3,19 @@
  * 资料库视图（/library）：文件列表 + 搜索 + 上传 + 备注编辑 + 软删除。
  * - 数据：GET /api/files?q（后端过滤）；上传走 multipart（POST /api/files，notes 为 query 参数）
  * - 行内备注编辑（PATCH）；删除入回收站（乐观移除 + 失败回滚）；恢复/彻底删除在回收站页
+ * - md_status 角标：pending（OCR 识别中）按 3s 轮询单文件详情，终态停表、卸载停全部；
+ *   failed 提供「重新解析」（POST reparse）；OCR 未配置时提示去设置
  * - run done 后由壳层自动刷新（App.vue 接线，覆盖 AI bulk_delete_files/import_web_resources）
  */
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import AppIcon from '../components/AppIcon.vue'
-import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import MaterialReader from '../components/MaterialReader.vue'
 import MaterialSearch from '../components/MaterialSearch.vue'
 import { materialTarget } from '../api/materials'
+import { getOcrConfig, type OcrConfig } from '../api/settings'
 import DomainState from '../components/domain/DomainState.vue'
-import { humanSize, parseStatusLabel, useLibraryStore } from '../stores/library'
+import { humanSize, mdStatusLabel, parseStatusLabel, useLibraryStore } from '../stores/library'
 
 const library = useLibraryStore()
 const route = useRoute()
@@ -24,6 +26,25 @@ const search = ref(library.query)
 /** 行内备注编辑态：fileId → 草稿 */
 const editingNotes = ref<number | null>(null)
 const notesDraft = ref('')
+/** 重新解析进行中的行（防重复点击） */
+const reparsingId = ref<number | null>(null)
+
+/** 扫描件 OCR 配置状态：null=未拉到（按未配置处理，不阻断列表）。 */
+const ocr = ref<OcrConfig | null>(null)
+
+async function reparse(fileId: number): Promise<void> {
+  if (reparsingId.value !== null) return
+  reparsingId.value = fileId
+  try {
+    await library.reparse(fileId)
+  } finally {
+    reparsingId.value = null
+  }
+}
+
+/** 列表 md_status 指纹：变化即同步轮询（pollMdOnce 原位替换行也会触发）。 */
+const mdFingerprint = computed(() => (library.items ?? []).map((f) => `${f.id}:${f.md_status}`).join(','))
+watch(mdFingerprint, () => library.syncMdPolling(), { immediate: true })
 
 function startEdit(fileId: number, notes: string): void {
   editingNotes.value = fileId
@@ -58,7 +79,11 @@ function uploadedLabel(iso: string): string {
 
 onMounted(() => {
   if (library.items === null) void library.load()
+  // OCR 配置只用于 failed 行的引导提示；拉不到按未配置处理
+  void getOcrConfig().then((c) => { ocr.value = c }).catch(() => { ocr.value = null })
 })
+
+onUnmounted(() => library.stopAllMdPolling())
 </script>
 
 <template>
@@ -116,6 +141,26 @@ onMounted(() => {
             <span class="row-name">{{ f.original_name }}</span>
             <span class="row-size">{{ f.resource_type === 'link' ? '网页链接' : humanSize(f.size) }}</span>
             <span class="row-parse" :data-s="f.parse_status">{{ parseStatusLabel(f.parse_status) }}</span>
+            <span
+              v-if="f.resource_type === 'file' && mdStatusLabel(f.md_status)"
+              class="row-parse"
+              :data-s="`md-${f.md_status}`"
+            >{{ mdStatusLabel(f.md_status) }}</span>
+            <RouterLink
+              v-if="f.md_status === 'failed' && ocr !== null && !ocr.has_api_key"
+              class="md-setup"
+              to="/settings?section=ocr"
+              title="扫描件 OCR 未配置，扫描页无法识别；点击去设置"
+            >OCR 未配置</RouterLink>
+          </div>
+
+          <!-- md_status=failed：重新解析（重建 Markdown / 重试 OCR） -->
+          <div v-if="f.md_status === 'failed'" class="md-actions">
+            <button
+              class="mini"
+              :disabled="reparsingId === f.id"
+              @click="reparse(f.id)"
+            >{{ reparsingId === f.id ? '重新解析中…' : '重新解析' }}</button>
           </div>
 
           <!-- 备注：点按进入行内编辑 -->
@@ -312,6 +357,36 @@ onMounted(() => {
 .row-parse[data-s='unsupported'] {
   color: var(--terra-soft);
   border-color: var(--terra-dashed);
+}
+/* Markdown 副本状态（md_status）角标 */
+.row-parse[data-s='md-done'] {
+  color: var(--ok);
+  border-color: var(--line-hover);
+}
+.row-parse[data-s='md-pending'] {
+  color: var(--amber-soft);
+  border-color: var(--amber-border-dim);
+}
+.row-parse[data-s='md-failed'] {
+  color: var(--terra-soft);
+  border-color: var(--terra-dashed);
+}
+.md-setup {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--terra-soft);
+  border-bottom: 1px dashed var(--terra-dashed);
+}
+.md-setup:hover {
+  color: var(--amber-soft);
+  border-color: var(--amber-border-dim);
+}
+.md-actions {
+  display: flex;
+  gap: 6px;
+}
+.md-actions .mini {
+  align-self: flex-start;
 }
 .notes {
   align-self: flex-start;

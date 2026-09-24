@@ -248,6 +248,7 @@ class LibraryFile(Base):
     resource_type: Mapped[str] = mapped_column(String(30), default="file")  # file/link/video
     extracted_text: Mapped[str | None] = mapped_column(Text)
     parse_status: Mapped[str] = mapped_column(String(20), default="pending")  # pending/parsed/failed
+    md_status: Mapped[str] = mapped_column(String(12), default="none")  # none/done/pending/failed（Markdown 副本状态）
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     deleted_at: Mapped[datetime | None]
 

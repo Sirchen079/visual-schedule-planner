@@ -38,6 +38,7 @@ function makeFile(partial: Partial<LibraryFile>): LibraryFile {
     source_url: null,
     resource_type: 'file',
     parse_status: 'parsed',
+    md_status: 'none',
     uploaded_at: '2026-09-05T10:00:00',
     ...partial,
   }

@@ -19,7 +19,7 @@ def test_csv_and_xlsx_tail_rows_and_later_sheets_are_preserved(tmp_path):
     csv.write_text('项目,金额\n'+'普通项目,1\n'*100+'尾部凭据,456.78', encoding='utf8')
     doc = parsers.parse_file(csv)
     assert len(doc.tables[0]) == 60 and '尾部凭据' in doc.blocks[-1]['text']
-    assert '行 101' in doc.blocks[-1]['location']
+    assert '正文' in doc.blocks[-1]['location']   # md 管道下无标题文档整篇一节，尾部不丢
     wb = Workbook()
     for i in range(22):
         sheet = wb.create_sheet('资料'+str(i))
@@ -42,7 +42,9 @@ def test_docx_preserves_text_table_order_and_late_paragraphs(tmp_path):
     path = tmp_path/'long.docx'
     source.save(path)
     doc = parsers.parse_file(path)
-    assert doc.blocks[0]['text'] == '开头' and doc.blocks[1]['text'] == '中间的表格'
+    # 文档流顺序保留：开头 → 表格（管道化） → 后续段落
+    assert doc.markdown.index('开头') < doc.markdown.index('中间的表格') < doc.markdown.index('第0段说明')
+    assert doc.tables and doc.tables[0] == [['中间的表格']]
     assert '实际要求' in doc.blocks[-1]['text'] and not doc.partial
 
 

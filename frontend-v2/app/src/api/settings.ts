@@ -144,3 +144,31 @@ export function disableActiveSkill(): Promise<SkillEnableResult> {
 export function deleteSkill(sid: number): Promise<void> {
   return http.del(`/ai/skills/${sid}`)
 }
+
+/* ---- 扫描件 OCR（/api/settings/ocr，手写类型：rest.d.ts 红线不重生成，仿 memories.ts 风格） ---- */
+
+/** OCR 模型配置回包：密钥永不回显，只给 has_api_key 状态。 */
+export interface OcrConfig {
+  base_url: string
+  model: string
+  has_api_key: boolean
+}
+
+/**
+ * OCR 配置更新体。api_key 三态语义：
+ * undefined/缺省=保留现有密钥；空串=清除密钥；非空=设置新密钥。pdf_mode 当前仅 'auto'（只 OCR 扫描页）。
+ */
+export interface OcrConfigUpdate {
+  base_url?: string
+  model?: string
+  api_key?: string | null
+  pdf_mode?: 'auto'
+}
+
+export function getOcrConfig(): Promise<OcrConfig> {
+  return http.get<OcrConfig>('/api/settings/ocr')
+}
+
+export function updateOcrConfig(patch: OcrConfigUpdate): Promise<OcrConfig> {
+  return http.put<OcrConfig>('/api/settings/ocr', patch)
+}

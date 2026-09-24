@@ -87,6 +87,7 @@ pytest-asyncio==1.4.0
 python-dateutil==2.9.0.post0
 python-docx==1.2.0
 python-dotenv==1.2.3
+python-pptx==1.0.2
 python-multipart==0.0.32
 pytokens==0.4.1
 pywin32==312
