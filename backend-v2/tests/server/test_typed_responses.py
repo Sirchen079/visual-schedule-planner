@@ -280,7 +280,7 @@ def test_ai_configs_and_skills_payload_fields_survive_response_model(tmp_path):
         assert skills and set(skills[0]) == {"id", "name", "description",
                                              "enabled", "is_builtin"}
         assert skills[0]["is_builtin"] is True   # 启动 seed_builtin_skills 内置
-        sk = c.post("/ai/skills", json={"name": "我的技能", "description": "自建"})
+        sk = c.post("/ai/skills", json={"name": "我的技能", "description": "自建", "content": "使用短句"})
         assert sk.status_code == 201
         sk = sk.json()
         assert set(sk) == {"id"}

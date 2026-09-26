@@ -68,6 +68,14 @@ const NAMES: Record<string, string> = {
   update_memory: '更新记忆',
   forget_memory: '遗忘记忆',
   search_memory: '检索记忆',
+  search_skills: '查找技能',
+  read_skill: '读取技能',
+  read_skill_resource: '读取技能资料',
+  save_skill: '保存技能',
+  update_skill: '更新技能',
+  inspect_skill_import: '检查技能包',
+  import_skill: '导入技能',
+  read_skill_file: '读取技能文件',
 }
 
 /** 拼不出「正在 + 短语」的特例单独给阶段提示。 */

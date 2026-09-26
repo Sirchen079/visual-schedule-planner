@@ -18,7 +18,7 @@ EXECUTE_DESCRIPTION = ('执行 search_tools 返回的工具。name 填准确工�
 SEARCH_DESCRIPTION = (
     '按用途或准确名称查找并加载工具。query可用中文或英文，names可给已知工具名。'
     '一次返回最多6个工具的完整参数定义；使用 execute_tool(name, arguments) 执行。未找到时换关键词，不猜参数。'
-    '任务/日程/提醒、账本/账单、收件箱、学习研究、资料阅读、联网、习惯、目标、日记、计时、MCP均可查询。'
+    '技能、任务/日程/提醒、账本、资料、联网、习惯、目标、日记、计时、MCP均可查询。'
 )
 
 # A tool mentioned as something to avoid does not activate that whole workflow.

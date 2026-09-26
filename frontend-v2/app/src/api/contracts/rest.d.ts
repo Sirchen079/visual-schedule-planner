@@ -870,6 +870,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/files/{file_id}/reparse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reparse
+         * @description 清除解析缓存重建（Markdown 管道升级或扫描页 OCR 失败后的重试入口）。
+         *     office/文本同步重建；含扫描页的 PDF 重建后交后台 OCR（md_status=pending）。
+         */
+        post: operations["reparse_api_files__file_id__reparse_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/files/{file_id}/attach/{task_id}": {
         parameters: {
             query?: never;
@@ -1093,6 +1114,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/ocr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Ocr */
+        get: operations["get_ocr_api_settings_ocr_get"];
+        /** Put Ocr */
+        put: operations["put_ocr_api_settings_ocr_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ical/export": {
         parameters: {
             query?: never;
@@ -1180,6 +1219,29 @@ export interface paths {
         put?: never;
         /** Chat Stream */
         post: operations["chat_stream_ai_chat_stream_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/conversations/{cid}/steer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Steer
+         * @description 运行中插话（Codex 式 steering）：消息进活跃 run 的注入队列，钩子在
+         *     下一次工具调用结束后的模型请求前把它作为新的用户输入交给模型，当轮即消化。
+         *     无活跃 run 时 409——队列随 run 生命周期在 _release_run_slot 一并清理，
+         *     残留未注入消息（run 已收尾）由前端凭 SteerAccepted 对账后回退常规发送。
+         */
+        post: operations["steer_ai_conversations__cid__steer_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1429,6 +1491,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai/skills/import/github": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Github Skill */
+        post: operations["import_github_skill_ai_skills_import_github_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/skills/import/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Uploaded Skill */
+        post: operations["import_uploaded_skill_ai_skills_import_upload_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/skills/{sid}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download Skill File */
+        get: operations["download_skill_file_ai_skills__sid__files_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ai/skills": {
         parameters: {
             query?: never;
@@ -1441,6 +1554,42 @@ export interface paths {
         put?: never;
         /** Create Skill */
         post: operations["create_skill_ai_skills_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/skills/{sid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Skill */
+        get: operations["get_skill_ai_skills__sid__get"];
+        /** Update Skill */
+        put: operations["update_skill_ai_skills__sid__put"];
+        post?: never;
+        /** Delete Skill */
+        delete: operations["delete_skill_ai_skills__sid__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/skills/{sid}/resources/{rid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Skill Resource */
+        get: operations["get_skill_resource_ai_skills__sid__resources__rid__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1464,6 +1613,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai/skills/{sid}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable Skill */
+        post: operations["disable_skill_ai_skills__sid__disable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ai/skills/disable-active": {
         parameters: {
             query?: never;
@@ -1481,23 +1647,6 @@ export interface paths {
          */
         post: operations["disable_active_skill_ai_skills_disable_active_post"];
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/ai/skills/{sid}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Delete Skill */
-        delete: operations["delete_skill_ai_skills__sid__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2503,6 +2652,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai/conversations/{cid}/title": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rename Conversation
+         * @description 用户手动改名：写新标题并清除 title_auto 标记——首轮自动命名不再覆盖。
+         *     meta 读改写只动 title_auto 键，计划/摘要等其余键原样保留。
+         */
+        patch: operations["rename_conversation_ai_conversations__cid__title_patch"];
+        trace?: never;
+    };
     "/ai/runtime/update-prepare": {
         parameters: {
             query?: never;
@@ -2581,6 +2751,69 @@ export interface paths {
         /** Export */
         get: operations["export_api_diagnostics_export_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Memories
+         * @description 扁平列表 + kind 字段（前端按 kind 分组展示），最近更新的在前。
+         */
+        get: operations["list_memories_api_memories_get"];
+        put?: never;
+        /**
+         * Create Memory
+         * @description 用户手动添加：source='user'。内容与 kind 的教学性校验同工具口径。
+         */
+        post: operations["create_memory_api_memories_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memories/{memory_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Memory */
+        delete: operations["delete_memory_api_memories__memory_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Memory */
+        patch: operations["update_memory_api_memories__memory_id__patch"];
+        trace?: never;
+    };
+    "/api/memories/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Enabled */
+        get: operations["get_enabled_api_memories_enabled_get"];
+        /**
+         * Put Enabled
+         * @description 写 'true'/'false'；关闭后工具从 search_tools 消失、注入块不再出现。
+         */
+        put: operations["put_enabled_api_memories_enabled_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2940,6 +3173,23 @@ export interface components {
         Body_import_ics_api_ical_import_post: {
             /** File */
             file: string;
+        };
+        /** Body_import_uploaded_skill_ai_skills_import_upload_post */
+        Body_import_uploaded_skill_ai_skills_import_upload_post: {
+            /** Files */
+            files: string[];
+            /**
+             * Skill Path
+             * @default
+             */
+            skill_path?: string;
+            /** Name */
+            name?: string | null;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled?: boolean;
         };
         /** Body_upload_api_files_post */
         Body_upload_api_files_post: {
@@ -3353,10 +3603,28 @@ export interface components {
             work_plan?: {
                 [key: string]: unknown;
             }[];
-            /** Blackboard —— 「黑板」面板当前页（show_blackboard 推送的自包含 HTML） */
+            /** Blackboard */
             blackboard?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /**
+         * ConversationTitleIn
+         * @description 会话改名请求：标题 1..200 字（与列宽一致）。
+         */
+        ConversationTitleIn: {
+            /** Title */
+            title: string;
+        };
+        /**
+         * ConversationTitleOut
+         * @description 会话改名回包：id + 清洗后的新标题。
+         */
+        ConversationTitleOut: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
         };
         /**
          * CreatedOut
@@ -3880,6 +4148,11 @@ export interface components {
             resource_type: string;
             /** Parse Status */
             parse_status: string;
+            /**
+             * Md Status
+             * @default none
+             */
+            md_status?: string;
             /**
              * Uploaded At
              * Format: date-time
@@ -4772,6 +5045,70 @@ export interface components {
             /** Warnings */
             warnings: string[];
         };
+        /** MemoryCreate */
+        MemoryCreate: {
+            /**
+             * Kind
+             * @default fact
+             */
+            kind?: string;
+            /** Content */
+            content: string;
+            /**
+             * Keywords
+             * @default
+             */
+            keywords?: string;
+        };
+        /**
+         * MemoryEnabled
+         * @description 开关回包：GET/PUT 共用。
+         */
+        MemoryEnabled: {
+            /** Enabled */
+            enabled: boolean;
+        };
+        /**
+         * MemoryOut
+         * @description 记忆响应模型。source_conversation_id 可空（会话删除后记忆保留）；
+         *     时间序列化为 ISO 串（与既有回包一致）。
+         */
+        MemoryOut: {
+            /** Id */
+            id: number;
+            /** Kind */
+            kind: string;
+            /** Content */
+            content: string;
+            /** Keywords */
+            keywords: string;
+            /** Source */
+            source: string;
+            /** Source Conversation Id */
+            source_conversation_id?: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * MemoryUpdate
+         * @description PATCH 语义：缺省字段不动。
+         */
+        MemoryUpdate: {
+            /** Kind */
+            kind?: string | null;
+            /** Content */
+            content?: string | null;
+            /** Keywords */
+            keywords?: string | null;
+        };
         /**
          * MessageOut
          * @description 会话消息项：display 为展示元数据对象（{"text": ...}）。
@@ -4899,10 +5236,43 @@ export interface components {
             /** Target Path */
             target_path?: string | null;
         };
-        /** OkOut */
-        OkOut: {
-            /** Ok */
-            ok: boolean;
+        /** OcrConfigIn */
+        OcrConfigIn: {
+            /**
+             * Base Url
+             * @default
+             */
+            base_url?: string;
+            /**
+             * Model
+             * @default
+             */
+            model?: string;
+            /**
+             * Pdf Mode
+             * @default auto
+             */
+            pdf_mode?: string;
+            /** Api Key */
+            api_key?: string | null;
+        };
+        /** OcrConfigOut */
+        OcrConfigOut: {
+            /**
+             * Base Url
+             * @default
+             */
+            base_url?: string;
+            /**
+             * Model
+             * @default
+             */
+            model?: string;
+            /**
+             * Has Api Key
+             * @default false
+             */
+            has_api_key?: boolean;
         };
         /** OnboardingFinish */
         OnboardingFinish: {
@@ -5498,16 +5868,96 @@ export interface components {
              * @default
              */
             description?: string;
-            /**
-             * Content
-             * @default
-             */
-            content?: string;
+            /** Content */
+            content: string;
             /**
              * Enabled
-             * @default false
+             * @default true
              */
             enabled?: boolean;
+        };
+        /** SkillDetailOut */
+        SkillDetailOut: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Is Builtin */
+            is_builtin: boolean;
+            /** Content */
+            content: string;
+            /** Revision */
+            revision: string;
+            /** Resources */
+            resources: components["schemas"]["SkillResourceOut"][];
+            /** Files */
+            files?: components["schemas"]["SkillFileOut"][];
+            /** Source */
+            source?: string | null;
+        };
+        /** SkillFileOut */
+        SkillFileOut: {
+            /** Path */
+            path: string;
+            /** Size */
+            size: number;
+            /** Is Text */
+            is_text: boolean;
+        };
+        /** SkillGithubImportBody */
+        SkillGithubImportBody: {
+            /** Url */
+            url: string;
+            /** Ref */
+            ref?: string | null;
+            /**
+             * Skill Path
+             * @default
+             */
+            skill_path?: string;
+            /** Name */
+            name?: string | null;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled?: boolean;
+        };
+        /** SkillImportCandidate */
+        SkillImportCandidate: {
+            /** Path */
+            path: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /**
+             * Error
+             * @default
+             */
+            error?: string;
+        };
+        /** SkillImportOut */
+        SkillImportOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "imported" | "already_imported" | "select_skill";
+            /** Skill Id */
+            skill_id?: number | null;
+            /** Name */
+            name?: string | null;
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Warnings */
+            warnings?: string[];
+            /** Candidates */
+            candidates?: components["schemas"]["SkillImportCandidate"][];
         };
         /**
          * SkillOut
@@ -5524,6 +5974,59 @@ export interface components {
             enabled: boolean;
             /** Is Builtin */
             is_builtin: boolean;
+        };
+        /** SkillResourceOut */
+        SkillResourceOut: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Source File Id */
+            source_file_id: number;
+            /** Characters */
+            characters: number;
+            /** Warnings */
+            warnings: string[];
+        };
+        /** SkillResourceReadOut */
+        SkillResourceReadOut: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Source File Id */
+            source_file_id: number;
+            /** Source Revision */
+            source_revision: string;
+            /** Text */
+            text: string;
+            /** Offset */
+            offset: number;
+            /** Total Characters */
+            total_characters: number;
+            /** Warnings */
+            warnings: string[];
+            /** Next Offset */
+            next_offset: number | null;
+        };
+        /** SkillUpdateBody */
+        SkillUpdateBody: {
+            /** Name */
+            name: string;
+            /**
+             * Description
+             * @default
+             */
+            description?: string;
+            /** Content */
+            content: string;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled?: boolean;
+            /** Expected Revision */
+            expected_revision: string;
         };
         /** SourceRead */
         SourceRead: {
@@ -5639,6 +6142,27 @@ export interface components {
             total: number;
             /** Done */
             done: number;
+        };
+        /**
+         * SteerBody
+         * @description 运行中插话请求体。token 由前端生成、凭 SteerAccepted 事件对账，
+         *     确认不了（run 已结束等）就走常规发送回退，不产生重复。
+         */
+        SteerBody: {
+            /** Text */
+            text: string;
+            /** Token */
+            token: string;
+        };
+        /** SteerOut */
+        SteerOut: {
+            /** Run Id */
+            run_id: string;
+            /**
+             * Accepted
+             * @default true
+             */
+            accepted?: boolean;
         };
         /** StepDraft */
         StepDraft: {
@@ -6285,6 +6809,19 @@ export interface components {
                     [key: string]: components["schemas"]["UserAnswer"];
                 };
             };
+        };
+        /** OkOut */
+        zhishi__server__routes__library__OkOut: {
+            /** Ok */
+            ok: boolean;
+        };
+        /**
+         * OkOut
+         * @description 删除/写操作统一回包（同 notifications 的 EnableOut 惯例，schema 不留空）。
+         */
+        zhishi__server__routes__memories__OkOut: {
+            /** Ok */
+            ok: boolean;
         };
     };
     responses: never;
@@ -8378,6 +8915,37 @@ export interface operations {
             };
         };
     };
+    reparse_api_files__file_id__reparse_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     attach_api_files__file_id__attach__task_id__post: {
         parameters: {
             query?: never;
@@ -8396,7 +8964,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OkOut"];
+                    "application/json": components["schemas"]["zhishi__server__routes__library__OkOut"];
                 };
             };
             /** @description Validation Error */
@@ -8428,7 +8996,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OkOut"];
+                    "application/json": components["schemas"]["zhishi__server__routes__library__OkOut"];
                 };
             };
             /** @description Validation Error */
@@ -8778,6 +9346,59 @@ export interface operations {
             };
         };
     };
+    get_ocr_api_settings_ocr_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OcrConfigOut"];
+                };
+            };
+        };
+    };
+    put_ocr_api_settings_ocr_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OcrConfigIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OcrConfigOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     export_api_ical_export_get: {
         parameters: {
             query?: never;
@@ -8916,6 +9537,48 @@ export interface operations {
                 content: {
                     "text/event-stream": string;
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    steer_ai_conversations__cid__steer_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cid: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SteerBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SteerOut"];
+                };
+            };
+            /** @description 该会话没有进行中的 run（前端回退为常规发送) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -9424,6 +10087,105 @@ export interface operations {
             };
         };
     };
+    import_github_skill_ai_skills_import_github_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillGithubImportBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillImportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_uploaded_skill_ai_skills_import_upload_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_uploaded_skill_ai_skills_import_upload_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillImportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_skill_file_ai_skills__sid__files_get: {
+        parameters: {
+            query: {
+                path: string;
+            };
+            header?: never;
+            path: {
+                sid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_skills_ai_skills_get: {
         parameters: {
             query?: never;
@@ -9477,7 +10239,167 @@ export interface operations {
             };
         };
     };
+    get_skill_ai_skills__sid__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_skill_ai_skills__sid__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sid: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillUpdateBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_skill_ai_skills__sid__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_skill_resource_ai_skills__sid__resources__rid__get: {
+        parameters: {
+            query?: {
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                sid: number;
+                rid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillResourceReadOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     enable_skill_ai_skills__sid__enable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnableOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disable_skill_ai_skills__sid__disable_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -9524,35 +10446,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EnableOut"];
-                };
-            };
-        };
-    };
-    delete_skill_ai_skills__sid__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                sid: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -12033,6 +12926,41 @@ export interface operations {
             };
         };
     };
+    rename_conversation_ai_conversations__cid__title_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cid: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConversationTitleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationTitleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     prepare_desktop_update_ai_runtime_update_prepare_post: {
         parameters: {
             query?: never;
@@ -12160,6 +13088,178 @@ export interface operations {
                 };
                 content: {
                     "application/zip": string;
+                };
+            };
+        };
+    };
+    list_memories_api_memories_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryOut"][];
+                };
+            };
+        };
+    };
+    create_memory_api_memories_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_memory_api_memories__memory_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zhishi__server__routes__memories__OkOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_memory_api_memories__memory_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_enabled_api_memories_enabled_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryEnabled"];
+                };
+            };
+        };
+    };
+    put_enabled_api_memories_enabled_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryEnabled"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryEnabled"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

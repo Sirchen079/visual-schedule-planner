@@ -1,7 +1,7 @@
 /** 设置与 AI 管理接口。应用设置值使用字符串，PUT 提交部分更新。
  * MCP 的 env/headers 和模型密钥只写入，不回显敏感值。 */
 import type { components } from './contracts/rest'
-import { http } from './http'
+import { http, HttpError } from './http'
 
 /** 永久授权 = 生成 ToolGrantOut。 */
 export type Grant = components['schemas']['ToolGrantOut']
@@ -43,6 +43,11 @@ export type AiConfigInfo = components['schemas']['ConfigOut']
 
 /** AI 技能列表项 = 生成 SkillOut。 */
 export type SkillInfo = components['schemas']['SkillOut']
+export type SkillDetail = components['schemas']['SkillDetailOut']
+export type SkillUpdateBody = components['schemas']['SkillUpdateBody']
+export type SkillResourceRead = components['schemas']['SkillResourceReadOut']
+export type SkillImportResult = components['schemas']['SkillImportOut']
+export type SkillGithubImportBody = components['schemas']['SkillGithubImportBody']
 
 /** 技能启用/停用回包 = 生成 EnableOut（与 MCP/配置启用同一统一回包，这里只用 ok）。 */
 export type SkillEnableResult = components['schemas']['EnableOut']
@@ -126,12 +131,54 @@ export function listSkills(): Promise<SkillInfo[]> {
   return http.get<SkillInfo[]>('/ai/skills')
 }
 
-/** 创建技能：201 回 {"id"}（创建后重拉列表）。建议 enabled=false 落库（单选激活交给用户显式启用）。 */
+export function importGithubSkill(body: SkillGithubImportBody): Promise<SkillImportResult> {
+  return http.post('/ai/skills/import/github', body)
+}
+
+export async function importSkillFiles(files: File[], skillPath = '', name?: string): Promise<SkillImportResult> {
+  const form = new FormData()
+  for (const file of files) form.append('files', file, file.webkitRelativePath || file.name)
+  form.append('skill_path', skillPath)
+  if (name?.trim()) form.append('name', name.trim())
+  let response: Response
+  try {
+    response = await fetch('/ai/skills/import/upload', { method: 'POST', body: form })
+  } catch {
+    throw new HttpError(0, '网络错误，无法连接本地服务')
+  }
+  if (!response.ok) {
+    let message = `导入失败（HTTP ${response.status}）`
+    try {
+      const body = await response.json()
+      if (typeof body.detail === 'string') message = body.detail
+    } catch { /* 保留 HTTP 状态 */ }
+    throw new HttpError(response.status, message)
+  }
+  return response.json()
+}
+
+export function getSkill(sid: number): Promise<SkillDetail> {
+  return http.get(`/ai/skills/${sid}`)
+}
+
+export function updateSkill(sid: number, body: SkillUpdateBody): Promise<SkillDetail> {
+  return http.put(`/ai/skills/${sid}`, body)
+}
+
+export function getSkillResource(sid: number, rid: number, offset = 0): Promise<SkillResourceRead> {
+  return http.get(`/ai/skills/${sid}/resources/${rid}`, { offset })
+}
+
+export function disableSkill(sid: number): Promise<SkillEnableResult> {
+  return http.post(`/ai/skills/${sid}/disable`)
+}
+
+/** 创建技能：默认允许 AI 按需调用，201 回 {id} 后重拉列表。 */
 export function createSkill(body: SkillCreateBody): Promise<CreatedId> {
   return http.post<CreatedId>('/ai/skills', body)
 }
 
-/** 启用即单选激活（停用其余用户技能）；内置技能 404「技能不存在或为内置技能」。 */
+/** 单独启用技能，保留其他技能状态；内置技能不可更改。 */
 export function enableSkill(sid: number): Promise<SkillEnableResult> {
   return http.post<SkillEnableResult>(`/ai/skills/${sid}/enable`)
 }

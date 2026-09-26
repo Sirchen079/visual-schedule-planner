@@ -12,6 +12,9 @@ vi.mock('vue', async importOriginal => ({
 }))
 
 interface Form {
+  skillFormOpen: Ref<boolean>; skillName: Ref<string>; skillDesc: Ref<string>
+  skillContent: Ref<string>; skillEnabled: Ref<boolean>; skillFormError: Ref<string | null>
+  toggleSkillForm(): void; inspectSkill(id: number): Promise<void>; submitSkillForm(): Promise<void>
   configFormOpen: Ref<boolean>; configName: Ref<string>; configModel: Ref<string>
   configBaseUrl: Ref<string>; configApiKey: Ref<string>; configProtocol: Ref<string>
   configContextWindow: Ref<string | number>; configMaxOutputTokens: Ref<string | number>
@@ -37,6 +40,41 @@ beforeEach(() => {
   vi.stubGlobal('document', { getElementById: () => null })
   // Lifecycle registration is intentionally outside a mounted renderer in this setup-level test.
   vi.spyOn(console, 'warn').mockImplementation(() => {})
+})
+
+describe('skill settings form', () => {
+  it('creates enabled skills and retains drafts when a version conflict rejects an edit', async () => {
+    const store = useSettingsStore()
+    const add = vi.spyOn(store, 'addSkill').mockResolvedValue(true)
+    const f = form(); f.toggleSkillForm()
+    f.skillName.value = '周报'; f.skillDesc.value = '每周汇报时'; f.skillContent.value = '列出具体进度'
+    await f.submitSkillForm()
+    expect(add).toHaveBeenCalledWith({ name: '周报', description: '每周汇报时', content: '列出具体进度', enabled: true })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      id: 7, name: '周报', description: '每周汇报时', content: '旧规则', enabled: false,
+      is_builtin: false, resources: [], revision: 'old-version',
+    }))))
+    await f.inspectSkill(7)
+    f.skillContent.value = '保留我的修改'
+    const edit = vi.spyOn(store, 'editSkill').mockImplementation(async () => {
+      store.actionError = '技能已变化，请重新读取'; return false
+    })
+    await f.submitSkillForm()
+    expect(edit).toHaveBeenCalledWith(7, expect.objectContaining({ expected_revision: 'old-version', enabled: false }))
+    expect(f.skillFormOpen.value).toBe(true)
+    expect(f.skillContent.value).toBe('保留我的修改')
+    expect(f.skillFormError.value).toContain('重新读取')
+  })
+
+  it('never submits builtin skills through the form', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      id: 1, name: '内置', description: '用途', content: '规则', enabled: true,
+      is_builtin: true, resources: [], revision: 'builtin',
+    }))))
+    const edit = vi.spyOn(useSettingsStore(), 'editSkill')
+    const f = form(); await f.inspectSkill(1); await f.submitSkillForm()
+    expect(edit).not.toHaveBeenCalled()
+  })
 })
 afterEach(() => { scopes.splice(0).forEach(scope => scope.stop()); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 

@@ -158,15 +158,29 @@ def _skill_text(db: Session, *, defer_builtin: bool = False) -> str:
         return "【技能】（暂无激活技能）"
     rows = [r for r in rows if r.name not in THINKING_SKILLS]
     parts = [f"【技能：{r.name}】\n{r.content}" for r in rows
-             if not defer_builtin or not r.is_builtin]
+             if r.is_builtin and not defer_builtin]
     if defer_builtin:
         parts.append('【可用技能】' + '；'.join(f'{r.name}：{r.description}' for r in rows if r.is_builtin))
+    custom = [r for r in rows if not r.is_builtin]
+    if custom:
+        catalog = []
+        size = 0
+        for row in custom:
+            entry = f'#{row.id} {row.name}：{row.description[:160]}'
+            if len(catalog) >= 20 or size + len(entry) > 2400:
+                break
+            catalog.append(entry)
+            size += len(entry)
+        parts.append('【用户技能目录（按需读取）】\n' + '\n'.join(catalog))
+        if len(catalog) < len(custom):
+            parts.append('其余技能可用 search_skills 查询。')
     return "\n".join(parts)
 
 
 def build_instructions(db: Session, *, plan_mode: bool = False, brainstorm_mode: bool = False, defer_builtin: bool = False) -> str:
     from zhishi.agent.tools.memory_tools import memory_count, memory_enabled
     base = f"{PERSONA}\n{TOOL_RULES}\n{_skill_text(db, defer_builtin=defer_builtin)}".strip()
+    base += '\n技能按需 search_skills→read_skill；可复用信息/文件整理后 save_skill。'
     if defer_builtin:
         base += ('\n工具按需查询：先 search_tools 获取需要的能力与完整 parameters，'
                  '再用 execute_tool(name=准确工具名, arguments=按定义填写的参数对象) 执行。'

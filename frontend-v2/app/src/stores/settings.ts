@@ -7,8 +7,7 @@
  *   MCPServerOut 替换行；删除成功后出列；测试连接业务失败也是 200，回包整存 mcpTestResults
  *   供行内展示并同步行 last_status/last_error（端点会回写同值）；工具清单按 sid 缓存/报错。
  * - AI 配置：创建后重拉；启用为单选语义（其余落为未启用），以回包 ok 校验后本地落定。
- * - AI 技能：创建后重拉；启用即单选激活（其余用户技能停用、内置不动）；启用中可一键停用
- *   （disable-active，幂等）；删除成功后出列。
+ * - AI 技能：创建/编辑后重拉，多个技能可分别启停；保留全部停用入口；删除成功后出列。
  * - 主题：reconcileTheme 以后端 ui.theme 调和跨端口偏好；saveThemePref 落库。
  */
 import { defineStore } from 'pinia'
@@ -18,6 +17,8 @@ import {
   updateAiConfig,
   createMcpServer,
   createSkill,
+  updateSkill,
+  disableSkill,
   deleteGrant,
   deleteMcpServer,
   deleteSkill,
@@ -45,6 +46,7 @@ import {
   type SettingsMap,
   type SkillCreateBody,
   type SkillInfo,
+  type SkillUpdateBody,
 } from '../api/settings'
 
 export type Autonomy = 'standard' | 'careful'
@@ -430,7 +432,38 @@ export const useSettingsStore = defineStore('settings', {
       }
     },
 
-    /** 启用技能（单选激活）：其余用户技能停用、内置技能不动；内置 id 传入会 404 走失败分支。 */
+    async editSkill(sid: number, body: SkillUpdateBody): Promise<boolean> {
+      this.savingSkill = true
+      this.actionError = null
+      try {
+        await updateSkill(sid, body)
+        await this.loadSkills()
+        return true
+      } catch (e) {
+        this.actionError = e instanceof Error ? `保存失败：${e.message}` : '保存失败'
+        return false
+      } finally {
+        this.savingSkill = false
+      }
+    },
+
+    async deactivateSkill(sid: number): Promise<boolean> {
+      this.busySkills = [...this.busySkills, sid]
+      this.actionError = null
+      try {
+        const res = await disableSkill(sid)
+        if (!res.ok) throw new Error('技能未停用，请重试')
+        this.skills = (this.skills ?? []).map(s => s.id === sid ? { ...s, enabled: false } : s)
+        return true
+      } catch (e) {
+        this.actionError = e instanceof Error ? e.message : '停用失败'
+        return false
+      } finally {
+        this.busySkills = this.busySkills.filter(x => x !== sid)
+      }
+    },
+
+    /** 多个技能可同时启用，AI 根据任务按需读取。 */
     async activateSkill(sid: number): Promise<boolean> {
       this.busySkills = [...this.busySkills, sid]
       this.actionError = null
@@ -441,7 +474,7 @@ export const useSettingsStore = defineStore('settings', {
           return false
         }
         this.skills = (this.skills ?? []).map((s) =>
-          s.is_builtin ? s : { ...s, enabled: s.id === sid },
+          s.id === sid ? { ...s, enabled: true } : s,
         )
         return true
       } catch (e) {

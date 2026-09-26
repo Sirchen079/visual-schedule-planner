@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 ATOMIC_WRITES = {'create_task', 'create_event', 'check_in_habit', 'create_subtasks',
                  'apply_day_plan', 'reschedule_overdue', 'import_timetable', 'import_web_resources',
-                 'bulk_delete_tasks', 'bulk_delete_files'}
+                 'bulk_delete_tasks', 'bulk_delete_files', 'save_skill', 'update_skill', 'import_skill'}
 
 
 def failure_result(exc: Exception, *, tool: str, arguments: dict, readonly=False) -> dict:

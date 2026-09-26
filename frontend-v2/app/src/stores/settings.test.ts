@@ -390,7 +390,7 @@ describe('settings store', () => {
     vi.unstubAllGlobals()
   })
 
-  it('activateSkill 单选激活：其余用户技能停用、内置技能不动', async () => {
+  it('activateSkill 多选激活：保留其余用户技能、内置技能不动', async () => {
     const store = useSettingsStore()
     store.skills = [
       makeSkill({ id: 1, is_builtin: true, enabled: true }),
@@ -405,7 +405,7 @@ describe('settings store', () => {
     vi.stubGlobal('fetch', spy)
     expect(await store.activateSkill(3)).toBe(true)
     expect(store.skills?.find((s) => s.id === 1)?.enabled).toBe(true) // 内置不受影响
-    expect(store.skills?.find((s) => s.id === 2)?.enabled).toBe(false)
+    expect(store.skills?.find((s) => s.id === 2)?.enabled).toBe(true)
     expect(store.skills?.find((s) => s.id === 3)?.enabled).toBe(true)
     vi.unstubAllGlobals()
   })

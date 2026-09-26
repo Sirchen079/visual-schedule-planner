@@ -31,9 +31,10 @@ def test_builtin_skills_seeded_and_injected(db):
     assert "任务、提醒与日程" in text     # 内置技能内容进入 instructions
 
 
-def test_enabled_user_skill_injected(db):
+def test_enabled_user_skill_catalog_is_injected_without_body(db):
     from zhishi.domain.models import AISkill
     db.add(AISkill(name="我的规则", description="d", content="回复必须用中文",
                    enabled=True, is_builtin=False)); db.commit()
     text = prompts.build_instructions(db)
-    assert "回复必须用中文" in text
+    assert "我的规则：d" in text
+    assert "回复必须用中文" not in text

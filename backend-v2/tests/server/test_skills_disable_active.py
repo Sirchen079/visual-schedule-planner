@@ -35,7 +35,8 @@ def test_disable_active_removes_content_from_instructions_and_idempotent(tmp_pat
         sk = c.post("/ai/skills", json={"name": "短句", "content": "写作时请用短句。"}).json()
         c.post(f"/ai/skills/{sk['id']}/enable")
         with c.app.state.session_factory() as db:
-            assert "写作时请用短句。" in build_instructions(db)
+            assert "短句：短句" in build_instructions(db)
+            assert "写作时请用短句。" not in build_instructions(db)
 
         assert c.post("/ai/skills/disable-active").json() == {"ok": True}
         with c.app.state.session_factory() as db:

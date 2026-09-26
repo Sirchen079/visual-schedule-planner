@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json
 from datetime import date, datetime
-from sqlalchemy import (Boolean, CheckConstraint, Column, Date, DateTime, Float, ForeignKey, Integer,
+from sqlalchemy import (Boolean, CheckConstraint, Column, Date, DateTime, Float, ForeignKey, Integer, LargeBinary,
                         String, Table, Text, UniqueConstraint)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -624,6 +624,29 @@ class AISkill(Base):
     is_builtin: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class AISkillResource(Base):
+    """技能保存时的资料正文快照；来源删除后仍可复用，不复制进每轮提示词。"""
+    __tablename__ = "ai_skill_resources"
+    __table_args__ = {"sqlite_autoincrement": True}
+    id: Mapped[int] = mapped_column(primary_key=True)
+    skill_id: Mapped[int] = mapped_column(ForeignKey("ai_skills.id", ondelete="CASCADE"), index=True)
+    source_file_id: Mapped[int] = mapped_column(Integer)
+    name: Mapped[str] = mapped_column(Text)
+    content: Mapped[str] = mapped_column(Text)
+    source_revision: Mapped[str] = mapped_column(String(64))
+    warnings_json: Mapped[str] = mapped_column(Text, default="[]")
+
+
+class AISkillPackage(Base):
+    """Validated portable skill files; stored as data, never extracted or executed."""
+    __tablename__ = "ai_skill_packages"
+    skill_id: Mapped[int] = mapped_column(ForeignKey("ai_skills.id", ondelete="CASCADE"), primary_key=True)
+    archive: Mapped[bytes] = mapped_column(LargeBinary)
+    manifest_json: Mapped[str] = mapped_column(Text)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    source: Mapped[str] = mapped_column(Text)
 
 
 class AIUsageLog(Base):

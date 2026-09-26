@@ -5,8 +5,8 @@ import asyncio
 import json
 import uuid
 from typing import Literal
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -103,6 +103,56 @@ class SkillOut(BaseModel):
     is_builtin: bool
 
 
+class SkillResourceOut(BaseModel):
+    id: int
+    name: str
+    source_file_id: int
+    characters: int
+    warnings: list[str]
+
+
+class SkillFileOut(BaseModel):
+    path: str
+    size: int
+    is_text: bool
+
+
+class SkillDetailOut(SkillOut):
+    content: str
+    revision: str
+    resources: list[SkillResourceOut]
+    files: list[SkillFileOut] = Field(default_factory=list)
+    source: str | None = None
+
+
+class SkillImportCandidate(BaseModel):
+    path: str
+    name: str
+    description: str
+    error: str = ''
+
+
+class SkillImportOut(BaseModel):
+    status: Literal['imported', 'already_imported', 'select_skill']
+    skill_id: int | None = None
+    name: str | None = None
+    enabled: bool | None = None
+    warnings: list[str] = Field(default_factory=list)
+    candidates: list[SkillImportCandidate] = Field(default_factory=list)
+
+
+class SkillResourceReadOut(BaseModel):
+    id: int
+    name: str
+    source_file_id: int
+    source_revision: str
+    text: str
+    offset: int
+    total_characters: int
+    warnings: list[str]
+    next_offset: int | None
+
+
 class ToolGrantOut(BaseModel):
     """「始终允许」规则（可审计、可撤销）。"""
     id: int
@@ -177,7 +227,10 @@ def upload_attachment(request: Request, file: UploadFile = File(...)):
                              notes="对话附件")
         from zhishi.agent.attachments import detect_media
         kind = detect_media(row)
-        if kind in ('audio', 'video'):
+        from zhishi.domain.skill_imports import ARCHIVE_SUFFIXES
+        if row.original_name.lower().endswith(ARCHIVE_SUFFIXES):
+            kind = 'skill_package'
+        elif kind in ('audio', 'video'):
             row.parse_status = 'needs_media'
             db.commit()
         else:
@@ -1178,10 +1231,87 @@ async def reject_plan(cid: int, plan_id: int, request: Request, db: Session = De
 
 
 class SkillBody(BaseModel):
-    name: str
-    description: str = ""
-    content: str = ""
-    enabled: bool = False
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field(default="", max_length=2000)
+    content: str = Field(min_length=1, max_length=30000)
+    enabled: bool = True
+
+
+class SkillUpdateBody(SkillBody):
+    expected_revision: str
+
+
+def _skill_error(exc):
+    from zhishi.domain.skills import SkillConflict
+    return HTTPException(404 if isinstance(exc, LookupError) else
+                         409 if isinstance(exc, SkillConflict) else 422, str(exc))
+
+
+class SkillGithubImportBody(BaseModel):
+    url: str = Field(min_length=1, max_length=2000)
+    ref: str | None = Field(default=None, max_length=200)
+    skill_path: str = ''
+    name: str | None = Field(default=None, max_length=100)
+    enabled: bool = True
+
+
+@router.post('/skills/import/github', response_model=SkillImportOut)
+def import_github_skill(body: SkillGithubImportBody, db: Session = Depends(get_db)):
+    from zhishi.adapters.github_skills import fetch
+    from zhishi.domain.skill_imports import import_package
+    try:
+        files, source = fetch(body.url, body.ref)
+        result = import_package(db, files, source=source, skill_path=body.skill_path,
+                                name=body.name, enabled=body.enabled)
+        db.commit()
+        return result
+    except (ValueError, LookupError) as exc:
+        db.rollback()
+        raise _skill_error(exc) from exc
+
+
+@router.post('/skills/import/upload', response_model=SkillImportOut)
+def import_uploaded_skill(files: list[UploadFile] = File(...), skill_path: str = Form(''),
+                          name: str | None = Form(None), enabled: bool = Form(True),
+                          db: Session = Depends(get_db)):
+    from zhishi.domain.skill_imports import MAX_UPLOAD, _add, import_package, unpack
+    try:
+        if not 1 <= len(files) <= 200:
+            raise ValueError('一次请选择 1 至 200 个文件。')
+        entries, total = {}, 0
+        for file in files:
+            data = file.file.read(MAX_UPLOAD + 1)
+            total += len(data)
+            if total > MAX_UPLOAD:
+                raise ValueError('上传文件合计最多 20 MB。')
+            filename = file.filename or ''
+            if len(files) == 1 and '/' not in filename:
+                entries = unpack(filename, data)
+            else:
+                _add(entries, filename, data)
+        result = import_package(db, entries, source='手动导入：' + (files[0].filename or '技能目录'),
+                                skill_path=skill_path, name=name, enabled=enabled)
+        db.commit()
+        return result
+    except (ValueError, LookupError) as exc:
+        db.rollback()
+        raise _skill_error(exc) from exc
+
+
+@router.get('/skills/{sid}/files', response_class=Response,
+            responses={200: {'content': {'application/octet-stream': {
+                'schema': {'type': 'string', 'format': 'binary'}}}}})
+def download_skill_file(sid: int, path: str = Query(...), db: Session = Depends(get_db)):
+    from pathlib import PurePosixPath
+    from urllib.parse import quote
+    from zhishi.domain.skill_imports import file_bytes
+    try:
+        data = file_bytes(db, sid, path)
+        return Response(data, media_type='application/octet-stream', headers={
+            'Content-Disposition': "attachment; filename*=UTF-8''" + quote(PurePosixPath(path).name),
+            'X-Content-Type-Options': 'nosniff'})
+    except (ValueError, LookupError) as exc:
+        raise _skill_error(exc) from exc
 
 
 @router.get("/skills", response_model=list[SkillOut])
@@ -1194,10 +1324,45 @@ def list_skills(db: Session = Depends(get_db)):
 
 @router.post("/skills", status_code=201, response_model=CreatedOut)
 def create_skill(body: SkillBody, db: Session = Depends(get_db)):
-    from zhishi.domain.models import AISkill
-    row = AISkill(**body.model_dump(), is_builtin=False)
-    db.add(row); db.commit(); db.refresh(row)
+    from zhishi.domain import skills
+    try:
+        row = skills.write(db, **{**body.model_dump(), 'description': body.description or body.name})
+        db.commit()
+    except (ValueError, LookupError) as exc:
+        db.rollback()
+        raise _skill_error(exc) from exc
     return {"id": row.id}
+
+
+@router.get("/skills/{sid}", response_model=SkillDetailOut)
+def get_skill(sid: int, db: Session = Depends(get_db)):
+    from zhishi.domain import skills
+    try:
+        return skills.detail(db, sid)
+    except LookupError as exc:
+        raise _skill_error(exc) from exc
+
+
+@router.put("/skills/{sid}", response_model=SkillDetailOut)
+def update_skill(sid: int, body: SkillUpdateBody, db: Session = Depends(get_db)):
+    from zhishi.domain import skills
+    try:
+        row = skills.write(db, skill_id=sid, **body.model_dump())
+        db.commit()
+        return skills.detail(db, row.id)
+    except (ValueError, LookupError) as exc:
+        db.rollback()
+        raise _skill_error(exc) from exc
+
+
+@router.get("/skills/{sid}/resources/{rid}", response_model=SkillResourceReadOut)
+def get_skill_resource(sid: int, rid: int, offset: int = Query(default=0, ge=0),
+                       db: Session = Depends(get_db)):
+    from zhishi.domain import skills
+    try:
+        return skills.read_resource(db, sid, rid, offset)
+    except (ValueError, LookupError) as exc:
+        raise _skill_error(exc) from exc
 
 
 @router.post("/skills/{sid}/enable", response_model=EnableOut,
@@ -1207,8 +1372,18 @@ def enable_skill(sid: int, db: Session = Depends(get_db)):
     row = db.get(AISkill, sid)
     if row is None or row.is_builtin:
         raise HTTPException(404, "技能不存在或为内置技能")
-    for other in db.scalars(select(AISkill).where(AISkill.is_builtin.is_(False))).all():
-        other.enabled = (other.id == sid)   # 用户技能单选激活
+    row.enabled = True
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/skills/{sid}/disable", response_model=EnableOut, response_model_exclude_none=True)
+def disable_skill(sid: int, db: Session = Depends(get_db)):
+    from zhishi.domain.models import AISkill
+    row = db.get(AISkill, sid)
+    if row is None or row.is_builtin:
+        raise HTTPException(404, "技能不存在或为内置技能")
+    row.enabled = False
     db.commit()
     return {"ok": True}
 

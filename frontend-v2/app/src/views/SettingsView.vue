@@ -12,7 +12,7 @@ import { useHelpStore } from '../stores/help'
  *   编辑与原行 diff 只发改过的字段，env/headers 不回显、留空 = 不发即不动。
  * - AI 配置：列表 + 添加（api_key 密码框，仅写入时提交）+ 启用（单选语义：启用新的自动停用上一个）；
  *   支持编辑连接信息与明确声明的输入能力，密钥永不回显。
- * - 技能管理：内置技能只读展示；用户技能启用为单选激活、删除两段确认；添加表单含正文 textarea。
+ * - 技能管理：多技能按需调用、正文编辑与资料快照查看；内置只读、删除两段确认。
  * - AI 写操作后自动刷新授权与 MCP 清单（授权可能由 run 中的「始终允许」新增）。
  */
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
@@ -22,8 +22,10 @@ import MemorySettings from '../components/settings/MemorySettings.vue'
 import ModelCapabilities from '../components/settings/ModelCapabilities.vue'
 import NetworkPreferences from '../components/settings/NetworkPreferences.vue'
 import OcrSettings from '../components/settings/OcrSettings.vue'
+import SkillImport from '../components/settings/SkillImport.vue'
 import { useModelCatalog } from '../composables/useModelCatalog'
 import type { AiConfigInfo, InputModality, ReasoningEffort } from '../api/settings'
+import { getSkill, getSkillResource, type SkillDetail, type SkillResourceRead } from '../api/settings'
 import DomainState from '../components/domain/DomainState.vue'
 import { useRunStore } from '../stores/run'
 import { AUTONOMY_DESC, AUTONOMY_LABELS, useSettingsStore, type Autonomy } from '../stores/settings'
@@ -418,42 +420,84 @@ const skillName = ref('')
 const skillDesc = ref('')
 const skillContent = ref('')
 const skillFormError = ref<string | null>(null)
+const editingSkill = ref<SkillDetail | null>(null)
+const skillEnabled = ref(true)
+const loadingSkill = ref(false)
+const skillResource = ref<SkillResourceRead | null>(null)
+
+function toggleSkillForm(): void {
+  editingSkill.value = null
+  skillResource.value = null
+  skillName.value = ''
+  skillDesc.value = ''
+  skillContent.value = ''
+  skillEnabled.value = true
+  skillFormError.value = null
+  skillFormOpen.value = !skillFormOpen.value
+}
+
+async function inspectSkill(sid: number): Promise<void> {
+  loadingSkill.value = true
+  skillFormError.value = null
+  skillResource.value = null
+  try {
+    const detail = await getSkill(sid)
+    editingSkill.value = detail
+    skillName.value = detail.name
+    skillDesc.value = detail.description
+    skillContent.value = detail.content
+    skillEnabled.value = detail.enabled
+    skillFormOpen.value = true
+  } catch (e) {
+    skillFormError.value = e instanceof Error ? e.message : '技能读取失败'
+  } finally {
+    loadingSkill.value = false
+  }
+}
+
+async function inspectSkillResource(rid: number, offset = 0): Promise<void> {
+  if (!editingSkill.value) return
+  loadingSkill.value = true
+  skillFormError.value = null
+  try {
+    skillResource.value = await getSkillResource(editingSkill.value.id, rid, offset)
+  } catch (e) {
+    skillFormError.value = e instanceof Error ? e.message : '资料读取失败'
+  } finally {
+    loadingSkill.value = false
+  }
+}
 
 async function submitSkillForm(): Promise<void> {
+  if (editingSkill.value?.is_builtin || settings.savingSkill || loadingSkill.value) return
   skillFormError.value = null
   const name = skillName.value.trim()
-  if (!name) {
-    skillFormError.value = '名称必填'
+  if (!name || !skillDesc.value.trim() || !skillContent.value.trim()) {
+    skillFormError.value = '请填写名称、适用情境和技能正文'
     return
   }
   const body: SkillCreateBody = {
     name,
     description: skillDesc.value.trim(),
     content: skillContent.value,
-    // 新建默认停用：单选激活语义交给用户显式启用，避免悄悄改变 AI 行为
-    enabled: false,
+    enabled: skillEnabled.value,
   }
-  if (await settings.addSkill(body)) {
+  const saved = editingSkill.value
+    ? await settings.editSkill(editingSkill.value.id, { ...body, expected_revision: editingSkill.value.revision })
+    : await settings.addSkill(body)
+  if (saved) {
     skillFormOpen.value = false
     skillName.value = ''
     skillDesc.value = ''
     skillContent.value = ''
+    editingSkill.value = null
+    skillResource.value = null
+  } else {
+    skillFormError.value = settings.actionError || '保存失败，请重试'
   }
 }
 
 const confirmingSkillDelete = ref<number | null>(null)
-
-/** 停用当前启用中的用户技能（disable-active 为全局端点，不带 id）。 */
-const disablingSkill = ref(false)
-
-async function deactivateSkill(): Promise<void> {
-  disablingSkill.value = true
-  try {
-    await settings.deactivateActiveSkill()
-  } finally {
-    disablingSkill.value = false
-  }
-}
 
 function removeSkill(sk: SkillInfo): void {
   if (confirmingSkillDelete.value !== sk.id) {
@@ -488,6 +532,7 @@ watch(
     if (prev && (p === 'completed' || p === 'cancelled')) {
       void settings.loadGrants()
       void settings.loadMcpServers()
+      void settings.loadSkills()
     }
   },
 )
@@ -921,7 +966,7 @@ const AUTONOMY_TIERS: Autonomy[] = ['standard', 'careful']
           <span class="p-title">技能管理</span>
           <span class="p-side">
             <span v-if="settings.skills" class="p-count">{{ settings.skills.length }} 项</span>
-            <button class="act" @click="skillFormOpen = !skillFormOpen">
+            <button class="act" :disabled="loadingSkill || settings.savingSkill" @click="toggleSkillForm">
               {{ skillFormOpen ? '收起表单' : '添加技能' }}
             </button>
           </span>
@@ -934,27 +979,49 @@ const AUTONOMY_TIERS: Autonomy[] = ['standard', 'careful']
           empty-title="暂无技能"
           @retry="settings.loadSkills()"
         >
-          内置技能随应用提供、始终生效；用户技能启用后注入 AI 对话，为它补充领域知识。
+          将常用方法和资料保存为技能，AI 会根据任务选择使用。
         </DomainState>
+        <p class="f-hint">可同时启用多个技能，AI 根据适用情境自主选择。也可以在对话中上传文件，告诉 AI「把这套方法保存成技能，以后按需使用」。</p>
+        <p v-if="skillFormError" class="form-error" role="alert">{{ skillFormError }}</p>
+        <SkillImport @imported="settings.loadSkills()" />
 
         <form v-if="skillFormOpen" class="inline-form" @submit.prevent="submitSkillForm">
-          <p class="form-title">添加技能</p>
-          <p v-if="skillFormError" class="form-error" role="alert">{{ skillFormError }}</p>
+          <p class="form-title">{{ editingSkill ? (editingSkill.is_builtin ? '查看内置技能' : '编辑技能') : '添加技能' }}</p>
           <div class="form-row">
             <span class="f-label">名称</span>
-            <input v-model="skillName" class="t-input grow" placeholder="如 周报写作偏好" />
+            <input v-model="skillName" aria-label="技能名称" :readonly="editingSkill?.is_builtin" maxlength="100" class="t-input grow" placeholder="如 周报写作偏好" />
             <span class="f-label">描述</span>
-            <input v-model="skillDesc" class="t-input grow" placeholder="一句话说明它的用途" />
+            <input v-model="skillDesc" aria-label="技能适用情境" :readonly="editingSkill?.is_builtin" maxlength="2000" class="t-input grow" placeholder="说明用途和何时使用，帮助 AI 选择" />
           </div>
           <textarea
             v-model="skillContent"
+            aria-label="技能正文"
+            :readonly="editingSkill?.is_builtin"
+            maxlength="30000"
             class="t-input area"
             placeholder="技能正文：写给 AI 的指令与知识…"
           />
-          <span class="f-hint">新建的技能默认停用，不会立刻改变 AI 行为；在下方列表点「启用」激活。</span>
+          <label v-if="!editingSkill?.is_builtin" class="f-hint"><input v-model="skillEnabled" type="checkbox" /> 允许 AI 按需调用</label>
+          <p v-if="editingSkill?.source" class="f-hint wrap">导入来源：{{ editingSkill.source }}</p>
+          <details v-if="editingSkill?.files?.length" class="skill-resources">
+            <summary>导入文件 · {{ editingSkill.files.length }} 项</summary>
+            <ul class="skill-file-list">
+              <li v-for="file in editingSkill.files" :key="file.path"><a :href="`/ai/skills/${editingSkill.id}/files?path=${encodeURIComponent(file.path)}`" download>{{ file.path }}</a><span>{{ file.size }} 字节</span></li>
+            </ul>
+          </details>
+          <div v-if="editingSkill?.resources.length" class="skill-resources">
+            <p class="f-hint">保存的资料快照（编辑正文会保留资料）</p>
+            <button v-for="resource in editingSkill.resources" :key="resource.id" class="act" type="button" :disabled="loadingSkill" @click="inspectSkillResource(resource.id)">{{ resource.name }} · {{ resource.characters }} 字</button>
+            <template v-if="skillResource">
+              <p v-for="warning in skillResource.warnings" :key="warning" class="f-hint">{{ warning }}</p>
+              <pre class="skill-resource-text">{{ skillResource.text }}</pre>
+              <p class="f-hint">{{ skillResource.name }} · 从第 {{ skillResource.offset + 1 }} 字开始 / 共 {{ skillResource.total_characters }} 字</p>
+              <button v-if="skillResource.next_offset !== null" class="act" type="button" :disabled="loadingSkill" @click="inspectSkillResource(skillResource.id, skillResource.next_offset)">下一段</button>
+            </template>
+          </div>
           <div class="form-row foot">
-            <button type="submit" class="act" :disabled="settings.savingSkill">
-              {{ settings.savingSkill ? '添加中…' : '添加' }}
+            <button v-if="!editingSkill?.is_builtin" type="submit" class="act" :disabled="settings.savingSkill || loadingSkill">
+              {{ settings.savingSkill ? '保存中…' : '保存' }}
             </button>
             <button type="button" class="act" @click="skillFormOpen = false">取消</button>
           </div>
@@ -966,10 +1033,11 @@ const AUTONOMY_TIERS: Autonomy[] = ['standard', 'careful']
               <span class="it-name">
                 {{ sk.name }}
                 <span v-if="sk.is_builtin" class="badge">内置</span>
-                <span v-if="sk.enabled" class="badge" data-tone="ok">{{ sk.is_builtin ? '始终生效' : '启用中' }}</span>
+                <span v-if="sk.enabled" class="badge" data-tone="ok">可按需调用</span>
               </span>
               <span v-if="sk.description" class="it-meta wrap">{{ sk.description }}</span>
             </div>
+            <button class="act" :disabled="loadingSkill || settings.savingSkill" @click="inspectSkill(sk.id)">{{ sk.is_builtin ? '查看' : '查看 / 编辑' }}</button>
             <template v-if="!sk.is_builtin">
               <button
                 v-if="!sk.enabled"
@@ -979,8 +1047,8 @@ const AUTONOMY_TIERS: Autonomy[] = ['standard', 'careful']
               >
                 {{ settings.busySkills.includes(sk.id) ? '启用中…' : '启用' }}
               </button>
-              <button v-else class="act" :disabled="disablingSkill" @click="deactivateSkill">
-                {{ disablingSkill ? '停用中…' : '停用' }}
+              <button v-else class="act" :disabled="settings.busySkills.includes(sk.id)" @click="settings.deactivateSkill(sk.id)">
+                {{ settings.busySkills.includes(sk.id) ? '停用中…' : '停用' }}
               </button>
               <button
                 class="act danger"
@@ -996,7 +1064,7 @@ const AUTONOMY_TIERS: Autonomy[] = ['standard', 'careful']
           </li>
         </ul>
         <span class="f-hint">
-          同一时刻至多启用一个用户技能，启用新的会自动停用上一个；「停用」关闭当前启用中的技能；内置技能不可更改。
+          正文和资料仅在使用时读取。停用后不再供 AI 调用；内置技能只读。文件快照保留保存时已解析的内容。
         </span>
       </section>
     </div>
@@ -1211,6 +1279,23 @@ const AUTONOMY_TIERS: Autonomy[] = ['standard', 'careful']
   resize: vertical;
   line-height: 1.7;
 }
+.skill-resource-text {
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  line-height: 1.7;
+  padding: 12px;
+  background: var(--bg-app);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-s);
+}
+.skill-resources { min-width: 0; }
+#settings-skills .f-hint { overflow-wrap: anywhere; }
+.skill-file-list { display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow: auto; font-size: 12px; }
+.skill-file-list li { display: flex; flex-wrap: wrap; gap: 8px; }
+.skill-file-list a { overflow-wrap: anywhere; color: var(--amber-soft); }
 
 /** MCP、AI 配置与技能共用的内联表单样式。 */
 .inline-form {
@@ -1427,5 +1512,9 @@ const AUTONOMY_TIERS: Autonomy[] = ['standard', 'careful']
   .panels {
     grid-template-columns: 1fr;
   }
+}
+@media (max-width: 600px) {
+  #settings-skills .item { flex-wrap: wrap; }
+  #settings-skills .it-main { flex: 1 0 100%; }
 }
 </style>

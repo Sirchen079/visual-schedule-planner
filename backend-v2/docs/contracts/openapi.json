@@ -4683,6 +4683,140 @@
         }
       }
     },
+    "/ai/skills/import/github": {
+      "post": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Import Github Skill",
+        "operationId": "import_github_skill_ai_skills_import_github_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkillGithubImportBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillImportOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ai/skills/import/upload": {
+      "post": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Import Uploaded Skill",
+        "operationId": "import_uploaded_skill_ai_skills_import_upload_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_uploaded_skill_ai_skills_import_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillImportOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ai/skills/{sid}/files": {
+      "get": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Download Skill File",
+        "operationId": "download_skill_file_ai_skills__sid__files_get",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Sid"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/ai/skills": {
       "get": {
         "tags": [
@@ -4747,6 +4881,193 @@
         }
       }
     },
+    "/ai/skills/{sid}": {
+      "get": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Get Skill",
+        "operationId": "get_skill_ai_skills__sid__get",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Sid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillDetailOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Update Skill",
+        "operationId": "update_skill_ai_skills__sid__put",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Sid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkillUpdateBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillDetailOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Delete Skill",
+        "operationId": "delete_skill_ai_skills__sid__delete",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Sid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ai/skills/{sid}/resources/{rid}": {
+      "get": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Get Skill Resource",
+        "operationId": "get_skill_resource_ai_skills__sid__resources__rid__get",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Sid"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Rid"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillResourceReadOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/ai/skills/{sid}/enable": {
       "post": {
         "tags": [
@@ -4754,6 +5075,48 @@
         ],
         "summary": "Enable Skill",
         "operationId": "enable_skill_ai_skills__sid__enable_post",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Sid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnableOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ai/skills/{sid}/disable": {
+      "post": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Disable Skill",
+        "operationId": "disable_skill_ai_skills__sid__disable_post",
         "parameters": [
           {
             "name": "sid",
@@ -4804,41 +5167,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/EnableOut"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/ai/skills/{sid}": {
-      "delete": {
-        "tags": [
-          "ai"
-        ],
-        "summary": "Delete Skill",
-        "operationId": "delete_skill_ai_skills__sid__delete",
-        "parameters": [
-          {
-            "name": "sid",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Sid"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -9855,6 +10183,44 @@
           "file"
         ],
         "title": "Body_import_ics_api_ical_import_post"
+      },
+      "Body_import_uploaded_skill_ai_skills_import_upload_post": {
+        "properties": {
+          "files": {
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            },
+            "type": "array",
+            "title": "Files"
+          },
+          "skill_path": {
+            "type": "string",
+            "title": "Skill Path",
+            "default": ""
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "title": "Body_import_uploaded_skill_ai_skills_import_upload_post"
       },
       "Body_upload_api_files_post": {
         "properties": {
@@ -16417,29 +16783,268 @@
         "properties": {
           "name": {
             "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
             "title": "Name"
           },
           "description": {
             "type": "string",
+            "maxLength": 2000,
             "title": "Description",
             "default": ""
           },
           "content": {
             "type": "string",
-            "title": "Content",
-            "default": ""
+            "maxLength": 30000,
+            "minLength": 1,
+            "title": "Content"
           },
           "enabled": {
             "type": "boolean",
             "title": "Enabled",
-            "default": false
+            "default": true
           }
         },
         "type": "object",
         "required": [
-          "name"
+          "name",
+          "content"
         ],
         "title": "SkillBody"
+      },
+      "SkillDetailOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "is_builtin": {
+            "type": "boolean",
+            "title": "Is Builtin"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "revision": {
+            "type": "string",
+            "title": "Revision"
+          },
+          "resources": {
+            "items": {
+              "$ref": "#/components/schemas/SkillResourceOut"
+            },
+            "type": "array",
+            "title": "Resources"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/SkillFileOut"
+            },
+            "type": "array",
+            "title": "Files"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "enabled",
+          "is_builtin",
+          "content",
+          "revision",
+          "resources"
+        ],
+        "title": "SkillDetailOut"
+      },
+      "SkillFileOut": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          },
+          "is_text": {
+            "type": "boolean",
+            "title": "Is Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "size",
+          "is_text"
+        ],
+        "title": "SkillFileOut"
+      },
+      "SkillGithubImportBody": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Url"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref"
+          },
+          "skill_path": {
+            "type": "string",
+            "title": "Skill Path",
+            "default": ""
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "SkillGithubImportBody"
+      },
+      "SkillImportCandidate": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "error": {
+            "type": "string",
+            "title": "Error",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "name",
+          "description"
+        ],
+        "title": "SkillImportCandidate"
+      },
+      "SkillImportOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "imported",
+              "already_imported",
+              "select_skill"
+            ],
+            "title": "Status"
+          },
+          "skill_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skill Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/SkillImportCandidate"
+            },
+            "type": "array",
+            "title": "Candidates"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "SkillImportOut"
       },
       "SkillOut": {
         "properties": {
@@ -16474,6 +17079,143 @@
         ],
         "title": "SkillOut",
         "description": "AI 技能列表项。"
+      },
+      "SkillResourceOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "source_file_id": {
+            "type": "integer",
+            "title": "Source File Id"
+          },
+          "characters": {
+            "type": "integer",
+            "title": "Characters"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "source_file_id",
+          "characters",
+          "warnings"
+        ],
+        "title": "SkillResourceOut"
+      },
+      "SkillResourceReadOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "source_file_id": {
+            "type": "integer",
+            "title": "Source File Id"
+          },
+          "source_revision": {
+            "type": "string",
+            "title": "Source Revision"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "total_characters": {
+            "type": "integer",
+            "title": "Total Characters"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "source_file_id",
+          "source_revision",
+          "text",
+          "offset",
+          "total_characters",
+          "warnings",
+          "next_offset"
+        ],
+        "title": "SkillResourceReadOut"
+      },
+      "SkillUpdateBody": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Description",
+            "default": ""
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 30000,
+            "minLength": 1,
+            "title": "Content"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "expected_revision": {
+            "type": "string",
+            "title": "Expected Revision"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "content",
+          "expected_revision"
+        ],
+        "title": "SkillUpdateBody"
       },
       "SourceRead": {
         "properties": {
