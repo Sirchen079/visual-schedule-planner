@@ -157,3 +157,19 @@ def _install() -> None:
 
 
 _install()
+
+
+def folder_context_block(db: Session, conversation_id: int | None) -> str:
+    """每轮注入块：会话确有附加文件夹时返回固定文案（规格 §8 原文）+ 每个 folder 一行；
+    零附加或无会话返回 ""（零注入纪律：一个字符都不注入，prompts.py 记忆块同一精神）。"""
+    if conversation_id is None:
+        return ""
+    rows = list(db.scalars(select(AIConversationFolder)
+                           .where(AIConversationFolder.conversation_id == conversation_id)
+                           .order_by(AIConversationFolder.id)))
+    if not rows:
+        return ""
+    lines = ['【对话文件夹】用户为本对话附加了以下本地文件夹。用户说"这个项目/我们的代码"时指这些。',
+             "需要时用 list_folder_files 列文件、read_folder_file 读文件、search_folder_files 搜索。"]
+    lines += [f"- {r.label} → {r.root_path}" for r in rows]
+    return "\n".join(lines)

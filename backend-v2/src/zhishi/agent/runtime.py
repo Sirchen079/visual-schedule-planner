@@ -526,6 +526,10 @@ class AgentRuntime:
                 full_user += ('\n\n【当前打开的学习/研究项目】以下是最新参考状态。用户说“这个项目”时复用此编号；'
                               '需要正文时 get_research_project，不另建同名项目。用户明确谈其他事项时以用户要求为准。\n'
                               + json.dumps(context, ensure_ascii=False))
+            from zhishi.agent.tools.folder_tools import folder_context_block
+            folder_block = folder_context_block(db, conversation_id)
+            if folder_block:
+                full_user += '\n\n' + folder_block
             attachment_meta: list[dict] = []
             image_parts: list = []
             if attachment_ids:
