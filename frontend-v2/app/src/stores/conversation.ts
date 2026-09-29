@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { watch } from 'vue'
 import type { AttachmentMeta, ConversationMessage, ConversationSummary } from '../api/ai'
 import { getConversationMessages, listConversations, uploadAttachment } from '../api/ai'
+import { attachFolder as attachFolderApi, detachFolder as detachFolderApi, listFolders, type ConversationFolder } from '../api/conversationFolders'
 import type { SteerAccepted } from '../api/contracts/events'
 import { steerConversation } from '../api/steer'
 import { getConversationState, getWorkspace, putWorkspace, type ConversationState, type Draft } from '../api/sessions'
@@ -74,6 +75,8 @@ export const useConversationStore = defineStore('conversation', {
     questionDrafts: {} as Record<string, Record<string, UserAnswer>>,
     conversations: [] as ConversationSummary[], activeId: null as number | null,
     messages: [] as ConversationMessage[], loading: false, error: null as string | null,
+    /** 当前会话绑定的附件文件夹（随会话加载，见 select/loadFolders）。 */
+    folders: [] as ConversationFolder[],
     draftText: '', draftAttachments: [] as AttachmentMeta[], drafts: {} as Record<string, Draft>,
     sentEchoAttachments: [] as AttachmentMeta[], uploading: false, pendingUploads: 0,
     sending: false, viewVersion: 0, initialized: false, initializing: false,
@@ -184,6 +187,11 @@ export const useConversationStore = defineStore('conversation', {
         this.clearSteerEntries() // 插话乐观条目归属旧会话视图，切换即清（在途 POST 一并中断）
         this.activeId = id
         this.messages = messages
+        // 附件文件夹随会话加载：await 后以 viewVersion 守卫落位（视图已切换则丢弃）；失败保留空列表，不阻断会话加载
+        try {
+          const folders = await listFolders(id)
+          if (this.viewVersion === version) this.folders = folders
+        } catch { if (this.viewVersion === version) this.folders = [] }
         this.sessionState = null
         this.loadQueue() // 载入目标会话的待发队列
         this.loadDraft(id)
@@ -210,6 +218,7 @@ export const useConversationStore = defineStore('conversation', {
       this.error = null
       this.loading = false
       this.messages = []
+      this.folders = [] // 新会话无文件夹：清掉旧会话残留，防 chip 跨会话显示
       this.sessionState = null
       this.pendingUploads = 0
       this.uploading = false
@@ -225,6 +234,8 @@ export const useConversationStore = defineStore('conversation', {
       this.clearSteerEntries()
       this.activeId = cid
       this.messages = []
+      this.folders = []
+      void this.loadFolders() // 换绑到 run 的会话：拉该会话的文件夹（失败置 error，不打断）
       this.sessionState = null
       this.loadQueue()
       this.saveDraft()
@@ -508,5 +519,32 @@ export const useConversationStore = defineStore('conversation', {
     },
     removeAttachment(id: number): void { this.draftAttachments = this.draftAttachments.filter(a => a.id !== id); this.saveDraft() },
     clearAttachments(): void { this.draftAttachments = []; this.saveDraft() },
+    /** 拉当前会话的附件文件夹；无会话时清空（chip 区随视图收敛）。照 uploadAttachment：viewVersion 守卫 + error 置位。 */
+    async loadFolders(): Promise<void> {
+      if (this.activeId === null) { this.folders = []; return }
+      const version = this.viewVersion
+      try {
+        const folders = await listFolders(this.activeId)
+        if (this.viewVersion === version) this.folders = folders
+      } catch (e) { if (this.viewVersion === version) this.error = e instanceof Error ? e.message : '文件夹列表加载失败' }
+    },
+    /** 附加文件夹（知时可读取其中文件）：成功入列，失败置 error 不中断 UI。 */
+    async attachFolder(rootPath: string): Promise<void> {
+      if (this.activeId === null) { this.error = '发送第一条消息后可附加文件夹'; return }
+      const version = this.viewVersion
+      try {
+        const folder = await attachFolderApi(this.activeId, rootPath)
+        if (this.viewVersion === version) this.folders.push(folder)
+      } catch (e) { if (this.viewVersion === version) this.error = e instanceof Error ? e.message : '附加文件夹失败' }
+    },
+    /** 解绑文件夹：成功后从 folders 移除；失败置 error（chip 保留，用户可重试）。 */
+    async detachFolder(id: number): Promise<void> {
+      if (this.activeId === null) { this.error = '发送第一条消息后可附加文件夹'; return }
+      const version = this.viewVersion
+      try {
+        await detachFolderApi(this.activeId, id)
+        if (this.viewVersion === version) this.folders = this.folders.filter(f => f.id !== id)
+      } catch (e) { if (this.viewVersion === version) this.error = e instanceof Error ? e.message : '移除文件夹失败' }
+    },
   },
 })

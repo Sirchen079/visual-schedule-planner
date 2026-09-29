@@ -126,6 +126,15 @@ function pickFile(): void {
   fileInput.value?.click()
 }
 
+/** 文件夹附加仅在桌面主窗口可用：widget 页与浏览器直开（无桌面桥）都不显示入口。 */
+const hasFolderBridge = conv.surface === 'main' && !!(window as any).zhishiDesktop?.selectDirectory
+
+/** 桥选目录 → 绑定到当前会话；取消选择（空返回）不动 folders。 */
+async function pickFolder(): Promise<void> {
+  const picked: unknown = await (window as any).zhishiDesktop?.selectDirectory()
+  if (typeof picked === 'string' && picked) await conv.attachFolder(picked)
+}
+
 async function onFileChange(e: Event): Promise<void> {
   const input = e.target as HTMLInputElement
   const files = Array.from(input.files ?? [])
@@ -195,8 +204,15 @@ function autogrow(e: Event): void {
     <button v-if="conv.sessionState?.can_resume && ownsRun && !run.hasLiveStream()" class="session-link" @click="run.openResumeStream()">继续待恢复的任务</button>
     <div class="inputbox" :data-disabled="run.isActive" :data-dragging="draggingFiles"
       @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop">
-      <!-- 附件 chips -->
-      <div v-if="conv.draftAttachments.length || conv.uploading" class="chips">
+      <!-- 文件夹 + 附件 chips -->
+      <div v-if="conv.folders.length || conv.draftAttachments.length || conv.uploading" class="chips">
+        <span v-for="f in conv.folders" :key="'folder-' + f.id" class="chip" :title="f.root_path">
+          <AppIcon name="folder" :size="11" />
+          {{ f.label }}
+          <button class="chip-x" :title="'移除文件夹 ' + f.label" :disabled="attachmentsDisabled" @click="conv.detachFolder(f.id)">
+            <AppIcon name="x" :size="11" />
+          </button>
+        </span>
         <span v-for="a in conv.draftAttachments" :key="a.id" class="chip">
           {{ a.name }}
           <button class="chip-x" :title="'移除附件 ' + a.name" @click="conv.removeAttachment(a.id)">
@@ -221,6 +237,15 @@ function autogrow(e: Event): void {
           <AppIcon name="paperclip" :size="16" />
         </button>
         <input ref="fileInput" type="file" multiple class="file-hidden" @change="onFileChange" />
+        <button
+          v-if="hasFolderBridge"
+          class="ibtn"
+          :title="conv.activeId === null ? '发送第一条消息后可附加文件夹' : '附加文件夹（知时可读取其中文件）'"
+          :disabled="attachmentsDisabled || conv.activeId === null"
+          @click="pickFolder"
+        >
+          <AppIcon name="folder" :size="16" />
+        </button>
         <button
           class="plan-toggle"
           :data-on="planMode ? '' : null"

@@ -22,6 +22,7 @@ export type IconName =
   | 'plus'
   | 'more'
   | 'paperclip'
+  | 'folder'
   | 'send'
   | 'stop'
   | 'chevron-down'
@@ -58,6 +59,7 @@ const PATHS: Record<IconName, string> = {
   more: '<circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/>',
   paperclip:
     '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
   send: '<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>',
   stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor" stroke="none"/>',
   'chevron-down': '<path d="m6 9 6 6 6-6"/>',
