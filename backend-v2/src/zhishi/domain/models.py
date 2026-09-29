@@ -715,3 +715,27 @@ class MCPServer(Base):
     last_error: Mapped[str | None] = mapped_column(Text)                # 脱敏后错误
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class AIConversationFolder(Base):
+    """对话附加的本地文件夹：附加即读取授权，移除即撤销。label 默认取文件夹名。"""
+    __tablename__ = "ai_conversation_folders"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(Integer, index=True)
+    root_path: Mapped[str] = mapped_column(String(400))
+    label: Mapped[str] = mapped_column(String(200))
+    index_overflow: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
+class FolderFileChunk(Base):
+    """对话文件夹搜索索引：150 行/块的内容块，mtime/size 冗余随行，按 rel_path 聚合对账。"""
+    __tablename__ = "folder_file_chunks"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    folder_id: Mapped[int] = mapped_column(Integer, index=True)
+    rel_path: Mapped[str] = mapped_column(String(500))
+    mtime: Mapped[float] = mapped_column(Float)
+    size: Mapped[int] = mapped_column(Integer)
+    line_start: Mapped[int] = mapped_column(Integer)
+    line_end: Mapped[int] = mapped_column(Integer)
+    content: Mapped[str] = mapped_column(Text)
