@@ -6,7 +6,8 @@ import shutil
 import pytest
 
 from zhishi.agent.tools.folder_tools import (FOLDER_FLAG, FOLDER_TOOLS, list_folder_files,
-                                             list_folders, read_folder_file)
+                                             list_folders, read_folder_file,
+                                             search_folder_files)
 from zhishi.agent.tools.registry import specs_for
 from zhishi.agent.tool_discovery import CORE_TOOLS
 from zhishi.domain import settingsvc
@@ -181,3 +182,37 @@ def test_resolve_folder_ambiguous_lists_candidates(db):
     ctx = type("C", (), {"deps": type("D", (), {"conversation_id": conv.id})})()
     out = list_folder_files(db, folder="repo", ctx=ctx)   # type: ignore[arg-type]
     assert '"ok": false' in out and "E:/alpha" in out and "E:/beta" in out
+
+
+# ---- search_folder_files（任务 5）----
+
+def test_search_folder_files_returns_line_matches(db, repo, ctx7):
+    ctx = ctx7(repo)
+    out = search_folder_files(db, folder="repo", keyword="y = 2",
+                              ctx=ctx)   # type: ignore[arg-type]
+    data = json.loads(out)
+    assert data["ok"] is True and data["mode"] == "index" and data["truncated"] is False
+    first = data["matches"][0]
+    assert first["rel_path"] == "a.py" and first["line_no"] == 2 and "y = 2" in first["snippet"]
+    assert any(m["rel_path"] == "sub/inner.ts" for m in data["matches"])
+    # 上限 50：60 行全含关键词 → 命中封顶 50、truncated=true（新增文件经对账进索引）
+    (repo / "many.txt").write_text("\n".join(["needle"] * 60), encoding="utf-8")
+    data = json.loads(search_folder_files(db, folder="repo", keyword="needle",
+                                          ctx=ctx))   # type: ignore[arg-type]
+    assert data["ok"] is True
+    assert len(data["matches"]) == 50 and data["total"] == 50 and data["truncated"] is True
+    assert data["matches"][0]["rel_path"] == "many.txt" and data["matches"][0]["line_no"] == 1
+
+
+def test_search_folder_files_requires_keyword(db, repo, ctx7):
+    ctx = ctx7(repo)
+    out = search_folder_files(db, folder="repo", keyword="   ",
+                              ctx=ctx)   # type: ignore[arg-type]
+    assert '"ok": false' in out and "keyword" in out
+
+
+def test_all_folder_tools_registered_when_flag_on(db):
+    """最终门控：四个 folder 工具全部注册（FOLDER_TOOLS 是 specs_for 的子集）。"""
+    from zhishi.agent.tools.folder_tools import FOLDER_TOOLS
+    from zhishi.agent.tools.registry import specs_for
+    assert FOLDER_TOOLS <= {s.name for s in specs_for(db)}

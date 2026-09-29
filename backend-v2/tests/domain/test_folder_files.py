@@ -1,10 +1,33 @@
-"""folder_files 域层：忽略规则 walk、越权路径防护（../、绝对路径、symlink/junction 逃逸）、限界文本读取。"""
+"""folder_files 域层：忽略规则 walk、越权路径防护（../、绝对路径、symlink/junction 逃逸）、
+限界文本读取；以及惰性关键词索引（对账新鲜度/降级）、purge_folder 与 gc_orphans（任务 5）。"""
 import sys
 from pathlib import Path
 
 import pytest
+from sqlalchemy import select
 
 from zhishi.domain import folder_files as ff
+from zhishi.domain.models import AIConversationFolder, FolderFileChunk
+from zhishi.infra.database import create_all, make_engine, make_session_factory
+
+
+@pytest.fixture
+def db(tmp_path):
+    engine = make_engine(tmp_path / "test.db")
+    create_all(engine)
+    session = make_session_factory(engine)()
+    yield session
+    session.close()
+    engine.dispose()
+
+
+def _folder(db, root: Path) -> AIConversationFolder:
+    """给 repo 根造一条附件行（无 FK 约束，conversation_id 任意）。"""
+    row = AIConversationFolder(conversation_id=1, root_path=str(root), label="repo")
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
 
 
 @pytest.fixture
@@ -113,3 +136,83 @@ def test_read_text_bounded_rejects_oversize(root):
     with pytest.raises(ff.FileTooLargeError) as exc:
         ff.read_text_bounded(root / "big.bin")
     assert "3.0MB" in str(exc.value) and "2MB" in str(exc.value)
+
+
+# ---- 惰性关键词索引 / search_files / purge / gc（任务 5）----
+
+@pytest.fixture
+def big_repo(tmp_path):
+    """>2000 个可索引文件（循环造空文件）的首建超限场景。"""
+    base = tmp_path / "big_repo"
+    (base / "many").mkdir(parents=True)
+    for i in range(2001):
+        (base / "many" / f"f{i:04d}.txt").write_text("", encoding="utf-8")
+    return base
+
+
+def test_search_fresh_after_edit(db, root):
+    """新鲜度纪律：建索引→改文件→再搜命中新内容、旧内容不再命中（mtime/size 对账）。"""
+    row = _folder(db, root)
+    first = ff.search_files(db, row, "y = 2")   # 首建索引；y = 2 在 sub/inner.ts
+    assert first["ok"] is True and first["mode"] == "index"
+    assert any(m["rel_path"] == "sub/inner.ts" and m["line_no"] == 1
+               for m in first["matches"])
+    (root / "a.py").write_text("brand_new = 'fresh_marker'\n", encoding="utf-8")
+    second = ff.search_files(db, row, "fresh_marker")
+    assert second["ok"] is True and second["mode"] == "index"
+    assert any(m["rel_path"] == "a.py" and "fresh_marker" in m["snippet"]
+               for m in second["matches"])
+    stale = ff.search_files(db, row, "x = 1")   # a.py 已重写：旧内容不再命中
+    assert not any(m["rel_path"] == "a.py" for m in stale["matches"])
+
+
+def test_search_drops_deleted(db, root):
+    """新鲜度纪律：删文件→再搜不再命中（对账删行）。"""
+    row = _folder(db, root)
+    assert ff.search_files(db, row, "junk_value")["total"] == 0   # 首建索引（junk.js 在忽略目录内）
+    (root / "a.py").unlink()
+    out = ff.search_files(db, row, "x = 1")
+    assert out["ok"] is True and out["mode"] == "index"
+    assert out["total"] == 0 and out["matches"] == []
+
+
+def test_first_build_overflow_degrades_to_scan(db, big_repo):
+    """首建 >2000 文件：置 index_overflow 落库、本次直扫、仍出结果（ok）。"""
+    row = _folder(db, big_repo)
+    out = ff.search_files(db, row, "anything")
+    assert out["ok"] is True and out["mode"] == "scan"
+    db.refresh(row)
+    assert row.index_overflow is True
+    again = ff.search_files(db, row, "anything")   # 永久直扫：溢出后不再尝试建索引
+    assert again["ok"] is True and again["mode"] == "scan"
+
+
+def test_reconcile_giveup_scans(db, root):
+    """对账变更 >500：放弃增量、索引保留原状、本次整轮直扫且仍出结果。"""
+    for i in range(600):
+        (root / f"gen{i:03d}.txt").write_text("alpha_marker = 1\n", encoding="utf-8")
+    row = _folder(db, root)
+    first = ff.search_files(db, row, "alpha_marker")   # 首建（605 个可索引文件 < 2000）
+    assert first["ok"] is True and first["mode"] == "index"
+    for i in range(501):
+        (root / f"gen{i:03d}.txt").write_text("beta_marker = 2\n", encoding="utf-8")
+    again = ff.search_files(db, row, "beta_marker")
+    assert again["ok"] is True and again["mode"] == "scan" and again["total"] > 0
+    assert any(m["rel_path"] == "gen000.txt" for m in again["matches"])
+
+
+def test_purge_and_gc(db, root):
+    """purge_folder 清该 folder 全部块；gc_orphans 清 folder 无主块并返回删除数。"""
+    row = _folder(db, root)
+    ff.search_files(db, row, "x = 1")   # 建索引
+    mine = select(FolderFileChunk).where(FolderFileChunk.folder_id == row.id)
+    assert db.scalars(mine).all()
+    ff.purge_folder(db, row.id)
+    assert db.scalars(mine).all() == []
+    db.add(FolderFileChunk(folder_id=987654, rel_path="orphan.txt", mtime=0.0, size=0,
+                           line_start=1, line_end=1, content="orphan"))
+    db.commit()
+    purged = ff.gc_orphans(make_session_factory(db.get_bind()))
+    assert purged == 1
+    assert db.scalars(select(FolderFileChunk)
+                      .where(FolderFileChunk.folder_id == 987654)).all() == []

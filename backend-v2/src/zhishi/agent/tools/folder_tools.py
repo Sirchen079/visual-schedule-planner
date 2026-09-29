@@ -142,12 +142,34 @@ def read_folder_file(db: Session, folder: str, path: str, start_line: int = 1,
                       ensure_ascii=False)
 
 
+def search_folder_files(db: Session, folder: str, keyword: str, ctx=None) -> str:
+    """在附加文件夹内按关键词搜索文件内容（先对账再出结果，索引不可用时实时直扫）。"""
+    row, err = _resolve_folder(db, ctx, folder)
+    if err:
+        return err
+    if not (keyword or "").strip():
+        return _err("keyword 不能为空；请给出要搜索的关键词（按字面子串匹配），"
+                    "可先用 list_folder_files 了解文件布局")
+    try:
+        data = folder_files.search_files(db, row, keyword.strip())
+    except Exception as exc:   # 红线：工具不 raise，任何底层异常折算为错误 JSON
+        return _err(f"搜索失败：{exc}")
+    if not data.get("ok", False):
+        return _err(data.get("error", "搜索失败"))
+    return json.dumps({"ok": True, "folder": row.label, **data,
+                       "note": "结果为字面子串命中（rel_path/line_no/snippet），上限 50 条；"
+                               "mode=scan 表示实时直扫。命中后用 read_folder_file 看上下文。"},
+                      ensure_ascii=False)
+
+
 _FOLDER_SPECS = [
     ToolSpec("list_folders", list_folders.__doc__ or "", "readonly", FOLDER_FLAG, list_folders),
     ToolSpec("list_folder_files", list_folder_files.__doc__ or "", "readonly", FOLDER_FLAG,
              list_folder_files),
     ToolSpec("read_folder_file", read_folder_file.__doc__ or "", "readonly", FOLDER_FLAG,
              read_folder_file),
+    ToolSpec("search_folder_files", search_folder_files.__doc__ or "", "readonly", FOLDER_FLAG,
+             search_folder_files),
 ]
 
 

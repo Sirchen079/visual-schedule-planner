@@ -10,7 +10,11 @@ import os
 from pathlib import Path
 from typing import Iterator
 
+from sqlalchemy import delete, select
+from sqlalchemy.orm import Session
+
 from zhishi.adapters.parsers import parse_file
+from zhishi.domain.models import AIConversationFolder, FolderFileChunk
 
 # ---- 忽略规则（规格 §10，大小写不敏感）----
 # 目录：所有 `.` 开头目录一律忽略，另加以下清单（含点名冗余逐字保留）
@@ -154,3 +158,164 @@ def read_doc_markdown(path: Path) -> str:
         return ("未能解析出可读正文（可能是空文档或扫描版 PDF 无文本层）；"
                 "请让用户确认文件内容。")
     return doc.markdown
+
+
+# ---- 惰性关键词索引（任务 5）：缓存只加速搜索，必须先对账再出结果；----
+# 读永远实时直读（read_folder_file 不走这里），索引不可用时直扫兜底——缓存可以慢、不能说谎。
+CHUNK_LINES = 150                 # 每块行数（行号连续 line_start..line_end）
+INDEX_BUILD_FILE_LIMIT = 2000     # 首建文件数上限：超过置 index_overflow 永久直扫
+RECONCILE_CHANGE_LIMIT = 500      # 单次对账变更上限：超过放弃增量，本轮直扫
+SEARCH_MATCH_LIMIT = 50           # 命中条数上限（超出 truncated=true）
+SNIPPET_MAX_CHARS = 200           # 单条摘要最大字符数
+
+
+def _is_indexable(rel_path: str) -> bool:
+    """索引/直扫共用的可索引判断：后缀在 INDEX_TEXT_EXTS、或无后缀文件名在
+    NO_EXT_TEXT_NAMES、或文件名以 `.env` 开头（`.env.local` 等 dotenv 变体，前缀语义）。"""
+    name = rel_path.rsplit("/", 1)[-1]
+    if name.startswith(".env"):
+        return True
+    dot = name.rfind(".")
+    if dot <= 0:   # 无后缀（含 .gitignore 这类点名文件；rfind==0 说明整名以点开头）
+        return name in NO_EXT_TEXT_NAMES
+    return name[dot:].lower() in INDEX_TEXT_EXTS
+
+
+def _chunk_file(db: Session, folder_id: int, path: Path, rel: str,
+                mtime: float, size: int) -> None:
+    """把一个文件按 CHUNK_LINES 行/块写入 chunk 行（mtime/size 冗余随行）；读失败跳过不中断。"""
+    try:
+        text = read_text_bounded(path)
+    except OSError:
+        return   # 权限/消失等 OS 错误：本轮跳过，下轮对账仍会视作变更重试
+    lines = text.splitlines()
+    for start in range(0, len(lines), CHUNK_LINES):
+        seg = lines[start:start + CHUNK_LINES]
+        db.add(FolderFileChunk(folder_id=folder_id, rel_path=rel, mtime=mtime, size=size,
+                               line_start=start + 1, line_end=start + len(seg),
+                               content="\n".join(seg)))
+
+
+def _snapshot(root: Path) -> dict[str, tuple[float, int]]:
+    """walk 快照：rel_path → (mtime, size)，只收可索引且 ≤INDEX_MAX_BYTES 的文件。"""
+    return {rel: (mtime, size) for rel, _path, size, mtime in walk(root)
+            if size <= INDEX_MAX_BYTES and _is_indexable(rel)}
+
+
+def _ensure_index(db: Session, folder_row) -> bool:
+    """惰性对账（新鲜度纪律核心）：walk 快照 vs 索引按 rel_path 聚合对比，
+    新增/变更重分块、消失删行。返回索引是否可用（False = 调用方应直扫）。
+    首建超 INDEX_BUILD_FILE_LIMIT 置 index_overflow 永久直扫；
+    对账变更超 RECONCILE_CHANGE_LIMIT 放弃增量（索引保留原状），本轮直扫。"""
+    root = Path(folder_row.root_path)
+    snapshot = _snapshot(root)
+    existing = list(db.scalars(select(FolderFileChunk)
+                               .where(FolderFileChunk.folder_id == folder_row.id)))
+    if not existing:   # 首建（该 folder 零行）
+        if len(snapshot) > INDEX_BUILD_FILE_LIMIT:
+            folder_row.index_overflow = True
+            db.commit()
+            return False
+        for rel, (mtime, size) in snapshot.items():
+            _chunk_file(db, folder_row.id, root / rel, rel, mtime, size)
+        db.commit()
+        return True
+    by_rel: dict[str, tuple[float, int, list[FolderFileChunk]]] = {}
+    for r in existing:
+        by_rel.setdefault(r.rel_path, (r.mtime, r.size, []))[2].append(r)
+    changed = [rel for rel, (mtime, size) in snapshot.items()
+               if rel not in by_rel or by_rel[rel][:2] != (mtime, size)]
+    removed = [rel for rel in by_rel if rel not in snapshot]
+    if len(changed) + len(removed) > RECONCILE_CHANGE_LIMIT:
+        return False   # 放弃增量：索引保留原状，本轮直扫兜底
+    for rel in removed:
+        for r in by_rel[rel][2]:
+            db.delete(r)
+    for rel in changed:
+        for r in by_rel.get(rel, (0.0, 0, []))[2]:
+            db.delete(r)
+        mtime, size = snapshot[rel]
+        _chunk_file(db, folder_row.id, root / rel, rel, mtime, size)
+    db.commit()
+    return True
+
+
+def _collect_hits(rel_path: str, text: str, keyword: str, base_line: int,
+                  out: list[dict]) -> None:
+    """把 text 中的字面命中追加到 out（一行一条；line_no = base_line + 命中位置前换行数，
+    snippet 取命中行，去首尾空白并截断）。上限外交由 _pack 截断。"""
+    seen_lines: set[int] = set()
+    pos = text.find(keyword)
+    while pos >= 0:
+        line_no = base_line + text.count("\n", 0, pos)
+        if line_no not in seen_lines:
+            seen_lines.add(line_no)
+            line_begin = text.rfind("\n", 0, pos) + 1
+            line_end = text.find("\n", pos)
+            if line_end < 0:
+                line_end = len(text)
+            out.append({"rel_path": rel_path, "line_no": line_no,
+                        "snippet": text[line_begin:line_end].strip()[:SNIPPET_MAX_CHARS]})
+        pos = text.find(keyword, pos + len(keyword))
+
+
+def _pack(matches: list[dict]) -> dict:
+    """按 SEARCH_MATCH_LIMIT 截断并给出 total/truncated。"""
+    truncated = len(matches) > SEARCH_MATCH_LIMIT
+    return {"matches": matches[:SEARCH_MATCH_LIMIT],
+            "total": min(len(matches), SEARCH_MATCH_LIMIT), "truncated": truncated}
+
+
+def _search_scan(root: Path, keyword: str) -> dict:
+    """直扫兜底：walk + read_text_bounded 逐文件实时找关键词（与索引同受大小/条数上限）。"""
+    matches: list[dict] = []
+    files = sorted((rel, path) for rel, path, size, _mtime in walk(root)
+                   if size <= INDEX_MAX_BYTES and _is_indexable(rel))
+    for rel, path in files:
+        if len(matches) > SEARCH_MATCH_LIMIT:
+            break   # 已超上限：不必继续读盘
+        try:
+            text = read_text_bounded(path)
+        except OSError:
+            continue
+        _collect_hits(rel, text, keyword, 1, matches)
+    return _pack(matches)
+
+
+def _search_index(db: Session, folder_id: int, keyword: str) -> dict:
+    """查已对账的索引块：字面子串命中 content，从命中位置回算行号。"""
+    matches: list[dict] = []
+    chunks = db.scalars(select(FolderFileChunk)
+                        .where(FolderFileChunk.folder_id == folder_id)
+                        .order_by(FolderFileChunk.rel_path, FolderFileChunk.id))
+    for chunk in chunks:
+        if len(matches) > SEARCH_MATCH_LIMIT:
+            break
+        _collect_hits(chunk.rel_path, chunk.content, keyword, chunk.line_start, matches)
+    return _pack(matches)
+
+
+def search_files(db: Session, folder_row, keyword: str) -> dict:
+    """搜索唯一入口：先对账（索引只加速、必须新鲜），索引不可用时实时直扫兜底。
+    返回 {ok, matches:[{rel_path, line_no, snippet}], total, truncated, mode:'index'|'scan'}。"""
+    if not (keyword or "").strip():
+        return {"ok": False, "error": "keyword 不能为空", "matches": [], "total": 0,
+                "truncated": False, "mode": "scan"}
+    if not folder_row.index_overflow and _ensure_index(db, folder_row):
+        return {"ok": True, **_search_index(db, folder_row.id, keyword), "mode": "index"}
+    return {"ok": True, **_search_scan(Path(folder_row.root_path), keyword), "mode": "scan"}
+
+
+def purge_folder(db: Session, folder_id: int) -> None:
+    """删该 folder 全部索引 chunk 行（移除附件与索引清理的统一入口，不依赖 FK 级联）。"""
+    db.execute(delete(FolderFileChunk).where(FolderFileChunk.folder_id == folder_id))
+
+
+def gc_orphans(session_factory) -> int:
+    """启动 GC：删 folder_id 不在 ai_conversation_folders 的孤儿 chunk 行，返回删除数。"""
+    with session_factory() as session:
+        result = session.execute(
+            delete(FolderFileChunk)
+            .where(FolderFileChunk.folder_id.not_in(select(AIConversationFolder.id))))
+        session.commit()
+        return result.rowcount or 0

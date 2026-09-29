@@ -194,6 +194,10 @@ def create_app(data_dir: Path | None = None, port: int | None = None) -> FastAPI
         resumed = ocr_module.resume_pending(app.state.session_factory, app.state.storage_root)
         if resumed:
             log.info('扫描页 OCR 续跑 %s 个文件', resumed)
+        from zhishi.domain import folder_files as folder_files_mod
+        purged = folder_files_mod.gc_orphans(app.state.session_factory)
+        if purged:
+            log.info('对话文件夹索引清理 %s 个孤儿块', purged)
         sched_task = await scheduler.start()
         yield
         await scheduler.stop(sched_task)

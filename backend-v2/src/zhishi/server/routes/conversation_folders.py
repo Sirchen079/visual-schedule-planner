@@ -5,10 +5,11 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from zhishi.domain.models import AIConversation, AIConversationFolder, FolderFileChunk
+from zhishi.domain import folder_files
+from zhishi.domain.models import AIConversation, AIConversationFolder
 from zhishi.server.deps import get_db
 
 router = APIRouter(prefix="/ai/conversations/{conversation_id}/folders",
@@ -83,9 +84,10 @@ def attach_folder(conversation_id: int, body: FolderCreate, db: Session = Depend
 
 @router.delete("/{folder_id}", status_code=204)
 def remove_folder(conversation_id: int, folder_id: int, db: Session = Depends(get_db)) -> None:
-    """移除附件（=撤销读取授权）：显式先删 chunk 索引行再删 folder 行（SQLite 无 FK 级联）。"""
+    """移除附件（=撤销读取授权）：先经 purge_folder 清索引 chunk 行再删 folder 行
+    （与 AI 工具侧/域层共用单一实现，SQLite 无 FK 级联）。"""
     _conversation_or_404(db, conversation_id)
     row = _folder_or_404(db, conversation_id, folder_id)
-    db.execute(delete(FolderFileChunk).where(FolderFileChunk.folder_id == folder_id))
+    folder_files.purge_folder(db, folder_id)
     db.delete(row)
     db.commit()
