@@ -1,5 +1,6 @@
 const fs = require('fs')
 const path = require('path')
+const { dialog } = require('electron')
 
 function createDesktopSettings({ ipcMain, getMainWindow, widget, baseUrl, stateDir }) {
   const stateFile = path.join(stateDir, 'desktop.json')
@@ -31,11 +32,19 @@ function createDesktopSettings({ ipcMain, getMainWindow, widget, baseUrl, stateD
     } else widget.setPreferences(patch)
     return snapshot()
   })
+  ipcMain.handle('desktop:select-directory', async event => {
+    guard(event)
+    const win = getMainWindow()
+    if (!win || win.isDestroyed()) return null
+    const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'] })
+    return result.canceled || !result.filePaths.length ? null : result.filePaths[0]
+  })
   const unsubscribe = widget.onChange(broadcast)
   return { snapshot, dispose() {
     unsubscribe()
     ipcMain.removeHandler('desktop:preferences')
     ipcMain.removeHandler('desktop:update-preferences')
+    ipcMain.removeHandler('desktop:select-directory')
   } }
 }
 

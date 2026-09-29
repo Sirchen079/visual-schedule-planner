@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('zhishiUpdates', {
 contextBridge.exposeInMainWorld('zhishiDesktop', {
   preferences: () => ipcRenderer.invoke('desktop:preferences'),
   updatePreferences: patch => ipcRenderer.invoke('desktop:update-preferences', patch),
+  selectDirectory: () => ipcRenderer.invoke('desktop:select-directory'),
   onPreferencesChanged: callback => {
     const listener = (_event, state) => callback(state)
     ipcRenderer.on('desktop:preferences-changed', listener)
