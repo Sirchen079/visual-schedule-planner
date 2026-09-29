@@ -76,6 +76,7 @@ const NAMES: Record<string, string> = {
   inspect_skill_import: '检查技能包',
   import_skill: '导入技能',
   read_skill_file: '读取技能文件',
+  configure_mcp_server: '配置 MCP 服务器',
 }
 
 /** 拼不出「正在 + 短语」的特例单独给阶段提示。 */
