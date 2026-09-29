@@ -89,6 +89,20 @@ def test_walk_does_not_follow_out_of_root_junction(root, outside):
     assert not any(r.startswith("jlink/") for r in rels)   # 指向根外不列出也不深入
 
 
+def test_walk_terminates_on_cyclic_junction(root):
+    """指向根自身的目录联接（pnpm 等真实形态）：walk 不无限递归，正常文件仍完整列出。"""
+    if sys.platform != "win32":
+        pytest.skip("目录联接仅 Windows")
+    try:
+        _junction(root, root, "self")
+    except OSError:
+        pytest.skip("无法创建目录联接")
+    rels = [r for r, *_ in ff.walk(root)]   # 不抛 RecursionError 即通过
+    assert "a.py" in rels and "docs/readme.md" in rels and "sub/inner.ts" in rels
+    assert len(rels) == len(set(rels))                     # 无重复/无限条目
+    assert not any(r.startswith("self/") for r in rels)    # 环形联接不产生重复子树
+
+
 def test_read_text_gbk_fallback(tmp_path):
     p = tmp_path / "gbk.txt"
     p.write_bytes("中文注释".encode("gbk"))

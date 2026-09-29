@@ -69,8 +69,10 @@ def resolve_under_root(root: Path, rel: str) -> Path:
 
 def _iter_tree(root: Path) -> Iterator[tuple[str, Path, int, float, bool]]:
     """递归产出 (rel_path, path, size, mtime, is_dir)；忽略规则过滤，rel_path 正斜杠。
-    不跟随指向根外的目录链接（symlink/目录联接，防逃逸与环），OS 错误的子树跳过不中断。"""
+    不跟随指向根外的目录链接（symlink/目录联接，防逃逸）；同一物理目录只进一次
+    （visited 集合断根内环形联接，防无限递归）；OS 错误的子树跳过不中断。"""
     root_resolved = root.resolve()
+    visited = {root_resolved}
 
     def rec(directory: Path, prefix: str) -> Iterator[tuple[str, Path, int, float, bool]]:
         try:
@@ -84,8 +86,12 @@ def _iter_tree(root: Path) -> Iterator[tuple[str, Path, int, float, bool]]:
                     if entry.name.lower() in IGNORED_DIRS or entry.name.startswith("."):
                         continue
                     dir_path = Path(entry.path)
-                    if not dir_path.resolve().is_relative_to(root_resolved):
+                    resolved = dir_path.resolve()
+                    if not resolved.is_relative_to(root_resolved):
                         continue   # 指向根外的目录链接：不列出也不深入
+                    if resolved in visited:
+                        continue   # 指向根内已访问目录的联接（环）：跳过
+                    visited.add(resolved)
                     yield (rel, dir_path, 0, 0.0, True)
                     yield from rec(dir_path, rel + "/")
                 elif entry.is_file(follow_symlinks=False):
