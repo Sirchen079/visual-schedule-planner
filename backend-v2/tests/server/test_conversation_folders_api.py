@@ -78,6 +78,45 @@ def test_delete_purges_chunks(tmp_path):
                 select(FolderFileChunk).where(FolderFileChunk.folder_id == fid)).all() == []
 
 
+def test_delete_conversation_purges_folders_and_chunks(tmp_path):
+    """删除会话连带清附件：folder 行与索引 chunk 行都不得滞留（无 FK 级联，显式清理）。"""
+    with TestClient(create_app(data_dir=tmp_path)) as c:
+        from zhishi.domain.models import AIConversationFolder, FolderFileChunk
+        cid = _mk_conversation(c)
+        folder = tmp_path / "proj"
+        folder.mkdir()
+        fid = c.post(f"/ai/conversations/{cid}/folders",
+                     json={"root_path": str(folder)}).json()["id"]
+        # 手工插入 chunk 行（索引已建的场景）
+        with c.app.state.session_factory() as db:
+            db.add(FolderFileChunk(folder_id=fid, rel_path="a.txt", mtime=1.0, size=1,
+                                   line_start=1, line_end=1, content="x"))
+            db.commit()
+            assert db.scalars(
+                select(FolderFileChunk).where(FolderFileChunk.folder_id == fid)).all()
+        # DELETE 会话 → 204，folder 行与 chunk 行双双清空
+        assert c.delete(f"/ai/conversations/{cid}").status_code == 204
+        with c.app.state.session_factory() as db:
+            assert db.scalars(select(AIConversationFolder).where(
+                AIConversationFolder.conversation_id == cid)).all() == []
+            assert db.scalars(
+                select(FolderFileChunk).where(FolderFileChunk.folder_id == fid)).all() == []
+
+
+def test_remove_folder_of_other_conversation_404(tmp_path):
+    """跨会话归属防线：会话 B 不能删会话 A 的附件（404），A 的附件行原样保留。"""
+    with TestClient(create_app(data_dir=tmp_path)) as c:
+        cid_a = _mk_conversation(c)
+        cid_b = _mk_conversation(c)
+        folder = tmp_path / "repo-a"
+        folder.mkdir()
+        fid = c.post(f"/ai/conversations/{cid_a}/folders",
+                     json={"root_path": str(folder)}).json()["id"]
+        assert c.delete(f"/ai/conversations/{cid_b}/folders/{fid}").status_code == 404
+        rows = c.get(f"/ai/conversations/{cid_a}/folders").json()
+        assert [r["id"] for r in rows] == [fid]   # A 的附件未被越权删除
+
+
 def test_unknown_conversation_404(tmp_path):
     with TestClient(create_app(data_dir=tmp_path)) as c:
         folder = tmp_path / "p"

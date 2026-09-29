@@ -746,6 +746,13 @@ def delete_conversation(cid: int, request: Request, db: Session = Depends(get_db
     db.query(AIRun).filter(AIRun.conversation_id == cid).delete(synchronize_session=False)
     db.query(AIPendingAction).filter(
         AIPendingAction.conversation_id == cid).delete(synchronize_session=False)
+    # 附件文件夹行一并清：先逐个清索引 chunk（不依赖 FK 级联，与 remove_folder 同一入口）
+    from zhishi.domain import folder_files
+    from zhishi.domain.models import AIConversationFolder
+    for f in db.scalars(select(AIConversationFolder).where(
+            AIConversationFolder.conversation_id == cid)).all():
+        folder_files.purge_folder(db, f.id)
+        db.delete(f)
     db.delete(conv)
     db.commit()
 

@@ -1,7 +1,8 @@
-"""注入纪律：零附加零注入；有附加注入单块（label/路径/工具名齐全）。"""
+"""注入纪律：零附加零注入；有附加注入单块（label/路径/工具名齐全）；开关关闭零注入。"""
 import pytest
 
-from zhishi.agent.tools.folder_tools import folder_context_block
+from zhishi.agent.tools.folder_tools import FOLDER_FLAG, folder_context_block
+from zhishi.domain import settingsvc
 from zhishi.domain.models import AIConversationFolder
 from zhishi.infra.database import make_engine, make_session_factory, create_all
 
@@ -46,3 +47,11 @@ def test_block_lists_folders_with_tool_names(db):
 
 def test_block_empty_when_no_conversation(db):
     assert folder_context_block(db, conversation_id=None) == ""
+
+
+def test_block_empty_when_flag_off(db):
+    """kill switch：功能开关关闭时有附加行也零注入（与工具注册门控对称）。"""
+    db.add(AIConversationFolder(conversation_id=7, root_path="E:/repo-a", label="repo-a"))
+    db.commit()
+    settingsvc.set_setting(db, FOLDER_FLAG, "false")
+    assert folder_context_block(db, conversation_id=7) == ""

@@ -155,6 +155,15 @@ def test_read_folder_file_doc_via_parse_file_no_sidecar(db, tmp_path, ctx7):
     assert not any(p.suffix == ".md" for p in after)
 
 
+def test_read_folder_file_doc_oversize_rejected(db, tmp_path, ctx7):
+    """文档分支同样受 2MB 硬上限：>2MB 的 .csv 拒读，错误含大小信息。"""
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "big.csv").write_bytes(b"1,2\n" * 600_000)   # 恰 2.3MB（跨平台字节数确定）
+    out = read_folder_file(db, folder="repo", path="big.csv", ctx=ctx7(root))   # type: ignore[arg-type]
+    assert '"ok": false' in out and "2.3MB" in out and "2MB" in out
+
+
 def test_folder_gone_clear_error(db, tmp_path):
     gone = tmp_path / "gone"
     gone.mkdir()

@@ -111,7 +111,13 @@ def read_folder_file(db: Session, folder: str, path: str, start_line: int = 1,
     if ext in folder_files.BINARY_EXTS:
         return _err(f"{rel} 是二进制/媒体文件（{ext}），无法按文本读取")
     if ext in folder_files.READ_DOC_EXTS:
-        # 文档走 parse_file 纯内存解析，绝不写 sidecar
+        # 文档走 parse_file 纯内存解析，绝不写 sidecar；先按 2MB 硬上限把关（与文本读取同限）
+        try:
+            size = target.stat().st_size
+        except OSError as exc:   # 权限拒绝等 OS 错误透传为清晰错误文本
+            return _err(f"读取失败：{exc}")
+        if size > folder_files.READ_MAX_BYTES:
+            return _err(f"文件 {size / 1048576:.1f}MB 超过 2MB 读取上限，请用更小的文件")
         try:
             text = folder_files.read_doc_markdown(target)
         except Exception as exc:   # 解析库对损坏/加密文档可能抛任意异常；红线：工具不 raise
@@ -183,8 +189,12 @@ _install()
 
 def folder_context_block(db: Session, conversation_id: int | None) -> str:
     """每轮注入块：会话确有附加文件夹时返回固定文案（规格 §8 原文）+ 每个 folder 一行；
-    零附加或无会话返回 ""（零注入纪律：一个字符都不注入，prompts.py 记忆块同一精神）。"""
+    零附加或无会话返回 ""（零注入纪律：一个字符都不注入，prompts.py 记忆块同一精神）。
+    功能开关关闭时同样零注入（kill switch 与工具注册门控对称）。"""
     if conversation_id is None:
+        return ""
+    from zhishi.domain import settingsvc   # 延迟导入与 memory_tools 同款，避免环
+    if not settingsvc.feature_enabled(db, FOLDER_FLAG):
         return ""
     rows = list(db.scalars(select(AIConversationFolder)
                            .where(AIConversationFolder.conversation_id == conversation_id)

@@ -209,9 +209,11 @@ def _ensure_index(db: Session, folder_row) -> bool:
     对账变更超 RECONCILE_CHANGE_LIMIT 放弃增量（索引保留原状），本轮直扫。"""
     root = Path(folder_row.root_path)
     snapshot = _snapshot(root)
-    existing = list(db.scalars(select(FolderFileChunk)
-                               .where(FolderFileChunk.folder_id == folder_row.id)))
-    if not existing:   # 首建（该 folder 零行）
+    # 对账只取元数据列（id/rel_path/mtime/size），不加载 content 正文——每次搜索省一倍内存
+    rows = db.execute(select(FolderFileChunk.id, FolderFileChunk.rel_path,
+                             FolderFileChunk.mtime, FolderFileChunk.size)
+                      .where(FolderFileChunk.folder_id == folder_row.id)).all()
+    if not rows:   # 首建（该 folder 零行）
         if len(snapshot) > INDEX_BUILD_FILE_LIMIT:
             folder_row.index_overflow = True
             db.commit()
@@ -220,20 +222,19 @@ def _ensure_index(db: Session, folder_row) -> bool:
             _chunk_file(db, folder_row.id, root / rel, rel, mtime, size)
         db.commit()
         return True
-    by_rel: dict[str, tuple[float, int, list[FolderFileChunk]]] = {}
-    for r in existing:
-        by_rel.setdefault(r.rel_path, (r.mtime, r.size, []))[2].append(r)
+    by_rel: dict[str, tuple[float, int, list[int]]] = {}   # rel_path → (mtime, size, [chunk_id])
+    for chunk_id, rel, mtime, size in rows:
+        by_rel.setdefault(rel, (mtime, size, []))[2].append(chunk_id)
     changed = [rel for rel, (mtime, size) in snapshot.items()
                if rel not in by_rel or by_rel[rel][:2] != (mtime, size)]
     removed = [rel for rel in by_rel if rel not in snapshot]
     if len(changed) + len(removed) > RECONCILE_CHANGE_LIMIT:
         return False   # 放弃增量：索引保留原状，本轮直扫兜底
     for rel in removed:
-        for r in by_rel[rel][2]:
-            db.delete(r)
+        db.execute(delete(FolderFileChunk).where(FolderFileChunk.id.in_(by_rel[rel][2])))
     for rel in changed:
-        for r in by_rel.get(rel, (0.0, 0, []))[2]:
-            db.delete(r)
+        db.execute(delete(FolderFileChunk)
+                   .where(FolderFileChunk.id.in_(by_rel.get(rel, (0.0, 0, []))[2])))
         mtime, size = snapshot[rel]
         _chunk_file(db, folder_row.id, root / rel, rel, mtime, size)
     db.commit()
