@@ -18,6 +18,9 @@ def _encoding():
     import tiktoken
 
     raw = (Path(__file__).parent / 'vocab' / 'cl100k_base.tiktoken').read_bytes()
+    # Older Windows checkouts may already contain CRLF despite .gitattributes.
+    # Canonicalize line endings while still verifying all vocabulary content.
+    raw = raw.replace(b'\r\n', b'\n')
     if hashlib.sha256(raw).hexdigest() != _VOCAB_SHA256:
         raise ValueError('Bundled token vocabulary failed its integrity check')
     ranks = {base64.b64decode(token): int(rank) for token, rank in

@@ -1,1 +1,4 @@
 start.bat -text
+
+# Preserve the bundled vocabulary's checksum across Windows Git checkouts.
+backend-v2/src/zhishi/agent/vocab/*.tiktoken -text
