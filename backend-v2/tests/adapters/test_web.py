@@ -1,8 +1,17 @@
 """web 工具适配器：Bing RSS 检索 / 正文提取 / SSRF 双重校验。
-httpx MockTransport 全程无真实网络（DNS 校验仅解析公网样例域）。"""
+httpx MockTransport 与固定 DNS 响应隔离真实网络，不依赖本机代理或解析服务。"""
+import socket
+
 import httpx
+import pytest
 
 from zhishi.adapters import web
+
+
+@pytest.fixture(autouse=True)
+def _public_dns(monkeypatch):
+    monkeypatch.setattr(socket, 'getaddrinfo', lambda *a, **k: [
+        (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, '', ('1.1.1.1', 0))])
 
 
 def test_search_bing_rss():
@@ -27,6 +36,17 @@ def test_ssrf_blocked():
                 "http://[::1]/x", "file:///etc/passwd", "ftp://x", "http://10.0.0.1/x"):
         with pytest.raises(ValueError):
             web.fetch(url)   # 抛错于发起请求前（解析+公网校验）
+
+
+def test_ssrf_blocks_domain_resolving_to_private_ip(monkeypatch):
+    monkeypatch.setattr(socket, 'getaddrinfo', lambda *a, **k: [
+        (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, '', ('192.168.1.1', 0))])
+    requests = []
+    transport = httpx.MockTransport(
+        lambda req: requests.append(req) or httpx.Response(200, text='private'))
+    with httpx.Client(transport=transport) as client, pytest.raises(ValueError, match='非公网'):
+        web.fetch('https://example.com/private', client=client)
+    assert requests == []
 
 
 def test_redirect_revalidation():

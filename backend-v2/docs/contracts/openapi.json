@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "zhishi-backend",
-    "version": "2.27.0"
+    "version": "2.28.0"
   },
   "paths": {
     "/api/tasks": {
@@ -9443,6 +9443,149 @@
         }
       }
     },
+    "/ai/conversations/{conversation_id}/folders": {
+      "get": {
+        "tags": [
+          "conversation-folders"
+        ],
+        "summary": "List Folders",
+        "description": "列该会话附加的本地文件夹（按 id 升序，与 AI 工具侧口径一致）。",
+        "operationId": "list_folders_ai_conversations__conversation_id__folders_get",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Conversation Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FolderOut"
+                  },
+                  "title": "Response List Folders Ai Conversations  Conversation Id  Folders Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "conversation-folders"
+        ],
+        "summary": "Attach Folder",
+        "description": "附加本地文件夹：路径须存在且为目录（否则 400），同会话同 root_path 重复 409。\n附加仅登记授权与元数据，不在此建索引（索引由 AI 工具侧按需构建）。",
+        "operationId": "attach_folder_ai_conversations__conversation_id__folders_post",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Conversation Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ai/conversations/{conversation_id}/folders/{folder_id}": {
+      "delete": {
+        "tags": [
+          "conversation-folders"
+        ],
+        "summary": "Remove Folder",
+        "description": "移除附件（=撤销读取授权）：先经 purge_folder 清索引 chunk 行再删 folder 行\n（与 AI 工具侧/域层共用单一实现，SQLite 无 FK 级联）。",
+        "operationId": "remove_folder_ai_conversations__conversation_id__folders__folder_id__delete",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Conversation Id"
+            }
+          },
+          {
+            "name": "folder_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Folder Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "summary": "Health",
@@ -12833,6 +12976,49 @@
         "type": "object",
         "title": "FocusStopMissOut",
         "description": "stop 落空（无进行中计时或目标已结账）的回包；extra=forbid 保证\nstop 端点 TimeLogOut | FocusStopMissOut 二选一互不误配。"
+      },
+      "FolderCreate": {
+        "properties": {
+          "root_path": {
+            "type": "string",
+            "title": "Root Path"
+          }
+        },
+        "type": "object",
+        "required": [
+          "root_path"
+        ],
+        "title": "FolderCreate"
+      },
+      "FolderOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "root_path": {
+            "type": "string",
+            "title": "Root Path"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "root_path",
+          "created_at"
+        ],
+        "title": "FolderOut",
+        "description": "附件响应模型。时间序列化为 ISO 串（与既有回包一致）。"
       },
       "FollowupCheck": {
         "properties": {

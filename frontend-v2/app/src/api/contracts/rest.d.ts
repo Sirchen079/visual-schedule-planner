@@ -2821,6 +2821,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai/conversations/{conversation_id}/folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Folders
+         * @description 列该会话附加的本地文件夹（按 id 升序，与 AI 工具侧口径一致）。
+         */
+        get: operations["list_folders_ai_conversations__conversation_id__folders_get"];
+        put?: never;
+        /**
+         * Attach Folder
+         * @description 附加本地文件夹：路径须存在且为目录（否则 400），同会话同 root_path 重复 409。
+         *     附加仅登记授权与元数据，不在此建索引（索引由 AI 工具侧按需构建）。
+         */
+        post: operations["attach_folder_ai_conversations__conversation_id__folders_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/conversations/{conversation_id}/folders/{folder_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove Folder
+         * @description 移除附件（=撤销读取授权）：先经 purge_folder 清索引 chunk 行再删 folder 行
+         *     （与 AI 工具侧/域层共用单一实现，SQLite 无 FK 级联）。
+         */
+        delete: operations["remove_folder_ai_conversations__conversation_id__folders__folder_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -4181,6 +4227,28 @@ export interface components {
             ok?: boolean;
             /** Stopped */
             stopped?: null;
+        };
+        /** FolderCreate */
+        FolderCreate: {
+            /** Root Path */
+            root_path: string;
+        };
+        /**
+         * FolderOut
+         * @description 附件响应模型。时间序列化为 ISO 串（与既有回包一致）。
+         */
+        FolderOut: {
+            /** Id */
+            id: number;
+            /** Label */
+            label: string;
+            /** Root Path */
+            root_path: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** FollowupCheck */
         FollowupCheck: {
@@ -13252,6 +13320,102 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["MemoryEnabled"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_folders_ai_conversations__conversation_id__folders_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    attach_folder_ai_conversations__conversation_id__folders_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FolderCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_folder_ai_conversations__conversation_id__folders__folder_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: number;
+                folder_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
